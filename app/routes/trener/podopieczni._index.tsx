@@ -1,0 +1,277 @@
+import {
+  Form,
+  Link,
+  useActionData,
+  useLoaderData,
+  type ActionFunctionArgs,
+  type LoaderFunctionArgs,
+} from "react-router";
+import { z } from "zod";
+import { Icons } from "~/components/icons";
+import { createInvite, requireUser } from "~/lib/auth";
+import { db } from "~/lib/db/client";
+import { getEnv } from "~/lib/env";
+import { daysAgo, fmtDate } from "~/lib/format";
+import { listClientsForTrainer } from "~/lib/workouts";
+
+const InviteSchema = z.object({
+  displayName: z.string().trim().min(1, "Podaj imię i nazwisko.").max(80),
+  email: z
+    .string()
+    .trim()
+    .min(1, "Email jest wymagany.")
+    .max(254)
+    .refine((v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), {
+      message: "Nieprawidłowy email.",
+    }),
+});
+
+export async function loader(args: LoaderFunctionArgs) {
+  const user = await requireUser(args.request, db, { role: "trainer" });
+  const clients = await listClientsForTrainer(db, user.id);
+  return { clients };
+}
+
+export async function action(args: ActionFunctionArgs) {
+  const user = await requireUser(args.request, db, { role: "trainer" });
+  const fd = await args.request.formData();
+
+  const parsed = InviteSchema.safeParse({
+    displayName: fd.get("displayName"),
+    email: fd.get("email"),
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Sprawdź formularz." };
+  }
+
+  const { token } = await createInvite(db, {
+    trainerId: user.id,
+    displayName: parsed.data.displayName,
+    email: parsed.data.email,
+  });
+
+  const inviteUrl = `${getEnv().BASE_URL}/zaproszenie/${token}`;
+  return {
+    invite: {
+      url: inviteUrl,
+      displayName: parsed.data.displayName,
+      email: parsed.data.email,
+    },
+  };
+}
+
+export default function TrenerPodopieczniList() {
+  const { clients } = useLoaderData<typeof loader>();
+  const actionData = useActionData<typeof action>();
+
+  return (
+    <div>
+      <div className="pagehead">
+        <div>
+          <div className="eyebrow" style={{ marginBottom: 6 }}>
+            Trener
+          </div>
+          <h1>Podopieczni</h1>
+          <div className="sub">
+            {clients.length === 0
+              ? "Brak podopiecznych. Wygeneruj pierwsze zaproszenie poniżej."
+              : `${clients.length} ${pluralizeOsoba(clients.length)}.`}
+          </div>
+        </div>
+      </div>
+
+      {actionData != null && "invite" in actionData && actionData.invite != null && (
+        <InviteCreatedCard invite={actionData.invite} />
+      )}
+
+      <details
+        open={clients.length === 0}
+        className="card"
+        style={{ padding: "12px 16px", marginBottom: 20 }}
+      >
+        <summary
+          style={{
+            cursor: "pointer",
+            userSelect: "none",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            fontWeight: 500,
+          }}
+        >
+          <Icons.Plus />
+          <span>Zaproś podopiecznego</span>
+        </summary>
+        <Form method="post" style={{ display: "grid", gap: 14, marginTop: 16 }}>
+          <div className="field">
+            <label htmlFor="inv-name">Imię i nazwisko</label>
+            <input
+              id="inv-name"
+              name="displayName"
+              type="text"
+              required
+              maxLength={80}
+              placeholder="np. Mateusz Kozłowski"
+              className="input"
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="inv-email">Email</label>
+            <input
+              id="inv-email"
+              name="email"
+              type="email"
+              required
+              maxLength={254}
+              placeholder="mateusz@example.pl"
+              className="input"
+            />
+          </div>
+          {actionData != null && "error" in actionData && actionData.error != null && (
+            <p role="alert" style={{ color: "var(--danger)", fontSize: 13, margin: 0 }}>
+              {actionData.error}
+            </p>
+          )}
+          <div>
+            <button type="submit" className="btn btn-primary">
+              <Icons.Link /> Wygeneruj link
+            </button>
+          </div>
+        </Form>
+      </details>
+
+      {clients.length === 0 ? null : (
+        <div className="list">
+          <div
+            className="list-head"
+            style={{ display: "grid", gridTemplateColumns: "2fr 1.4fr 1.2fr 0.4fr", gap: 14 }}
+          >
+            <div>Podopieczny</div>
+            <div>Aktywny plan</div>
+            <div>Ostatnia sesja</div>
+            <div />
+          </div>
+          {clients.map((c) => (
+            <Link
+              key={c.id}
+              to={`/trener/podopieczni/${c.id}`}
+              className="list-row"
+              style={{ gridTemplateColumns: "2fr 1.4fr 1.2fr 0.4fr", gap: 14 }}
+            >
+              <div className="row" style={{ gap: 10 }}>
+                <span className="avatar sm">{initialsOf(c.displayName)}</span>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 500 }}>{c.displayName}</div>
+                  {c.joinedOn && (
+                    <div className="text-xs muted" style={{ marginTop: 2 }}>
+                      od {fmtDate(c.joinedOn)}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div>
+                {c.activePlanName != null ? (
+                  <span className="badge active">
+                    <span className="badge-dot" />
+                    {c.activePlanName}
+                  </span>
+                ) : (
+                  <span className="text-xs muted">brak aktywnego planu</span>
+                )}
+              </div>
+              <div className="text-sm">
+                {c.lastSession ? (
+                  <span className="muted">ostatnia {daysAgo(c.lastSession)}</span>
+                ) : (
+                  <span className="muted">brak sesji</span>
+                )}
+                {c.totalSessions > 0 && (
+                  <span className="muted-2" style={{ marginLeft: 6 }}>
+                    · <span className="mono">{c.totalSessions}</span>
+                  </span>
+                )}
+              </div>
+              <div style={{ textAlign: "right", color: "var(--muted-2)" }}>
+                <Icons.Chev />
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InviteCreatedCard({
+  invite,
+}: {
+  invite: { url: string; displayName: string; email: string | null };
+}) {
+  return (
+    <div
+      className="card"
+      style={{
+        background: "var(--ink)",
+        color: "var(--bg)",
+        border: 0,
+        marginBottom: 20,
+      }}
+    >
+      <div
+        className="mono"
+        style={{
+          fontSize: 10,
+          color: "var(--accent)",
+          textTransform: "uppercase",
+          letterSpacing: ".1em",
+          marginBottom: 6,
+        }}
+      >
+        Link wygenerowany · ważny 14 dni
+      </div>
+      <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 10 }}>
+        {invite.displayName}
+        {invite.email != null && (
+          <span style={{ opacity: 0.6, fontWeight: 400, marginLeft: 8, fontSize: 12 }}>
+            ({invite.email})
+          </span>
+        )}
+      </div>
+      <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 8 }}>
+        Skopiuj i wyślij podopiecznemu. Po przyjęciu zaproszenia konto pojawi się na liście poniżej.
+      </div>
+      <div
+        className="mono"
+        style={{
+          background: "rgba(255,255,255,.08)",
+          padding: "10px 12px",
+          borderRadius: 8,
+          fontSize: 12.5,
+          wordBreak: "break-all",
+          userSelect: "all",
+        }}
+      >
+        {invite.url}
+      </div>
+      <div className="mono" style={{ fontSize: 11, opacity: 0.6, marginTop: 8 }}>
+        Token pokazujemy tylko teraz. Jeśli zgubisz link, wygeneruj nowy.
+      </div>
+    </div>
+  );
+}
+
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return ((parts[0]?.[0] ?? "") + (parts[parts.length - 1]?.[0] ?? "")).toUpperCase();
+}
+
+function pluralizeOsoba(n: number): string {
+  if (n === 1) return "osoba";
+  const lastTwo = n % 100;
+  const last = n % 10;
+  if (lastTwo >= 12 && lastTwo <= 14) return "osób";
+  if (last >= 2 && last <= 4) return "osoby";
+  return "osób";
+}

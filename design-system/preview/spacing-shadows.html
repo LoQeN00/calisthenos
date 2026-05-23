@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Shadows</title>
+<link rel="stylesheet" href="_card.css">
+<style>
+.frame { display:grid; grid-template-columns: repeat(3, 1fr); gap: 18px; padding: 6px 0 14px; }
+.cell { display:flex; flex-direction:column; align-items:center; gap:10px; }
+.cell .box { width: 144px; height: 70px; background: var(--surface); border-radius: 12px; border:1px solid var(--line); }
+.cell .name { font: 600 12.5px var(--font-display); }
+.cell .lbl  { font:500 10px var(--font-mono); text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+</style>
+</head><body>
+<div class="card-frame">
+  <div class="frame">
+    <div class="cell">
+      <div class="box" style="box-shadow: 0 1px 0 rgba(14,17,22,.04), 0 1px 2px rgba(14,17,22,.04)"></div>
+      <div class="name">shadow-sm</div>
+      <div class="lbl">rarely used</div>
+    </div>
+    <div class="cell">
+      <div class="box" style="box-shadow: 0 2px 4px rgba(14,17,22,.04), 0 8px 24px rgba(14,17,22,.06)"></div>
+      <div class="name">shadow-md</div>
+      <div class="lbl">card-hover lift</div>
+    </div>
+    <div class="cell">
+      <div class="box" style="box-shadow: 0 12px 40px rgba(14,17,22,.10)"></div>
+      <div class="name">shadow-lg</div>
+      <div class="lbl">modal · toast · dropdown</div>
+    </div>
+  </div>
+</div>
+</body></html>

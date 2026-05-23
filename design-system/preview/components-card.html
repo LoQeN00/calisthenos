@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Card · with-hover</title>
+<link rel="stylesheet" href="_card.css">
+<style>
+.frame { display:grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items:stretch; }
+.card { background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:14px; }
+.card-hover { transition: transform .12s, box-shadow .12s, border-color .12s; cursor:pointer; transform: translateY(-2px); box-shadow: 0 2px 4px rgba(14,17,22,.04), 0 8px 24px rgba(14,17,22,.06); border-color: var(--line-2); }
+.video-tile { position:relative; background:#0E1116; border-radius:8px; aspect-ratio:16/9; overflow:hidden; }
+.video-tile .scanlines { position:absolute; inset:0; background: repeating-linear-gradient(45deg, rgba(255,255,255,.02) 0 4px, transparent 4px 12px), radial-gradient(circle at 30% 20%, rgba(255,255,255,.06), transparent 50%); }
+.video-tile .label { position:absolute; top:8px; left:8px; font:500 10px var(--font-mono); letter-spacing:.08em; text-transform:uppercase; background:rgba(0,0,0,.55); padding:3px 7px; border-radius:4px; color:#fff; }
+.video-tile .duration { position:absolute; bottom:6px; right:6px; background:rgba(0,0,0,.6); color:#fff; font:500 10.5px var(--font-mono); padding:2px 6px; border-radius:4px; }
+.video-tile .play { position:absolute; inset:0; display:grid; place-items:center; }
+.video-tile .play i { width:36px; height:36px; border-radius:50%; background:rgba(255,255,255,.95); color:#0E1116; display:grid; place-items:center; }
+.t-row { display:flex; justify-content:space-between; align-items:flex-start; margin-top:10px; }
+.t { font:600 14.5px var(--font-display); }
+.desc { font-size:12.5px; color:var(--muted); margin-top:8px; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.tags { display:flex; gap:4px; margin-top:10px; }
+.tag { font:500 11px var(--font-mono); background:var(--surface-2); padding:3px 7px; border-radius:6px; color:var(--ink-2); }
+.cap { font:500 11px var(--font-mono); color:var(--muted); text-transform:uppercase; letter-spacing:.06em; text-align:center; margin-top:6px; }
+</style>
+</head><body>
+<div class="card-frame">
+  <div class="frame">
+    <div>
+      <div class="card">
+        <div class="video-tile"><div class="scanlines"></div><div class="label">DEMO</div><div class="play"><i><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M6 4.5v15l13-7.5z"/></svg></i></div><div class="duration">0:55</div></div>
+        <div class="t-row"><div><div class="t">Archer Pull-up</div><span class="badge unit-reps" style="margin-top:4px"><span class="dot"></span>REPS</span></div></div>
+        <div class="desc">Asymetryczny pull-up — jedno ramię prowadzi, drugie wspomaga.</div>
+        <div class="tags"><span class="tag">pull</span><span class="tag">unilateral</span></div>
+      </div>
+      <div class="cap">.card · rest state</div>
+    </div>
+    <div>
+      <div class="card card-hover">
+        <div class="video-tile"><div class="scanlines"></div><div class="label">DEMO</div><div class="play"><i><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M6 4.5v15l13-7.5z"/></svg></i></div><div class="duration">0:42</div></div>
+        <div class="t-row"><div><div class="t">Muscle-up</div><span class="badge unit-reps" style="margin-top:4px"><span class="dot"></span>REPS</span></div></div>
+        <div class="desc">Pełen muscle-up na drążku z pełnym wyciągiem.</div>
+        <div class="tags"><span class="tag">pull</span><span class="tag">push</span><span class="tag">explosive</span></div>
+      </div>
+      <div class="cap">.card-hover · lift +shadow</div>
+    </div>
+  </div>
+</div>
+</body></html>

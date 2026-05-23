@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Radii</title>
+<link rel="stylesheet" href="_card.css">
+<style>
+.frame { display:grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.demo { display:flex; flex-direction:column; align-items:center; gap:8px; }
+.demo .box { width: 96px; height: 64px; background: var(--surface); border:1px solid var(--line); }
+.demo .lbl { font:500 10px var(--font-mono); text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+.demo .name { font: 600 13px var(--font-display); }
+</style>
+</head><body>
+<div class="card-frame">
+  <div class="frame">
+    <div class="demo"><div class="box" style="border-radius:6px"></div><div class="name">6 · sm</div><div class="lbl">chips · cells</div></div>
+    <div class="demo"><div class="box" style="border-radius:10px"></div><div class="name">10 · base</div><div class="lbl">inputs · buttons</div></div>
+    <div class="demo"><div class="box" style="border-radius:14px"></div><div class="name">14 · lg</div><div class="lbl">cards · modal</div></div>
+    <div class="demo"><div class="box" style="border-radius:999px; width:120px; height:40px"></div><div class="name">999 · pill</div><div class="lbl">badges · toast</div></div>
+  </div>
+</div>
+</body></html>

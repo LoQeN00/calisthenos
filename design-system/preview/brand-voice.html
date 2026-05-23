@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Voice & copy samples</title>
+<link rel="stylesheet" href="_card.css">
+<style>
+.frame { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+.note { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+.note .who { font:500 11px var(--font-mono); color:var(--muted); text-transform:uppercase; letter-spacing:.08em; margin-bottom:8px; }
+.note .body { font: 400 14px/1.5 var(--font-body); color:var(--ink); }
+.note .desc { color: var(--ink-2); }
+.tip { font:500 11px var(--font-mono); color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin-top:6px; }
+.do { color: var(--ok); }
+.dont { color: var(--danger); }
+.compare { display:flex; gap:10px; }
+.compare > div { flex:1; background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+.compare .head { font:500 10px var(--font-mono); text-transform:uppercase; letter-spacing:.08em; margin-bottom:4px; }
+.compare .head.ok { color: var(--ok); }
+.compare .head.no { color: var(--danger); }
+.compare .copy { font-size:13px; line-height:1.4; color: var(--ink); }
+</style>
+</head><body>
+<div class="card-frame">
+  <div class="frame">
+    <div class="note">
+      <div class="who">NOTKA TRENERA — opis ćwiczenia</div>
+      <div class="body desc">"Pełny zakres, łopatki schowane, broda nad drążkiem."</div>
+    </div>
+    <div class="note">
+      <div class="who">NOTKA Z SESJI — Kamil B.</div>
+      <div class="body">"Mocno czuć łapy. Front lever idzie do przodu."</div>
+    </div>
+  </div>
+  <div class="compare">
+    <div>
+      <div class="head ok">✓ Tak piszemy</div>
+      <div class="copy">Pierwszy muscle-up w pełnym ciszy. Reszta serii mocno spadła ale jest baza.</div>
+    </div>
+    <div>
+      <div class="head no">✗ Tak NIE piszemy</div>
+      <div class="copy">🔥 Niesamowite! Genialny progres! Tak trzymać! 💪</div>
+    </div>
+  </div>
+</div>
+</body></html>

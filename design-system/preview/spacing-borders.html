@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Borders & Hairlines</title>
+<link rel="stylesheet" href="_card.css">
+<style>
+.frame { display:grid; grid-template-columns: 1.4fr 1fr; gap:18px; align-items:stretch; }
+.demo-card { background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:14px 16px; }
+.demo-card .title { font:600 14px var(--font-display); margin-bottom:6px; }
+.demo-card .sub { font-size:12px; color:var(--muted); margin-bottom:10px; }
+.row-list { background:var(--surface); border:1px solid var(--line); border-radius:14px; overflow:hidden; }
+.row-list .r { padding:10px 14px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; font-size:13px; }
+.row-list .r:last-child { border-bottom:0; }
+.tail { font:500 11px var(--font-mono); color:var(--muted); }
+</style>
+</head><body>
+<div class="card-frame">
+  <div class="frame">
+    <div class="demo-card">
+      <div class="title">Card</div>
+      <div class="sub">1px solid var(--line) · radius 14px · no shadow</div>
+      <hr class="h-rule">
+      <div style="font:500 11px var(--font-mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-top:8px">Structure = borders, not shadows</div>
+    </div>
+    <div class="row-list">
+      <div class="r"><span>Kamil B.</span><span class="tail">v2</span></div>
+      <div class="r"><span>Michał K.</span><span class="tail">v1</span></div>
+      <div class="r"><span>Anna W.</span><span class="tail">v1</span></div>
+    </div>
+  </div>
+</div>
+</body></html>

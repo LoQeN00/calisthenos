@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>List row</title>
+<link rel="stylesheet" href="_card.css">
+<style>
+.list { background:var(--surface); border:1px solid var(--line); border-radius:14px; overflow:hidden; }
+.list-row { padding:14px 18px; border-bottom:1px solid var(--line); display:grid; grid-template-columns: auto 1fr 1.2fr 0.6fr 18px; gap:12px; align-items:center; }
+.list-row:last-child { border-bottom:0; }
+.list-row:hover { background: var(--surface-2); }
+.avatar { width:32px; height:32px; border-radius:50%; background:var(--ink); color:var(--bg); display:grid; place-items:center; font:600 12px var(--font-display); }
+.name { font:500 14px var(--font-body); }
+.plan { font:400 13px var(--font-body); }
+.plan-v { font:500 11px var(--font-mono); color:var(--muted); }
+.date { font:500 12px var(--font-mono); color:var(--ink-2); }
+.chev { color: var(--muted-2); }
+</style>
+</head><body>
+<div class="card-frame">
+  <div class="list">
+    <div class="list-row">
+      <div class="avatar">KB</div>
+      <div><div class="name">Kamil Brzeziński</div></div>
+      <div><div class="plan">Push / Pull / Legs — Q2 2026</div><div class="plan-v">v2 · aktywny</div></div>
+      <div class="date">3 dni temu</div>
+      <svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
+    </div>
+    <div class="list-row">
+      <div class="avatar">MK</div>
+      <div><div class="name">Michał Kowalczyk</div></div>
+      <div><div class="plan">Pierwszy Muscle-up — Blok 3</div><div class="plan-v">v1 · aktywny</div></div>
+      <div class="date">wczoraj</div>
+      <svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
+    </div>
+  </div>
+</div>
+</body></html>

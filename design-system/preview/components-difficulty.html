@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Difficulty Picker</title>
+<link rel="stylesheet" href="_card.css">
+<style>
+.lbl-row { font:500 10px var(--font-mono); text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin-bottom:6px; }
+.diff { display:flex; gap:4px; }
+.diff button { width:28px; height:32px; border-radius:5px; border:1px solid var(--line); background:var(--surface); font:500 11.5px var(--font-mono); color:var(--muted); cursor:pointer; padding:0; }
+.diff.is-easy button.on { background: var(--ok); color:#fff; border-color: transparent; }
+.diff.is-mid button.on  { background: var(--warn); color:#1a0a00; border-color: transparent; }
+.diff.is-hard button.on { background: var(--danger); color:#fff; border-color: transparent; }
+</style>
+</head><body>
+<div class="card-frame">
+  <div>
+    <div class="lbl-row">Difficulty 3 · łatwo</div>
+    <div class="diff is-easy">
+      <button class="on">1</button><button class="on">2</button><button class="on">3</button><button>4</button><button>5</button><button>6</button><button>7</button><button>8</button><button>9</button><button>10</button>
+    </div>
+  </div>
+  <div>
+    <div class="lbl-row">Difficulty 6 · średnio</div>
+    <div class="diff is-mid">
+      <button class="on">1</button><button class="on">2</button><button class="on">3</button><button class="on">4</button><button class="on">5</button><button class="on">6</button><button>7</button><button>8</button><button>9</button><button>10</button>
+    </div>
+  </div>
+  <div>
+    <div class="lbl-row">Difficulty 9 · trudno</div>
+    <div class="diff is-hard">
+      <button class="on">1</button><button class="on">2</button><button class="on">3</button><button class="on">4</button><button class="on">5</button><button class="on">6</button><button class="on">7</button><button class="on">8</button><button class="on">9</button><button>10</button>
+    </div>
+  </div>
+</div>
+</body></html>

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Logo lockups</title>
+<link rel="stylesheet" href="_card.css">
+<style>
+.frame { display:grid; grid-template-columns: 1fr 1fr; gap:14px; align-items:stretch; }
+.light, .dark { display:flex; align-items:center; gap:14px; padding:18px 20px; border-radius:14px; }
+.light { background:#F7F7F4; border:1px solid var(--line); }
+.dark { background:#0B0E13; border:1px solid #232938; color:#F5F6F4; }
+.mark { width:46px; height:46px; border-radius:12px; display:grid; place-items:center; font:700 28px var(--font-display); letter-spacing:-0.04em; }
+.mark-light { background:#0E1116; color:#F7F7F4; }
+.mark-dark  { background:#F5F6F4; color:#0B0E13; }
+.word { font:700 28px var(--font-display); letter-spacing:-0.02em; }
+.dot { width:9px; height:9px; border-radius:50%; background:#C7F23C; margin-left:2px; }
+.cap { font:500 10px var(--font-mono); color:var(--muted); text-transform:uppercase; letter-spacing:.08em; margin-top:6px; }
+.dark .cap { color:#8A93A0; }
+</style>
+</head><body>
+<div class="card-frame">
+  <div class="frame">
+    <div>
+      <div class="light">
+        <div class="mark mark-light">K</div>
+        <div class="word" style="color:#0E1116">kalisthenos</div>
+        <div class="dot"></div>
+      </div>
+      <div class="cap">light · default</div>
+    </div>
+    <div>
+      <div class="dark">
+        <div class="mark mark-dark">K</div>
+        <div class="word">kalisthenos</div>
+        <div class="dot"></div>
+      </div>
+      <div class="cap" style="color:var(--muted)">dark · theme-dark</div>
+    </div>
+  </div>
+</div>
+</body></html>

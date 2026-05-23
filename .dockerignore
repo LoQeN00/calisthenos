@@ -1,0 +1,36 @@
+# Big or irrelevant — never ship in the build context
+
+node_modules/
+.pnpm-store/
+build/
+dist/
+.cache/
+.react-router/
+
+# Local-only
+.env
+.env.local
+.env.*.local
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Tests + coverage (no test files in this phase; safe to exclude anyway)
+playwright-report/
+test-results/
+coverage/
+tests/
+
+# Project artifacts that don't belong in the runtime image
+prototype/
+docs/
+README.md
+*.log
+
+# VCS
+.git/
+.gitignore

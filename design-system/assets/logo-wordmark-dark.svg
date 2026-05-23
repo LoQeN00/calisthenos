@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 80">
+  <rect x="0" y="14" width="52" height="52" rx="12" fill="#F5F6F4"></rect>
+  <text x="26" y="55" text-anchor="middle" font-family="Space Grotesk, ui-sans-serif, system-ui, sans-serif" font-size="34" font-weight="700" fill="#0B0E13" letter-spacing="-0.04em">K</text>
+  <text x="70" y="54" font-family="Space Grotesk, ui-sans-serif, system-ui, sans-serif" font-size="34" font-weight="700" fill="#F5F6F4" letter-spacing="-0.02em">kalisthenos</text>
+  <circle cx="298" cy="44" r="6" fill="#C7F23C"></circle>
+</svg>

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Video tile & Progress ring</title>
+<link rel="stylesheet" href="_card.css">
+<style>
+.frame { display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; align-items:center; }
+.video-tile { position:relative; background:#0E1116; border-radius:8px; aspect-ratio:16/9; overflow:hidden; display:grid; place-items:center; }
+.video-tile .play { width:38px; height:38px; border-radius:50%; background:rgba(255,255,255,.95); color:#0E1116; display:grid; place-items:center; }
+.video-tile .duration { position:absolute; bottom:6px; right:6px; background:rgba(0,0,0,.6); color:#fff; font:500 10.5px var(--font-mono); padding:2px 6px; border-radius:4px; }
+.video-tile .scanlines { position:absolute; inset:0; background: repeating-linear-gradient(45deg, rgba(255,255,255,.02) 0 4px, transparent 4px 12px), radial-gradient(circle at 30% 20%, rgba(255,255,255,.06), transparent 50%); }
+.video-tile .label { position:absolute; top:8px; left:8px; font:500 10px var(--font-mono); letter-spacing:.08em; text-transform:uppercase; background:rgba(0,0,0,.55); padding:3px 7px; border-radius:4px; color:#fff; }
+
+.ring { --p:60; width:96px; height:96px; border-radius:50%; background: conic-gradient(var(--accent) calc(var(--p) * 1%), var(--surface-2) 0); display:grid; place-items:center; position:relative; margin:0 auto; }
+.ring::after { content:""; position:absolute; inset:10px; background:var(--surface); border-radius:50%; }
+.ring span { position:relative; z-index:1; font:600 18px var(--font-mono); }
+
+.pips { display:flex; gap:4px; padding: 6px 8px; background:var(--surface); border-radius:8px; border:1px solid var(--line); width:fit-content; }
+.pip { width:42px; height:7px; border-radius:3.5px; background:var(--surface-2); }
+.pip.done { background: var(--accent); }
+.pip.partial { background: var(--accent-soft); }
+.cap { text-align:center; font:500 11px var(--font-mono); color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin-top:6px; }
+</style>
+</head><body>
+<div class="card-frame">
+  <div class="frame">
+    <div>
+      <div class="video-tile">
+        <div class="scanlines"></div>
+        <div class="label">DEMO</div>
+        <div class="play"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 4.5v15l13-7.5z"/></svg></div>
+        <div class="duration">0:42</div>
+      </div>
+      <div class="cap">VideoTile</div>
+    </div>
+    <div>
+      <div class="ring"><span>3/5</span></div>
+      <div class="cap">Progress ring</div>
+    </div>
+    <div>
+      <div style="display:flex;justify-content:center"><div class="pips"><div class="pip done"></div><div class="pip done"></div><div class="pip done"></div><div class="pip partial"></div><div class="pip"></div></div></div>
+      <div class="cap">Session pips</div>
+    </div>
+  </div>
+</div>
+</body></html>

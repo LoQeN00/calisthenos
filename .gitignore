@@ -1,0 +1,33 @@
+# deps
+node_modules/
+.pnpm-store/
+
+# build artefacts
+build/
+dist/
+.cache/
+.react-router/
+
+# env
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+.claude/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# test artefacts
+playwright-report/
+test-results/
+coverage/
+
+# local data
+data/
+*.log

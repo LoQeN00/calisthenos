@@ -1,0 +1,107 @@
+/* Preview-card shared styles. Keeps cards visually consistent. */
+@import url("../colors_and_type.css");
+
+html, body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* card frame fills the iframe so the registered viewport size IS the card */
+.card-frame {
+  min-height: 100vh;
+  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-sizing: border-box;
+}
+
+.card-frame.tight { padding: 18px 20px; gap: 10px; }
+.card-frame.dense { padding: 14px 18px; gap: 10px; }
+
+/* small mono label, the kind that runs throughout the brand */
+.lbl {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+/* swatches */
+.sw-row { display: flex; gap: 10px; align-items: stretch; }
+.sw {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sw .chip {
+  height: 60px;
+  border-radius: 10px;
+  border: 1px solid rgba(14,17,22,0.08);
+}
+.sw .meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-2);
+}
+.sw .meta .name { color: var(--ink); font-weight: 500; }
+.sw .meta .hex  { color: var(--muted); }
+
+/* row helper */
+.row { display: flex; gap: 10px; align-items: center; }
+.row.wrap { flex-wrap: wrap; }
+.col { display: flex; flex-direction: column; gap: 8px; }
+
+/* buttons (lifted from app) */
+.btn {
+  display: inline-flex; align-items: center; gap: 8px; justify-content: center;
+  height: 36px; padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 13.5px var(--font-body);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.btn-primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
+.btn-dark    { background: var(--ink); color: var(--bg); border-color: transparent; font-weight: 600; }
+.btn-ghost   { background: transparent; border-color: transparent; color: var(--ink-2); }
+.btn-danger  { color: var(--danger); }
+.btn-sm      { height: 30px; padding: 0 10px; font-size: 12.5px; border-radius: 7px; }
+.btn-lg      { height: 44px; padding: 0 20px; font-size: 14.5px; }
+.btn-icon    { width: 36px; padding: 0; }
+
+/* badges */
+.badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font: 500 11.5px var(--font-mono);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.badge.active { background: var(--accent-soft); color: var(--accent-ink); border-color: transparent; }
+.badge.active .dot { background: var(--ok); }
+.badge.draft .dot { background: var(--warn); }
+.badge.archived { color: var(--muted); }
+.badge.archived .dot { background: var(--muted-2); }
+.badge.unit-reps .dot { background: var(--accent); }
+.badge.unit-sec  .dot { background: var(--ink-2); }
+
+/* tiny utility */
+.h-rule { height: 1px; background: var(--line); margin: 0; border: 0; }
