@@ -12,7 +12,10 @@ dockerfilePath = "Dockerfile"
 startCommand = "npm run db:migrate && npm run db:seed && npm run start"
 # `react-router-serve` listens on $PORT (Railway injects this).
 healthcheckPath = "/"
-healthcheckTimeout = 30
+# Cold start = migrate + seed + react-router-serve boot. Pierwszy migrate może
+# dodatkowo dostać ECONNREFUSED jeśli Postgres jeszcze się nie podniósł i
+# kontener musi się raz zrestartować — 30s nie wystarczy.
+healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5
 
