@@ -45,9 +45,11 @@ COPY app ./app
 COPY scripts ./scripts
 COPY drizzle.config.ts tsconfig.json ./
 
-# Volume mount point for uploads (matches DATA_DIR).
+# Volume mount point for uploads (matches DATA_DIR). The `VOLUME` Dockerfile
+# directive is intentionally omitted — Railway rejects it and manages the
+# mount via Railway Volumes configured in the service UI. For local Docker /
+# other platforms, mount a volume at /data via the platform's own mechanism.
 RUN mkdir -p /data && chown -R node:node /app /data
-VOLUME ["/data"]
 
 # Run as the unprivileged `node` user provided by the base image.
 USER node
