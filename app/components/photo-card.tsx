@@ -1,4 +1,5 @@
 import { Form } from "react-router";
+import { ConfirmSubmitButton } from "~/components/confirm-provider";
 import type { BodyPhotoView } from "~/lib/db/schema";
 import { fmtDate } from "~/lib/format";
 
@@ -113,10 +114,12 @@ export function PhotoCard({
           <Form method="post" action={deleteAction} style={{ flexShrink: 0 }}>
             <input type="hidden" name="intent" value="delete" />
             <input type="hidden" name="photoId" value={id} />
-            <button
-              type="submit"
-              onClick={(e) => {
-                if (!confirm("Usunąć to zdjęcie?")) e.preventDefault();
+            <ConfirmSubmitButton
+              confirmOptions={{
+                title: "Usunąć zdjęcie?",
+                message: "Tej operacji nie da się cofnąć.",
+                destructive: true,
+                confirmText: "Usuń",
               }}
               style={{
                 background: "rgba(0,0,0,.55)",
@@ -130,7 +133,7 @@ export function PhotoCard({
               aria-label="Usuń zdjęcie"
             >
               usuń
-            </button>
+            </ConfirmSubmitButton>
           </Form>
         )}
       </div>

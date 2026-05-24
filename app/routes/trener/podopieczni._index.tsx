@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   Form,
   Link,
@@ -7,7 +8,9 @@ import {
   type LoaderFunctionArgs,
 } from "react-router";
 import { z } from "zod";
+import { CopyButton } from "~/components/copy-button";
 import { Icons } from "~/components/icons";
+import { Modal } from "~/components/modal";
 import { createInvite, requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import { getEnv } from "~/lib/env";
@@ -63,6 +66,15 @@ export async function action(args: ActionFunctionArgs) {
 export default function TrenerPodopieczniList() {
   const { clients } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const [showInviteModal, setShowInviteModal] = useState(false);
+
+  const hasInvite = actionData != null && "invite" in actionData && actionData.invite != null;
+
+  // Auto-close the modal once an invite is successfully created — the result
+  // card takes over below.
+  useEffect(() => {
+    if (hasInvite) setShowInviteModal(false);
+  }, [hasInvite]);
 
   return (
     <div>
@@ -74,71 +86,75 @@ export default function TrenerPodopieczniList() {
           <h1>Podopieczni</h1>
           <div className="sub">
             {clients.length === 0
-              ? "Brak podopiecznych. Wygeneruj pierwsze zaproszenie poniżej."
+              ? "Brak podopiecznych. Wygeneruj pierwsze zaproszenie."
               : `${clients.length} ${pluralizeOsoba(clients.length)}.`}
           </div>
         </div>
+        <button
+          type="button"
+          onClick={() => setShowInviteModal(true)}
+          className="btn btn-primary"
+        >
+          <Icons.Plus /> Zaproś podopiecznego
+        </button>
       </div>
 
-      {actionData != null && "invite" in actionData && actionData.invite != null && (
+      {hasInvite && actionData != null && "invite" in actionData && actionData.invite != null && (
         <InviteCreatedCard invite={actionData.invite} />
       )}
 
-      <details
-        open={clients.length === 0}
-        className="card"
-        style={{ padding: "12px 16px", marginBottom: 20 }}
+      <Modal
+        open={showInviteModal}
+        onClose={() => setShowInviteModal(false)}
+        title="Zaproś podopiecznego"
       >
-        <summary
-          style={{
-            cursor: "pointer",
-            userSelect: "none",
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            fontWeight: 500,
-          }}
-        >
-          <Icons.Plus />
-          <span>Zaproś podopiecznego</span>
-        </summary>
-        <Form method="post" style={{ display: "grid", gap: 14, marginTop: 16 }}>
-          <div className="field">
-            <label htmlFor="inv-name">Imię i nazwisko</label>
-            <input
-              id="inv-name"
-              name="displayName"
-              type="text"
-              required
-              maxLength={80}
-              placeholder="np. Mateusz Kozłowski"
-              className="input"
-            />
+        <Form method="post">
+          <div className="modal-body">
+            <div className="field">
+              <label htmlFor="inv-name">Imię i nazwisko</label>
+              <input
+                id="inv-name"
+                name="displayName"
+                type="text"
+                required
+                maxLength={80}
+                placeholder="np. Mateusz Kozłowski"
+                className="input"
+                autoFocus
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="inv-email">Email</label>
+              <input
+                id="inv-email"
+                name="email"
+                type="email"
+                required
+                maxLength={254}
+                placeholder="mateusz@example.pl"
+                className="input"
+              />
+            </div>
+            {actionData != null && "error" in actionData && actionData.error != null && (
+              <p role="alert" style={{ color: "var(--danger)", fontSize: 13, margin: 0 }}>
+                {actionData.error}
+              </p>
+            )}
           </div>
-          <div className="field">
-            <label htmlFor="inv-email">Email</label>
-            <input
-              id="inv-email"
-              name="email"
-              type="email"
-              required
-              maxLength={254}
-              placeholder="mateusz@example.pl"
-              className="input"
-            />
-          </div>
-          {actionData != null && "error" in actionData && actionData.error != null && (
-            <p role="alert" style={{ color: "var(--danger)", fontSize: 13, margin: 0 }}>
-              {actionData.error}
-            </p>
-          )}
-          <div>
+          <div className="modal-foot">
+            <button
+              type="button"
+              onClick={() => setShowInviteModal(false)}
+              className="btn btn-ghost"
+            >
+              Anuluj
+            </button>
             <button type="submit" className="btn btn-primary">
               <Icons.Link /> Wygeneruj link
             </button>
           </div>
         </Form>
-      </details>
+      </Modal>
 
       {clients.length === 0 ? null : (
         <div className="list">
@@ -237,23 +253,31 @@ function InviteCreatedCard({
           </span>
         )}
       </div>
-      <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 8 }}>
+      <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 12 }}>
         Skopiuj i wyślij podopiecznemu. Po przyjęciu zaproszenia konto pojawi się na liście poniżej.
       </div>
       <div
-        className="mono"
-        style={{
-          background: "rgba(255,255,255,.08)",
-          padding: "10px 12px",
-          borderRadius: 8,
-          fontSize: 12.5,
-          wordBreak: "break-all",
-          userSelect: "all",
-        }}
+        className="row"
+        style={{ gap: 8, alignItems: "stretch", flexWrap: "wrap" }}
       >
-        {invite.url}
+        <div
+          className="mono"
+          style={{
+            background: "rgba(255,255,255,.08)",
+            padding: "10px 12px",
+            borderRadius: 8,
+            fontSize: 12.5,
+            wordBreak: "break-all",
+            userSelect: "all",
+            flex: 1,
+            minWidth: 0,
+          }}
+        >
+          {invite.url}
+        </div>
+        <CopyButton value={invite.url} variant="primary" label="Kopiuj link" />
       </div>
-      <div className="mono" style={{ fontSize: 11, opacity: 0.6, marginTop: 8 }}>
+      <div className="mono" style={{ fontSize: 11, opacity: 0.6, marginTop: 10 }}>
         Token pokazujemy tylko teraz. Jeśli zgubisz link, wygeneruj nowy.
       </div>
     </div>

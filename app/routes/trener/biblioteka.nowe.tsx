@@ -8,7 +8,8 @@ import {
   type LoaderFunctionArgs,
 } from "react-router";
 import { z } from "zod";
-import { CategoryPicker, FileField } from "~/components/exercise-fields";
+import { CategoryPicker } from "~/components/exercise-fields";
+import { FileDropzone } from "~/components/file-dropzone";
 import { requireUser } from "~/lib/auth";
 import { filterToKnownCategoryNames, listCategoriesForTrainer } from "~/lib/categories";
 import { db } from "~/lib/db/client";
@@ -142,7 +143,13 @@ export default function NoweCwiczenie() {
 
         <CategoryPicker categories={categories} selected={[]} />
 
-        <FileField idSuffix="new" label="Wideo demo (opcjonalne — mp4, mov, webm)" />
+        <FileDropzone
+          name="demo"
+          idSuffix="new"
+          kind="video"
+          label="Wideo demo (opcjonalne)"
+          maxBytes={250_000_000}
+        />
 
         {actionData?.error != null && (
           <p role="alert" style={{ color: "var(--danger)", fontSize: 13, margin: 0 }}>

@@ -8,6 +8,7 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
+import { ConfirmSubmitButton } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
@@ -274,24 +275,20 @@ export default function PlanyList() {
                 <Form method="post">
                   <input type="hidden" name="intent" value="delete" />
                   <input type="hidden" name="planId" value={p.id} />
-                  <button
-                    type="submit"
+                  <ConfirmSubmitButton
                     className="btn btn-sm btn-icon btn-ghost"
                     style={{ color: "var(--danger)" }}
                     title="Usuń plan"
                     aria-label={`Usuń plan ${p.name}`}
-                    onClick={(e) => {
-                      if (
-                        !confirm(
-                          `Usunąć plan „${p.name}" (${p.trainee.displayName})?\n\nJeśli ma już zalogowane sesje, zostanie zarchiwizowany (historia zachowana). Inaczej — skasowany na stałe.`,
-                        )
-                      ) {
-                        e.preventDefault();
-                      }
+                    confirmOptions={{
+                      title: `Usunąć plan „${p.name}"?`,
+                      message: `Podopieczny: ${p.trainee.displayName}.\n\nJeśli plan ma już zalogowane sesje, zostanie zarchiwizowany (historia zachowana). Inaczej — skasowany na stałe.`,
+                      destructive: true,
+                      confirmText: "Usuń plan",
                     }}
                   >
                     <Icons.X />
-                  </button>
+                  </ConfirmSubmitButton>
                 </Form>
                 <Icons.Chev />
               </div>

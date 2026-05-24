@@ -7,6 +7,7 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
+import { ConfirmSubmitButton } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
@@ -350,24 +351,21 @@ function DeletePlanForm({ planId, planName }: { planId: string; planName: string
     <Form method="post">
       <input type="hidden" name="intent" value="delete-plan" />
       <input type="hidden" name="planId" value={planId} />
-      <button
-        type="submit"
+      <ConfirmSubmitButton
         className="btn btn-icon btn-ghost"
         style={{ color: "var(--danger)" }}
         title="Usuń plan"
         aria-label={`Usuń plan ${planName}`}
-        onClick={(e) => {
-          if (
-            !confirm(
-              `Usunąć plan „${planName}"?\n\nJeśli ma już zalogowane sesje, zostanie zarchiwizowany (historia zachowana). Inaczej — skasowany na stałe.`,
-            )
-          ) {
-            e.preventDefault();
-          }
+        confirmOptions={{
+          title: `Usunąć plan „${planName}"?`,
+          message:
+            "Jeśli plan ma już zalogowane sesje, zostanie zarchiwizowany (historia zachowana). Inaczej — skasowany na stałe.",
+          destructive: true,
+          confirmText: "Usuń plan",
         }}
       >
         <Icons.X />
-      </button>
+      </ConfirmSubmitButton>
     </Form>
   );
 }

@@ -6,7 +6,10 @@ import {
   type LoaderFunctionArgs,
 } from "react-router";
 import { z } from "zod";
+import { useEffect, useState } from "react";
+import { FileDropzone } from "~/components/file-dropzone";
 import { Icons } from "~/components/icons";
+import { Modal } from "~/components/modal";
 import { PhotoCard } from "~/components/photo-card";
 import { requireUser } from "~/lib/auth";
 import {
@@ -89,6 +92,14 @@ export async function action(args: ActionFunctionArgs) {
 export default function TraineeBodyGallery() {
   const { photos } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const [showAddModal, setShowAddModal] = useState(false);
+
+  // Auto-close the modal after a successful upload so the trainee sees the
+  // gallery update.
+  const uploadOk = actionData != null && "ok" in actionData && actionData.ok === true;
+  useEffect(() => {
+    if (uploadOk) setShowAddModal(false);
+  }, [uploadOk]);
 
   return (
     <div>
@@ -100,87 +111,82 @@ export default function TraineeBodyGallery() {
           <h1>Sylwetka</h1>
           <div className="sub">Wrzucaj cotygodniowe zdjęcia. Trener je widzi.</div>
         </div>
+        <button
+          type="button"
+          onClick={() => setShowAddModal(true)}
+          className="btn btn-primary"
+        >
+          <Icons.Plus /> Dodaj zdjęcie
+        </button>
       </div>
 
-      <details
-        open={photos.length === 0}
-        className="card"
-        style={{ padding: "12px 16px", marginBottom: 18 }}
+      <Modal
+        open={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        title="Dodaj zdjęcie sylwetki"
       >
-        <summary
-          style={{
-            cursor: "pointer",
-            userSelect: "none",
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            fontWeight: 500,
-          }}
-        >
-          <Icons.Plus />
-          <span>Dodaj zdjęcie</span>
-        </summary>
-        <Form
-          method="post"
-          encType="multipart/form-data"
-          style={{ display: "grid", gap: 14, marginTop: 16 }}
-        >
-          <div className="grid grid-2" style={{ gap: 14 }}>
-            <div className="field">
-              <label htmlFor="bp-view">Ujęcie</label>
-              <select id="bp-view" name="view" required defaultValue="front" className="select">
-                <option value="front">Przód</option>
-                <option value="side">Bok</option>
-                <option value="back">Tył</option>
-              </select>
+        <Form method="post" encType="multipart/form-data">
+          <div className="modal-body">
+            <div className="grid grid-2" style={{ gap: 14 }}>
+              <div className="field">
+                <label htmlFor="bp-view">Ujęcie</label>
+                <select id="bp-view" name="view" required defaultValue="front" className="select">
+                  <option value="front">Przód</option>
+                  <option value="side">Bok</option>
+                  <option value="back">Tył</option>
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="bp-date">Data</label>
+                <input
+                  id="bp-date"
+                  name="takenOn"
+                  type="date"
+                  required
+                  defaultValue={todayISO()}
+                  className="input"
+                />
+              </div>
             </div>
             <div className="field">
-              <label htmlFor="bp-date">Data</label>
+              <label htmlFor="bp-note">Notatka (opcjonalna)</label>
               <input
-                id="bp-date"
-                name="takenOn"
-                type="date"
-                required
-                defaultValue={todayISO()}
+                id="bp-note"
+                name="note"
+                type="text"
+                maxLength={500}
+                placeholder="np. waga 72.4 kg, energia 8/10"
                 className="input"
               />
             </div>
-          </div>
-          <div className="field">
-            <label htmlFor="bp-note">Notatka (opcjonalna)</label>
-            <input
-              id="bp-note"
-              name="note"
-              type="text"
-              maxLength={500}
-              placeholder="np. waga 72.4 kg, energia 8/10"
-              className="input"
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="bp-file">Zdjęcie (jpg/png/webp)</label>
-            <input
-              id="bp-file"
+            <FileDropzone
               name="photo"
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              capture="environment"
+              kind="image"
+              label="Zdjęcie"
               required
-              className="input-file"
+              capture
+              maxBytes={250_000_000}
             />
+            {actionData != null && "error" in actionData && actionData.error != null && (
+              <p role="alert" style={{ color: "var(--danger)", fontSize: 13, margin: 0 }}>
+                {actionData.error}
+              </p>
+            )}
           </div>
-          {actionData?.error != null && (
-            <p role="alert" style={{ color: "var(--danger)", fontSize: 13, margin: 0 }}>
-              {actionData.error}
-            </p>
-          )}
-          <div>
+          <div className="modal-foot">
+            <button
+              type="button"
+              onClick={() => setShowAddModal(false)}
+              className="btn btn-ghost"
+            >
+              Anuluj
+            </button>
             <button type="submit" className="btn btn-primary">
               <Icons.Upload /> Dodaj zdjęcie
             </button>
           </div>
         </Form>
-      </details>
+      </Modal>
 
       {photos.length === 0 ? (
         <div className="empty">

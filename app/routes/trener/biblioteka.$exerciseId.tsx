@@ -9,6 +9,7 @@ import {
   type LoaderFunctionArgs,
 } from "react-router";
 import { z } from "zod";
+import { ConfirmSubmitButton } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
 import { requireUser } from "~/lib/auth";
 import { filterToKnownCategoryNames, listCategoriesForTrainer } from "~/lib/categories";
@@ -22,7 +23,8 @@ import {
   uploadFile,
 } from "~/lib/file-uploads";
 import { signFileUrl } from "~/lib/files";
-import { CategoryPicker, FileField } from "~/components/exercise-fields";
+import { CategoryPicker } from "~/components/exercise-fields";
+import { FileDropzone } from "~/components/file-dropzone";
 
 const EditSchema = z.object({
   name: z.string().trim().min(1, "Nazwa jest wymagana.").max(120),
@@ -251,9 +253,12 @@ export default function EdytujCwiczenie() {
 
         <CategoryPicker categories={categories} selected={exercise.tags} />
 
-        <FileField
+        <FileDropzone
+          name="demo"
           idSuffix="edit"
+          kind="video"
           label={demo ? "Zastąp wideo demo (opcjonalne)" : "Wideo demo (opcjonalne)"}
+          maxBytes={250_000_000}
         />
 
         {actionData?.error != null && (
@@ -282,23 +287,20 @@ export default function EdytujCwiczenie() {
             Przywróć z archiwum
           </button>
         ) : (
-          <button
-            type="submit"
+          <ConfirmSubmitButton
             name="intent"
             value="archive"
             className="btn btn-danger"
-            onClick={(e) => {
-              if (
-                !confirm(
-                  "Zarchiwizować to ćwiczenie? Będzie ukryte na liście, ale plany historyczne pozostaną nietknięte.",
-                )
-              ) {
-                e.preventDefault();
-              }
+            confirmOptions={{
+              title: "Zarchiwizować ćwiczenie?",
+              message:
+                "Będzie ukryte na liście, ale plany historyczne pozostaną nietknięte. Możesz przywrócić je później.",
+              destructive: true,
+              confirmText: "Archiwizuj",
             }}
           >
             <Icons.Arch /> Archiwizuj
-          </button>
+          </ConfirmSubmitButton>
         )}
       </Form>
     </div>

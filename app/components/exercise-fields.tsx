@@ -82,18 +82,3 @@ export function CategoryPicker({
   );
 }
 
-export function FileField({ idSuffix, label }: { idSuffix: string; label: string }) {
-  const id = `ex-demo-${idSuffix}`;
-  return (
-    <div className="field">
-      <label htmlFor={id}>{label}</label>
-      <input
-        id={id}
-        name="demo"
-        type="file"
-        accept="video/mp4,video/quicktime,video/webm"
-        className="input-file"
-      />
-    </div>
-  );
-}

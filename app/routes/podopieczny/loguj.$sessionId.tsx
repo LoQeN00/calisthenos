@@ -8,6 +8,7 @@ import {
   type LoaderFunctionArgs,
 } from "react-router";
 import { z } from "zod";
+import { FileDropzone } from "~/components/file-dropzone";
 import { Icons } from "~/components/icons";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
@@ -358,23 +359,15 @@ function SetRow({
             className="input input-num"
           />
         </div>
-        <div className="field" style={{ minWidth: 0 }}>
-          <label
-            className="uppercase-label"
-            htmlFor={`video-${eIdx}-${sIdx}`}
-            style={{ fontSize: 10 }}
-          >
-            Video
-          </label>
-          <input
-            id={`video-${eIdx}-${sIdx}`}
-            name={`e_${eIdx}_s_${sIdx}_video`}
-            type="file"
-            accept="video/mp4,video/quicktime,video/webm"
-            capture="environment"
-            className="input-file input-file-compact"
-          />
-        </div>
+        <FileDropzone
+          name={`e_${eIdx}_s_${sIdx}_video`}
+          idSuffix={`${eIdx}-${sIdx}`}
+          kind="video"
+          label="Video"
+          compact
+          capture
+          maxBytes={250_000_000}
+        />
       </div>
       <div>
         <div className="uppercase-label" style={{ fontSize: 10, marginBottom: 4 }}>

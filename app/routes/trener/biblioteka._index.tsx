@@ -8,6 +8,7 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
+import { ConfirmSubmitButton } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
 import { requireUser } from "~/lib/auth";
 import {
@@ -170,8 +171,7 @@ export default function BibliotekaList() {
                 <Form key={c.id} method="post" style={{ display: "inline-block" }}>
                   <input type="hidden" name="intent" value="delete-category" />
                   <input type="hidden" name="categoryId" value={c.id} />
-                  <button
-                    type="submit"
+                  <ConfirmSubmitButton
                     className="tag"
                     style={{
                       display: "inline-flex",
@@ -181,19 +181,17 @@ export default function BibliotekaList() {
                       border: 0,
                     }}
                     title="Usuń kategorię"
-                    onClick={(e) => {
-                      if (
-                        !confirm(
-                          `Usunąć kategorię „${c.name}"? Ćwiczenia ją zachowują w tagach, ale zniknie z listy.`,
-                        )
-                      ) {
-                        e.preventDefault();
-                      }
+                    confirmOptions={{
+                      title: `Usunąć kategorię „${c.name}"?`,
+                      message:
+                        "Ćwiczenia ją zachowują w swoich tagach, ale zniknie z listy filtrów.",
+                      destructive: true,
+                      confirmText: "Usuń",
                     }}
                   >
                     {c.name}
                     <Icons.X style={{ fontSize: 11 }} />
-                  </button>
+                  </ConfirmSubmitButton>
                 </Form>
               ))}
             </div>

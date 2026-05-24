@@ -9,6 +9,11 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
+import {
+  ConfirmSubmitButton,
+  useAlert,
+  useConfirm,
+} from "~/components/confirm-provider";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
@@ -228,6 +233,8 @@ export default function PlanEditor() {
   const { plan, trainee, initial, exercises } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [state, setState] = useState<PlanForm>(initial);
+  const alert = useAlert();
+  const confirm = useConfirm();
 
   const defaultExercise: ExerciseOpt | null = exercises[0] ?? null;
   const exerciseById = useMemo(() => {
@@ -363,15 +370,21 @@ export default function PlanEditor() {
             name="intent"
             value="publish"
             className="btn btn-primary"
-            onClick={(e) => {
+            onClick={async (e) => {
+              const btn = e.currentTarget;
               if (state.sessions.length === 0) {
                 e.preventDefault();
-                alert("Plan musi mieć co najmniej jedną sesję.");
+                await alert("Plan musi mieć co najmniej jedną sesję.", "Nie można opublikować");
                 return;
               }
-              if (!confirm("Opublikować ten plan? Aktywny plan podopiecznego (jeśli istnieje) zostanie zarchiwizowany.")) {
-                e.preventDefault();
-              }
+              e.preventDefault();
+              const ok = await confirm({
+                title: "Opublikować plan?",
+                message:
+                  "Aktywny plan podopiecznego (jeśli istnieje) zostanie zarchiwizowany.",
+                confirmText: "Opublikuj",
+              });
+              if (ok) btn.form?.requestSubmit(btn);
             }}
           >
             Opublikuj
@@ -379,23 +392,20 @@ export default function PlanEditor() {
         </Form>
         <div style={{ flex: 1 }} />
         <Form method="post">
-          <button
-            type="submit"
+          <ConfirmSubmitButton
             name="intent"
             value="delete"
             className="btn btn-danger"
-            onClick={(e) => {
-              if (
-                !confirm(
-                  `Usunąć plan „${plan.name}"?\n\nJeśli ma już zalogowane sesje podopiecznego, zostanie zarchiwizowany (historia zachowana). Jeśli nie — zostanie skasowany na stałe.`,
-                )
-              ) {
-                e.preventDefault();
-              }
+            confirmOptions={{
+              title: `Usunąć plan „${plan.name}"?`,
+              message:
+                "Jeśli plan ma już zalogowane sesje podopiecznego, zostanie zarchiwizowany (historia zachowana). Inaczej — skasowany na stałe.",
+              destructive: true,
+              confirmText: "Usuń plan",
             }}
           >
             Usuń plan
-          </button>
+          </ConfirmSubmitButton>
         </Form>
       </div>
 
@@ -436,6 +446,7 @@ function SessionCard({
   onMove: (dir: -1 | 1) => void;
   onRemove: () => void;
 }) {
+  const confirm = useConfirm();
   const updateBlock = (bIdx: number, fn: (b: BlockForm) => BlockForm) =>
     onChange({
       ...session,
@@ -522,8 +533,14 @@ function SessionCard({
         </button>
         <button
           type="button"
-          onClick={() => {
-            if (confirm(`Usunąć sesję „${session.name}"?`)) onRemove();
+          onClick={async () => {
+            const ok = await confirm({
+              title: `Usunąć sesję „${session.name}"?`,
+              message: "Wszystkie bloki i ćwiczenia w tej sesji zostaną usunięte z draftu.",
+              destructive: true,
+              confirmText: "Usuń",
+            });
+            if (ok) onRemove();
           }}
           style={{ ...iconButton, color: "var(--danger)" }}
           title="Usuń"
@@ -604,6 +621,7 @@ function BlockEditor({
   onMove: (dir: -1 | 1) => void;
   onRemove: () => void;
 }) {
+  const alert = useAlert();
   const isDropset = block.kind === "dropset";
 
   const updateItem = (iIdx: number, fn: (it: ItemForm) => ItemForm) =>
@@ -645,10 +663,13 @@ function BlockEditor({
     onChange({ ...block, items: newItems });
   };
 
-  const removeItem = (iIdx: number) => {
+  const removeItem = async (iIdx: number) => {
     const minItems = isDropset ? 2 : block.kind === "superset" ? 2 : 1;
     if (block.items.length <= minItems) {
-      alert(`Ten blok wymaga co najmniej ${minItems} ćwiczeń.`);
+      await alert(
+        `Ten blok wymaga co najmniej ${minItems} ${minItems === 1 ? "ćwiczenia" : "ćwiczeń"}.`,
+        "Nie można usunąć",
+      );
       return;
     }
     onChange({ ...block, items: block.items.filter((_, i) => i !== iIdx) });
