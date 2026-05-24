@@ -58,7 +58,7 @@ export function CopyButton({
     <button
       type="button"
       onClick={onCopy}
-      className={`${cls}${className ? " " + className : ""}`}
+      className={className ? `${cls} ${className}` : cls}
       aria-live="polite"
     >
       {copied ? (

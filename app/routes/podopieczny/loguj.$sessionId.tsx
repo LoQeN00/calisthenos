@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import {
   Form,
   Link,
@@ -155,9 +156,69 @@ export async function action(args: ActionFunctionArgs) {
   }
 }
 
+type SetState = { reps: string; difficulty: string };
+
 export default function LogForm() {
   const { user, session, entries } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+
+  // Lift set-level state up so we can compute progress + power the
+  // "copy from #1" affordance. The form's submit still relies on the
+  // name attributes on each input — we just control their values.
+  //
+  // reps starts empty (placeholder shows the target); picking difficulty
+  // auto-fills reps with the target. This way an untouched row stays a
+  // clean "skipped" submission instead of forcing the trainee to clear
+  // pre-filled numbers.
+  const [setStates, setSetStates] = useState<SetState[][]>(() =>
+    entries.map((entry) =>
+      Array.from({ length: entry.expectedSets }, () => ({
+        reps: "",
+        difficulty: "",
+      })),
+    ),
+  );
+
+  const updateSet = (eIdx: number, sIdx: number, patch: Partial<SetState>) => {
+    setSetStates((prev) =>
+      prev.map((sets, i) =>
+        i === eIdx
+          ? sets.map((s, j) => (j === sIdx ? { ...s, ...patch } : s))
+          : sets,
+      ),
+    );
+  };
+
+  const copyFromFirst = (eIdx: number) => {
+    setSetStates((prev) =>
+      prev.map((sets, i) => {
+        if (i !== eIdx) return sets;
+        const first = sets[0];
+        if (!first) return sets;
+        return sets.map((s, j) =>
+          j === 0
+            ? s
+            : {
+                reps: s.reps || first.reps,
+                difficulty: s.difficulty || first.difficulty,
+              },
+        );
+      }),
+    );
+  };
+
+  // Progress: a set counts as "filled" when both reps and difficulty are set.
+  const stats = useMemo(() => {
+    let total = 0;
+    let filled = 0;
+    for (const sets of setStates) {
+      for (const s of sets) {
+        total++;
+        if (s.reps.trim() !== "" && s.difficulty !== "") filled++;
+      }
+    }
+    return { total, filled };
+  }, [setStates]);
 
   return (
     <div>
@@ -169,7 +230,7 @@ export default function LogForm() {
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Nowa sesja
+            Nowa sesja · {entries.length} {pluralizeCwiczenie(entries.length)}
           </div>
           <h1>{session.name}</h1>
           <div className="sub">
@@ -179,28 +240,30 @@ export default function LogForm() {
       </div>
 
       <Form method="post" encType="multipart/form-data" style={{ display: "grid", gap: 14 }}>
-        <div className="card" style={{ display: "grid", gap: 14, gridTemplateColumns: "auto 1fr" }}>
-          <div className="field">
-            <label htmlFor="log-date">Data</label>
-            <input
-              id="log-date"
-              name="performedOn"
-              type="date"
-              required
-              defaultValue={todayISO()}
-              className="input"
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="log-note">Notatka (opcjonalnie)</label>
-            <input
-              id="log-note"
-              name="note"
-              type="text"
-              maxLength={2000}
-              placeholder="Jak było? Co czuć, co poszło dobrze…"
-              className="input"
-            />
+        <div className="card">
+          <div className="grid grid-2" style={{ gap: 14 }}>
+            <div className="field">
+              <label htmlFor="log-date">Data</label>
+              <input
+                id="log-date"
+                name="performedOn"
+                type="date"
+                required
+                defaultValue={todayISO()}
+                className="input"
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="log-note">Notatka (opcjonalnie)</label>
+              <input
+                id="log-note"
+                name="note"
+                type="text"
+                maxLength={2000}
+                placeholder="Jak było? Co czuć, co poszło dobrze…"
+                className="input"
+              />
+            </div>
           </div>
         </div>
 
@@ -211,7 +274,15 @@ export default function LogForm() {
           </div>
         ) : (
           entries.map((entry, eIdx) => (
-            <EntryCard key={`${entry.planItemId}-${eIdx}`} entry={entry} eIdx={eIdx} />
+            <EntryCard
+              key={`${entry.planItemId}-${eIdx}`}
+              entry={entry}
+              eIdx={eIdx}
+              totalEntries={entries.length}
+              sets={setStates[eIdx] ?? []}
+              onUpdateSet={(sIdx, patch) => updateSet(eIdx, sIdx, patch)}
+              onCopyFromFirst={() => copyFromFirst(eIdx)}
+            />
           ))
         )}
 
@@ -219,6 +290,10 @@ export default function LogForm() {
           <p role="alert" style={{ color: "var(--danger)", fontSize: 13, margin: 0 }}>
             {actionData.error}
           </p>
+        )}
+
+        {entries.length > 0 && (
+          <ProgressBar filled={stats.filled} total={stats.total} />
         )}
 
         <div className="row" style={{ gap: 8, marginTop: 6 }}>
@@ -242,27 +317,98 @@ export default function LogForm() {
   );
 }
 
+function ProgressBar({ filled, total }: { filled: number; total: number }) {
+  const pct = total === 0 ? 0 : Math.round((filled / total) * 100);
+  const complete = filled === total && total > 0;
+  return (
+    <div
+      className="card"
+      style={{
+        padding: "10px 14px",
+        background: complete ? "var(--accent-soft)" : "var(--surface)",
+        borderColor: complete ? "var(--accent)" : undefined,
+      }}
+    >
+      <div className="row between" style={{ marginBottom: 6, gap: 8 }}>
+        <span style={{ fontSize: 13, fontWeight: 500 }}>
+          {complete ? (
+            <>
+              <Icons.Check style={{ color: "var(--ok)" }} /> Wszystkie serie
+              wypełnione
+            </>
+          ) : (
+            <>
+              <span className="mono">{filled}</span> z{" "}
+              <span className="mono">{total}</span> {pluralizeSeria(total)}{" "}
+              wypełnion{filled === 1 ? "a" : "ych"}
+            </>
+          )}
+        </span>
+        <span className="mono text-xs muted">{pct}%</span>
+      </div>
+      <div
+        style={{
+          height: 4,
+          background: "var(--surface-2)",
+          borderRadius: 2,
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            width: `${pct}%`,
+            height: "100%",
+            background: complete ? "var(--ok)" : "var(--accent)",
+            transition: "width .15s ease, background .15s ease",
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function EntryCard({
   entry,
   eIdx,
+  totalEntries,
+  sets,
+  onUpdateSet,
+  onCopyFromFirst,
 }: {
   entry: import("~/lib/workouts").LoggingEntry;
   eIdx: number;
+  totalEntries: number;
+  sets: SetState[];
+  onUpdateSet: (sIdx: number, patch: Partial<SetState>) => void;
+  onCopyFromFirst: () => void;
 }) {
+  const showCopyButton = entry.expectedSets > 1;
+  const firstFilled =
+    sets.length > 0 &&
+    (sets[0]?.reps?.trim() !== "" || sets[0]?.difficulty !== "");
+
   return (
     <div className="card card-padless">
       <div
         className="row between"
-        style={{ padding: "12px 14px", borderBottom: "1px solid var(--line)", gap: 12 }}
+        style={{
+          padding: "12px 14px",
+          borderBottom: "1px solid var(--line)",
+          gap: 12,
+        }}
       >
-        <div>
-          <div style={{ fontSize: 15, fontWeight: 600 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            className="row"
+            style={{ gap: 8, alignItems: "baseline", flexWrap: "wrap" }}
+          >
+            <span className="mono text-xs muted">
+              Ćwiczenie {eIdx + 1}/{totalEntries}
+            </span>
+            {entry.isDropsetItem && <span className="badge">dropset</span>}
+          </div>
+          <div style={{ fontSize: 15, fontWeight: 600, marginTop: 2 }}>
             {entry.exerciseName}
-            {entry.isDropsetItem && (
-              <span className="badge" style={{ marginLeft: 8 }}>
-                dropset
-              </span>
-            )}
           </div>
           <div className="text-xs muted" style={{ marginTop: 3 }}>
             Cel: <strong className="mono" style={{ color: "var(--ink)" }}>{entry.expectedSets}</strong>{" "}
@@ -283,17 +429,31 @@ function EntryCard({
             </div>
           )}
         </div>
+        {showCopyButton && (
+          <button
+            type="button"
+            onClick={onCopyFromFirst}
+            disabled={!firstFilled}
+            className="btn btn-sm"
+            title="Skopiuj liczby i trudność z serii #1 do pozostałych pustych"
+            style={{ flexShrink: 0 }}
+          >
+            Wypełnij jak #1
+          </button>
+        )}
       </div>
 
       <div style={{ padding: 12, display: "grid", gap: 10 }}>
-        {Array.from({ length: entry.expectedSets }).map((_, sIdx) => (
+        {sets.map((set, sIdx) => (
           <SetRow
             // biome-ignore lint/suspicious/noArrayIndexKey: deterministic enumeration; rows never reorder.
             key={sIdx}
             eIdx={eIdx}
             sIdx={sIdx}
             unit={entry.unit}
-            defaultReps={entry.expectedReps}
+            expectedReps={entry.expectedReps}
+            set={set}
+            onChange={(patch) => onUpdateSet(sIdx, patch)}
           />
         ))}
       </div>
@@ -311,14 +471,30 @@ function SetRow({
   eIdx,
   sIdx,
   unit,
-  defaultReps,
+  expectedReps,
+  set,
+  onChange,
 }: {
   eIdx: number;
   sIdx: number;
   unit: "REPS" | "SEC";
-  defaultReps: number;
+  expectedReps: number;
+  set: SetState;
+  onChange: (patch: Partial<SetState>) => void;
 }) {
   const diffName = `e_${eIdx}_s_${sIdx}_diff`;
+
+  // Picking a difficulty implies "I did this set" — backfill reps with the
+  // target so the trainee doesn't have to type a number they hit on plan.
+  // They can still override afterwards.
+  const onDifficultyChange = (v: string) => {
+    if (!set.reps.trim()) {
+      onChange({ difficulty: v, reps: String(expectedReps) });
+    } else {
+      onChange({ difficulty: v });
+    }
+  };
+
   return (
     <div
       style={{
@@ -355,7 +531,9 @@ function SetRow({
             min={1}
             max={1000}
             inputMode="numeric"
-            defaultValue={defaultReps}
+            value={set.reps}
+            placeholder={String(expectedReps)}
+            onChange={(e) => onChange({ reps: e.target.value })}
             className="input input-num"
           />
         </div>
@@ -375,12 +553,14 @@ function SetRow({
         </div>
         <div className="diff-radio">
           {Array.from({ length: 10 }, (_, i) => i + 1).map((v) => (
-            <div key={v} style={{ position: "relative" }}>
+            <div key={v}>
               <input
                 id={`${diffName}-${v}`}
                 name={diffName}
                 type="radio"
                 value={v}
+                checked={set.difficulty === String(v)}
+                onChange={() => onDifficultyChange(String(v))}
               />
               <label htmlFor={`${diffName}-${v}`} data-tier={tierFor(v)}>
                 {v}
@@ -391,4 +571,22 @@ function SetRow({
       </div>
     </div>
   );
+}
+
+function pluralizeCwiczenie(n: number): string {
+  if (n === 1) return "ćwiczenie";
+  const lastTwo = n % 100;
+  const last = n % 10;
+  if (lastTwo >= 12 && lastTwo <= 14) return "ćwiczeń";
+  if (last >= 2 && last <= 4) return "ćwiczenia";
+  return "ćwiczeń";
+}
+
+function pluralizeSeria(n: number): string {
+  if (n === 1) return "seria";
+  const lastTwo = n % 100;
+  const last = n % 10;
+  if (lastTwo >= 12 && lastTwo <= 14) return "serii";
+  if (last >= 2 && last <= 4) return "serie";
+  return "serii";
 }

@@ -1,24 +1,57 @@
+import { and, count, eq, gte } from "drizzle-orm";
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
+import * as schema from "~/lib/db/schema";
 import { daysAgo, fmtDate, fmtDateShort } from "~/lib/format";
 import {
   listLogsForTrainee,
   loadActivePlanSummaryForTrainee,
 } from "~/lib/workouts";
 
+function isoDaysAgo(n: number): string {
+  return new Date(Date.now() - n * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+}
+
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainee" });
   const planSummary = await loadActivePlanSummaryForTrainee(db, user.id);
   const recent = await listLogsForTrainee(db, user.id, { limit: 5 });
-  return { user, planSummary, recent };
+
+  const sevenDaysAgo = isoDaysAgo(7);
+  const [weekRow] = await db
+    .select({ c: count() })
+    .from(schema.workoutLogs)
+    .where(
+      and(
+        eq(schema.workoutLogs.traineeId, user.id),
+        gte(schema.workoutLogs.performedOn, sevenDaysAgo),
+      ),
+    );
+  const [totalRow] = await db
+    .select({ c: count() })
+    .from(schema.workoutLogs)
+    .where(eq(schema.workoutLogs.traineeId, user.id));
+
+  return {
+    user,
+    planSummary,
+    recent,
+    stats: {
+      weekSessions: Number(weekRow?.c ?? 0),
+      totalSessions: Number(totalRow?.c ?? 0),
+    },
+  };
 }
 
 export default function TraineeDashboard() {
-  const { user, planSummary, recent } = useLoaderData<typeof loader>();
+  const { user, planSummary, recent, stats } = useLoaderData<typeof loader>();
 
   const firstName = user.displayName.split(" ")[0] ?? user.displayName;
+  const lastSessionLabel = recent[0]?.performedOn ? daysAgo(recent[0].performedOn) : null;
 
   return (
     <div>
@@ -47,6 +80,45 @@ export default function TraineeDashboard() {
           </Link>
         )}
       </div>
+
+      {stats.totalSessions > 0 && (
+        <div
+          className="card"
+          style={{
+            display: "flex",
+            gap: 28,
+            padding: "16px 20px",
+            marginBottom: 20,
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <div className="stat">
+            <div className="v">{stats.weekSessions}</div>
+            <div className="k">w tym tygodniu</div>
+          </div>
+          <span className="vdiv" style={{ height: 36 }} />
+          <Link
+            to="/podopieczny/historia"
+            className="stat"
+            style={{ textDecoration: "none" }}
+          >
+            <div className="v">{stats.totalSessions}</div>
+            <div className="k">łącznie sesji</div>
+          </Link>
+          {lastSessionLabel && (
+            <>
+              <span className="vdiv" style={{ height: 36 }} />
+              <div className="stat">
+                <div className="v" style={{ fontSize: 18 }}>
+                  {lastSessionLabel}
+                </div>
+                <div className="k">ostatnia sesja</div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {planSummary == null ? (
         <div className="empty" style={{ marginBottom: 22 }}>

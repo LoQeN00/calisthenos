@@ -134,9 +134,9 @@ export default function TrenerPodopiecznyDetail() {
       </div>
 
       {actionData != null && "success" in actionData && actionData.success != null && (
-        <p
-          role="status"
+        <output
           style={{
+            display: "block",
             color: "var(--ok)",
             fontSize: 13,
             marginBottom: 14,
@@ -147,7 +147,7 @@ export default function TrenerPodopiecznyDetail() {
           }}
         >
           {actionData.success}
-        </p>
+        </output>
       )}
       {actionData != null && "error" in actionData && actionData.error != null && (
         <p
@@ -184,7 +184,10 @@ export default function TrenerPodopiecznyDetail() {
               <h2 style={{ fontSize: 19, marginBottom: 4 }}>{activePlan.name}</h2>
             </div>
             <div className="row" style={{ gap: 8 }}>
-              <Link to={`/trener/plany/${activePlan.id}`} className="btn">
+              <Link to={`/trener/plany/${activePlan.id}`} className="btn btn-ghost">
+                Pokaż
+              </Link>
+              <Link to={`/trener/plany/${activePlan.id}?edit=1`} className="btn">
                 <Icons.Edit /> Edytuj plan
               </Link>
               <DeletePlanForm planId={activePlan.id} planName={activePlan.name} />

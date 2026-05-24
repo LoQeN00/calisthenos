@@ -120,7 +120,10 @@ export default function TrenerPodopieczniList() {
                 maxLength={80}
                 placeholder="np. Mateusz Kozłowski"
                 className="input"
-                autoFocus
+                ref={(el) => {
+                  // Focus the first field when the modal mounts.
+                  el?.focus();
+                }}
               />
             </div>
             <div className="field">

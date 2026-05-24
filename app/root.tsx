@@ -1,6 +1,7 @@
 import "~/styles/tokens.css";
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { ConfirmProvider } from "~/components/confirm-provider";
+import { ToastProvider } from "~/components/toast-provider";
 import { maybePruneExpiredSessions } from "~/lib/auth/session";
 import { db } from "~/lib/db/client";
 
@@ -63,7 +64,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Links />
       </head>
       <body>
-        <ConfirmProvider>{children}</ConfirmProvider>
+        <ToastProvider>
+          <ConfirmProvider>{children}</ConfirmProvider>
+        </ToastProvider>
         <ScrollRestoration />
         <Scripts />
       </body>

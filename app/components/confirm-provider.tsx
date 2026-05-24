@@ -101,8 +101,10 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                 className={
                   pending.destructive ? "btn btn-danger" : "btn btn-primary"
                 }
-                // eslint-disable-next-line jsx-a11y/no-autofocus
-                autoFocus
+                ref={(el) => {
+                  // Focus the confirm button when it mounts so Enter confirms.
+                  el?.focus();
+                }}
               >
                 {pending.confirmText ?? "Potwierdź"}
               </button>

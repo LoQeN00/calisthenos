@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, gte } from "drizzle-orm";
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { requireUser } from "~/lib/auth";
@@ -6,6 +6,12 @@ import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import { daysAgo, fmtDate } from "~/lib/format";
 import { listClientsForTrainer } from "~/lib/workouts";
+
+function isoDaysAgo(n: number): string {
+  return new Date(Date.now() - n * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+}
 
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainer" });
@@ -23,6 +29,30 @@ export async function loader(args: LoaderFunctionArgs) {
     .orderBy(desc(schema.workoutLogs.performedOn), desc(schema.workoutLogs.createdAt))
     .limit(6);
 
+  const sevenDaysAgo = isoDaysAgo(7);
+
+  const [activePlansRow] = await db
+    .select({ c: count() })
+    .from(schema.plans)
+    .where(
+      and(eq(schema.plans.trainerId, user.id), eq(schema.plans.status, "active")),
+    );
+  const [draftsRow] = await db
+    .select({ c: count() })
+    .from(schema.plans)
+    .where(
+      and(eq(schema.plans.trainerId, user.id), eq(schema.plans.status, "draft")),
+    );
+  const [weekSessionsRow] = await db
+    .select({ c: count() })
+    .from(schema.workoutLogs)
+    .where(
+      and(
+        eq(schema.workoutLogs.trainerId, user.id),
+        gte(schema.workoutLogs.performedOn, sevenDaysAgo),
+      ),
+    );
+
   return {
     user,
     clients,
@@ -33,29 +63,80 @@ export async function loader(args: LoaderFunctionArgs) {
       traineeId: r.trainee.id,
       traineeName: r.trainee.displayName,
     })),
+    stats: {
+      activePlans: Number(activePlansRow?.c ?? 0),
+      drafts: Number(draftsRow?.c ?? 0),
+      weekSessions: Number(weekSessionsRow?.c ?? 0),
+    },
   };
 }
 
 export default function TrenerPulpit() {
-  const { user, clients, recentLogs } = useLoaderData<typeof loader>();
+  const { user, clients, recentLogs, stats } = useLoaderData<typeof loader>();
   const greeting = user.displayName.split(" ")[0] ?? user.displayName;
+  const noClients = clients.length === 0;
 
   return (
     <div>
       <div className="pagehead">
         <div>
-          <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Trener · {user.displayName}
-          </div>
-          <h1>Pulpit</h1>
+          <h1>Cześć, {greeting}</h1>
           <div className="sub">
-            Cześć, {greeting}. {clients.length === 0 ? "Zaproś pierwszego podopiecznego, by zacząć." : `${clients.length} ${pluralizeOsoba(clients.length)}.`}
+            {noClients
+              ? "Zaproś pierwszego podopiecznego, by zacząć."
+              : `${clients.length} ${pluralizeOsoba(clients.length)}.`}
           </div>
         </div>
-        <Link to="/trener/biblioteka/nowe" className="btn btn-primary">
-          <Icons.Plus /> Nowe ćwiczenie
-        </Link>
+        {noClients ? (
+          <Link to="/trener/podopieczni" className="btn btn-primary">
+            <Icons.Plus /> Zaproś podopiecznego
+          </Link>
+        ) : (
+          <Link to="/trener/plany/nowy" className="btn btn-primary">
+            <Icons.Plus /> Nowy plan
+          </Link>
+        )}
       </div>
+
+      {!noClients && (
+        <div
+          className="card"
+          style={{
+            display: "flex",
+            gap: 28,
+            padding: "16px 20px",
+            marginBottom: 22,
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <Link
+            to="/trener/plany?status=active"
+            className="stat"
+            style={{ textDecoration: "none" }}
+          >
+            <div className="v">{stats.activePlans}</div>
+            <div className="k">aktywnych planów</div>
+          </Link>
+          <span className="vdiv" style={{ height: 36 }} />
+          <div className="stat">
+            <div className="v">{stats.weekSessions}</div>
+            <div className="k">sesji w 7 dni</div>
+          </div>
+          <span className="vdiv" style={{ height: 36 }} />
+          <Link
+            to="/trener/plany?status=draft"
+            className="stat"
+            style={{
+              textDecoration: "none",
+              color: stats.drafts > 0 ? "var(--warn)" : undefined,
+            }}
+          >
+            <div className="v">{stats.drafts}</div>
+            <div className="k">draftów</div>
+          </Link>
+        </div>
+      )}
 
       <div className="grid" style={{ gridTemplateColumns: "1.5fr 1fr", gap: 22 }}>
         <section>

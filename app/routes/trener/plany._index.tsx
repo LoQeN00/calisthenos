@@ -138,9 +138,9 @@ export default function PlanyList() {
       </div>
 
       {actionData != null && "success" in actionData && actionData.success != null && (
-        <p
-          role="status"
+        <output
           style={{
+            display: "block",
             color: "var(--ok)",
             fontSize: 13,
             marginBottom: 14,
@@ -151,7 +151,7 @@ export default function PlanyList() {
           }}
         >
           {actionData.success}
-        </p>
+        </output>
       )}
       {actionData != null && "error" in actionData && actionData.error != null && (
         <p
