@@ -202,4 +202,11 @@ export const Icons = {
     </>,
   ),
   Drop: makeIcon(<path d="M12 3s-7 8-7 13a7 7 0 0 0 14 0c0-5-7-13-7-13z" />),
+  LogOut: makeIcon(
+    <>
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <path d="m16 17 5-5-5-5" />
+      <path d="M21 12H9" />
+    </>,
+  ),
 };

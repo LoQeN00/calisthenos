@@ -20,7 +20,9 @@ import { useToast } from "~/components/toast-provider";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
-import { fmtDate } from "~/lib/format";
+import { fmtDate, pluralizePl, type PlForms } from "~/lib/format";
+
+const BLOK: PlForms = { one: "blok", few: "bloki", many: "bloków" };
 import {
   type BlockForm,
   type ItemForm,
@@ -735,7 +737,7 @@ function ViewSessionCard({
         <span className="mono text-xs muted">
           {session.blocks.length === 0
             ? "pusta"
-            : `${session.blocks.length} ${pluralizeBlok(session.blocks.length)}`}
+            : `${session.blocks.length} ${pluralizePl(session.blocks.length, BLOK)}`}
         </span>
       </div>
       {session.blocks.length === 0 ? (
@@ -967,7 +969,7 @@ function SessionCard({
           <span className="mono text-xs muted" style={{ flexShrink: 0 }}>
             {session.blocks.length === 0
               ? "pusta"
-              : `${session.blocks.length} ${pluralizeBlok(session.blocks.length)}`}
+              : `${session.blocks.length} ${pluralizePl(session.blocks.length, BLOK)}`}
           </span>
         )}
         <button
@@ -1124,14 +1126,6 @@ function SessionSummary({
   );
 }
 
-function pluralizeBlok(n: number): string {
-  if (n === 1) return "blok";
-  const lastTwo = n % 100;
-  const last = n % 10;
-  if (lastTwo >= 12 && lastTwo <= 14) return "bloków";
-  if (last >= 2 && last <= 4) return "bloki";
-  return "bloków";
-}
 
 // ============================================================
 // BlockEditor

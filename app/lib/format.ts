@@ -40,3 +40,29 @@ export function todayISO(): string {
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
+
+/**
+ * Polish noun pluralization. Pass three forms (1 / 2-4 / 5+) — covers all
+ * Polish numbers via the `12-14` special-case rule.
+ *
+ *   pluralizePl(1, { one: "sesja", few: "sesje", many: "sesji" })   // "sesja"
+ *   pluralizePl(3, ...)                                              // "sesje"
+ *   pluralizePl(13, ...)                                             // "sesji"
+ */
+export interface PlForms {
+  /** Form for n === 1 (e.g. "sesja"). */
+  one: string;
+  /** Form for n ending in 2-4 except teens (e.g. "sesje"). */
+  few: string;
+  /** Form for everything else (e.g. "sesji"). */
+  many: string;
+}
+
+export function pluralizePl(n: number, forms: PlForms): string {
+  if (n === 1) return forms.one;
+  const lastTwo = n % 100;
+  const last = n % 10;
+  if (lastTwo >= 12 && lastTwo <= 14) return forms.many;
+  if (last >= 2 && last <= 4) return forms.few;
+  return forms.many;
+}

@@ -10,7 +10,9 @@ import {
 } from "react-router";
 import { ConfirmSubmitButton } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
+import { Pagination, parsePage } from "~/components/pagination";
 import { requireUser } from "~/lib/auth";
+import { pluralizePl, type PlForms } from "~/lib/format";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import { fmtDate } from "~/lib/format";
@@ -24,10 +26,14 @@ function parseStatus(raw: string | null): StatusTab {
   return (STATUS_TABS as readonly string[]).includes(raw) ? (raw as StatusTab) : "all";
 }
 
+const PAGE_SIZE = 20;
+const PLAN: PlForms = { one: "plan", few: "plany", many: "planów" };
+
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainer" });
   const url = new URL(args.request.url);
   const status = parseStatus(url.searchParams.get("status"));
+  const page = parsePage(url.searchParams);
 
   const sessionCountSub = db.$with("session_counts").as(
     db
@@ -41,20 +47,7 @@ export async function loader(args: LoaderFunctionArgs) {
     conditions.push(eq(schema.plans.status, status));
   }
 
-  const rows = await db
-    .with(sessionCountSub)
-    .select({
-      plan: schema.plans,
-      trainee: { id: schema.users.id, displayName: schema.users.displayName },
-      sessionCount: sql<number>`COALESCE(${sessionCountSub.c}, 0)::int`,
-    })
-    .from(schema.plans)
-    .innerJoin(schema.users, eq(schema.users.id, schema.plans.traineeId))
-    .leftJoin(sessionCountSub, eq(sessionCountSub.planId, schema.plans.id))
-    .where(and(...conditions))
-    .orderBy(sql`${schema.plans.createdAt} DESC`);
-
-  // Counts for tab badges. One query, grouped by status.
+  // Tab badge counts (always all four).
   const statusCounts = await db
     .select({ status: schema.plans.status, c: count() })
     .from(schema.plans)
@@ -71,6 +64,26 @@ export async function loader(args: LoaderFunctionArgs) {
     counts.all += Number(r.c);
   }
 
+  const total = counts[status];
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const offset = (safePage - 1) * PAGE_SIZE;
+
+  const rows = await db
+    .with(sessionCountSub)
+    .select({
+      plan: schema.plans,
+      trainee: { id: schema.users.id, displayName: schema.users.displayName },
+      sessionCount: sql<number>`COALESCE(${sessionCountSub.c}, 0)::int`,
+    })
+    .from(schema.plans)
+    .innerJoin(schema.users, eq(schema.users.id, schema.plans.traineeId))
+    .leftJoin(sessionCountSub, eq(sessionCountSub.planId, schema.plans.id))
+    .where(and(...conditions))
+    .orderBy(sql`${schema.plans.createdAt} DESC`)
+    .limit(PAGE_SIZE)
+    .offset(offset);
+
   const items = rows.map((r) => ({
     id: r.plan.id,
     name: r.plan.name,
@@ -82,7 +95,7 @@ export async function loader(args: LoaderFunctionArgs) {
     sessionCount: r.sessionCount,
   }));
 
-  return { items, status, counts };
+  return { items, status, counts, page: safePage, totalPages, total };
 }
 
 export async function action(args: ActionFunctionArgs) {
@@ -107,7 +120,8 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function PlanyList() {
-  const { items, status, counts } = useLoaderData<typeof loader>();
+  const { items, status, counts, page, totalPages, total } =
+    useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [searchParams] = useSearchParams();
 
@@ -129,7 +143,7 @@ export default function PlanyList() {
           <div className="sub">
             {counts.all === 0
               ? "Brak planów."
-              : `${counts.all} ${pluralizePlan(counts.all)} łącznie · ${counts.active} aktywnych · ${counts.draft} draftów · ${counts.archived} w archiwum.`}
+              : `${counts.all} ${pluralizePl(counts.all, PLAN)} łącznie · ${counts.active} aktywnych · ${counts.draft} draftów · ${counts.archived} w archiwum.`}
           </div>
         </div>
         <Link to="/trener/plany/nowy" className="btn btn-primary">
@@ -296,6 +310,13 @@ export default function PlanyList() {
           ))}
         </div>
       )}
+
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        total={total}
+        totalLabel={pluralizePl(total, PLAN)}
+      />
     </div>
   );
 }
@@ -315,11 +336,3 @@ function StatusBadge({ status }: { status: "draft" | "active" | "archived" }) {
   );
 }
 
-function pluralizePlan(n: number): string {
-  if (n === 1) return "plan";
-  const lastTwo = n % 100;
-  const last = n % 10;
-  if (lastTwo >= 12 && lastTwo <= 14) return "planów";
-  if (last >= 2 && last <= 4) return "plany";
-  return "planów";
-}

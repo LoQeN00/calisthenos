@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq } from "drizzle-orm";
 import type { Db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import {
@@ -23,6 +23,7 @@ export interface BodyPhotoRow {
 export async function listBodyPhotosForTrainee(
   db: Db,
   traineeId: string,
+  opts: { limit?: number; offset?: number } = {},
 ): Promise<BodyPhotoRow[]> {
   const rows = await db
     .select({
@@ -32,7 +33,9 @@ export async function listBodyPhotosForTrainee(
     .from(schema.bodyPhotos)
     .innerJoin(schema.files, eq(schema.files.id, schema.bodyPhotos.fileId))
     .where(eq(schema.bodyPhotos.traineeId, traineeId))
-    .orderBy(desc(schema.bodyPhotos.takenOn), desc(schema.bodyPhotos.createdAt));
+    .orderBy(desc(schema.bodyPhotos.takenOn), desc(schema.bodyPhotos.createdAt))
+    .limit(opts.limit ?? 100)
+    .offset(opts.offset ?? 0);
 
   return rows.map((r) => ({
     id: r.photo.id,
@@ -43,6 +46,17 @@ export async function listBodyPhotosForTrainee(
     mimeType: r.mimeType,
     createdAt: r.photo.createdAt,
   }));
+}
+
+export async function countBodyPhotosForTrainee(
+  db: Db,
+  traineeId: string,
+): Promise<number> {
+  const [row] = await db
+    .select({ c: count() })
+    .from(schema.bodyPhotos)
+    .where(eq(schema.bodyPhotos.traineeId, traineeId));
+  return Number(row?.c ?? 0);
 }
 
 export class BodyPhotoError extends Error {

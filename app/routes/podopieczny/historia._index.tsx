@@ -1,18 +1,33 @@
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
+import { Pagination, parsePage } from "~/components/pagination";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
-import { fmtDate } from "~/lib/format";
-import { listLogsForTrainee } from "~/lib/workouts";
+import { fmtDate, pluralizePl, type PlForms } from "~/lib/format";
+import { countLogsForTrainee, listLogsForTrainee } from "~/lib/workouts";
+
+const PAGE_SIZE = 20;
+const SESJA: PlForms = { one: "sesja", few: "sesje", many: "sesji" };
 
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainee" });
-  const logs = await listLogsForTrainee(db, user.id);
-  return { logs };
+  const url = new URL(args.request.url);
+  const page = parsePage(url.searchParams);
+
+  const total = await countLogsForTrainee(db, user.id);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const offset = (safePage - 1) * PAGE_SIZE;
+
+  const logs = await listLogsForTrainee(db, user.id, {
+    limit: PAGE_SIZE,
+    offset,
+  });
+  return { logs, page: safePage, totalPages, total };
 }
 
 export default function TraineeHistoryList() {
-  const { logs } = useLoaderData<typeof loader>();
+  const { logs, page, totalPages, total } = useLoaderData<typeof loader>();
 
   return (
     <div>
@@ -23,14 +38,14 @@ export default function TraineeHistoryList() {
           </div>
           <h1>Historia treningów</h1>
           <div className="sub">
-            {logs.length === 0
+            {total === 0
               ? "Jeszcze nic nie zarejestrowano."
-              : `${logs.length} ${pluralizeSesja(logs.length)} łącznie.`}
+              : `${total} ${pluralizePl(total, SESJA)} łącznie.`}
           </div>
         </div>
       </div>
 
-      {logs.length === 0 ? (
+      {total === 0 ? (
         <div className="empty">
           <h3>Brak sesji</h3>
           <div>Zarejestruj pierwszą z pulpitu.</div>
@@ -59,15 +74,14 @@ export default function TraineeHistoryList() {
           ))}
         </div>
       )}
+
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        total={total}
+        totalLabel={pluralizePl(total, SESJA)}
+      />
     </div>
   );
 }
 
-function pluralizeSesja(n: number): string {
-  if (n === 1) return "sesja";
-  const lastTwo = n % 100;
-  const last = n % 10;
-  if (lastTwo >= 12 && lastTwo <= 14) return "sesji";
-  if (last >= 2 && last <= 4) return "sesje";
-  return "sesji";
-}

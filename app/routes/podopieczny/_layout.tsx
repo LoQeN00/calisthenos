@@ -1,12 +1,12 @@
 import { and, count, eq } from "drizzle-orm";
 import {
-  Form,
   NavLink,
   Outlet,
   useLoaderData,
   type LoaderFunctionArgs,
 } from "react-router";
 import { Icons } from "~/components/icons";
+import { UserMenu } from "~/components/user-menu";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
@@ -59,7 +59,6 @@ const NAV_ITEMS = [
 
 export default function PodopiecznyLayout() {
   const { user, tails } = useLoaderData<typeof loader>();
-  const initials = initialsOf(user.displayName);
 
   return (
     <div className="app">
@@ -69,20 +68,12 @@ export default function PodopiecznyLayout() {
           <span>calisthenos</span>
           <span className="brand-dot" />
         </div>
-        <span className="topbar-eyebrow">PODOPIECZNY · {user.displayName.toUpperCase()}</span>
+        <span className="topbar-eyebrow">PODOPIECZNY</span>
         <div className="topbar-spacer" />
-        <div className="userchip">
-          <span className="avatar">{initials}</span>
-          <span>{user.displayName}</span>
-        </div>
-        <Form method="post" action="/wyloguj">
-          <button type="submit" className="btn btn-sm">
-            Wyloguj
-          </button>
-        </Form>
+        <UserMenu displayName={user.displayName} />
       </header>
       <div className="layout">
-        <nav className="sidenav">
+        <nav className="sidenav nav-tabs-bottom">
           <div className="sidenav-section">Podopieczny</div>
           {NAV_ITEMS.map((item) => {
             const Icon = Icons[item.icon];
@@ -109,9 +100,3 @@ export default function PodopiecznyLayout() {
   );
 }
 
-function initialsOf(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
-  return ((parts[0]?.[0] ?? "") + (parts[parts.length - 1]?.[0] ?? "")).toUpperCase();
-}

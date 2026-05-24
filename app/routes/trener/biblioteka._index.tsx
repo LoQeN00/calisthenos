@@ -1,16 +1,20 @@
-import { and, arrayContains, eq, ilike, isNull } from "drizzle-orm";
+import { and, arrayContains, count, eq, ilike, isNull } from "drizzle-orm";
+import { useEffect, useRef } from "react";
 import {
   Form,
   Link,
   useActionData,
   useLoaderData,
   useSearchParams,
+  useSubmit,
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
 import { ConfirmSubmitButton } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
+import { Pagination, parsePage } from "~/components/pagination";
 import { requireUser } from "~/lib/auth";
+import { pluralizePl, type PlForms } from "~/lib/format";
 import {
   CategoryError,
   addCategory,
@@ -21,11 +25,15 @@ import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import { signFileUrl } from "~/lib/files";
 
+const PAGE_SIZE = 24;
+const POZYCJA: PlForms = { one: "pozycja", few: "pozycje", many: "pozycji" };
+
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainer" });
   const url = new URL(args.request.url);
   const q = (url.searchParams.get("q") ?? "").trim();
   const tag = url.searchParams.get("tag") ?? "all";
+  const page = parsePage(url.searchParams);
 
   const categories = await listCategoriesForTrainer(db, user.id);
   const categoryNames = new Set(categories.map((c) => c.name));
@@ -41,12 +49,23 @@ export async function loader(args: LoaderFunctionArgs) {
     conditions.push(arrayContains(schema.exercises.tags, [tag]));
   }
 
+  const [totalRow] = await db
+    .select({ c: count() })
+    .from(schema.exercises)
+    .where(and(...conditions));
+  const total = Number(totalRow?.c ?? 0);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const offset = (safePage - 1) * PAGE_SIZE;
+
   const rows = await db
     .select({ exercise: schema.exercises, demoFile: schema.files })
     .from(schema.exercises)
     .leftJoin(schema.files, eq(schema.files.id, schema.exercises.demoFileId))
     .where(and(...conditions))
-    .orderBy(schema.exercises.name);
+    .orderBy(schema.exercises.name)
+    .limit(PAGE_SIZE)
+    .offset(offset);
 
   const items = rows.map((r) => ({
     id: r.exercise.id,
@@ -63,7 +82,15 @@ export async function loader(args: LoaderFunctionArgs) {
         : null,
   }));
 
-  return { items, q, tag, categories };
+  return {
+    items,
+    q,
+    tag,
+    categories,
+    page: safePage,
+    totalPages,
+    total,
+  };
 }
 
 export async function action(args: ActionFunctionArgs) {
@@ -94,9 +121,27 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function BibliotekaList() {
-  const { items, q, tag, categories } = useLoaderData<typeof loader>();
+  const { items, q, tag, categories, page, totalPages, total } =
+    useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [searchParams] = useSearchParams();
+  const submit = useSubmit();
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Auto-submit the search form 300ms after the user stops typing.
+  // Replaces the history entry so the back button still does something useful.
+  const scheduleAutoSubmit = (form: HTMLFormElement) => {
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(() => {
+      submit(form, { method: "get", replace: true });
+    }, 300);
+  };
+  useEffect(
+    () => () => {
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    },
+    [],
+  );
 
   return (
     <div>
@@ -107,9 +152,9 @@ export default function BibliotekaList() {
           </div>
           <h1>Biblioteka ćwiczeń</h1>
           <div className="sub">
-            {items.length === 0
+            {total === 0
               ? "Brak ćwiczeń."
-              : `${items.length} ${pluralizePozycja(items.length)}.`}
+              : `${total} ${pluralizePl(total, POZYCJA)}.`}
           </div>
         </div>
         <Link to="/trener/biblioteka/nowe" className="btn btn-primary">
@@ -117,7 +162,12 @@ export default function BibliotekaList() {
         </Link>
       </div>
 
-      <Form method="get" className="row" style={{ gap: 8, marginBottom: 14 }}>
+      <Form
+        method="get"
+        className="row"
+        style={{ gap: 8, marginBottom: 14 }}
+        onChange={(e) => scheduleAutoSubmit(e.currentTarget)}
+      >
         <div className="input-search" style={{ flex: 1 }}>
           <Icons.Search />
           <input
@@ -125,12 +175,17 @@ export default function BibliotekaList() {
             defaultValue={q}
             placeholder="Szukaj po nazwie…"
             className="input"
+            type="search"
+            autoComplete="off"
           />
         </div>
         {tag !== "all" && <input type="hidden" name="tag" value={tag} />}
-        <button type="submit" className="btn">
-          Szukaj
-        </button>
+        {/* No-JS fallback: form still posts on Enter / button click. */}
+        <noscript>
+          <button type="submit" className="btn">
+            Szukaj
+          </button>
+        </noscript>
       </Form>
 
       <div className="row wrap" style={{ gap: 6, marginBottom: 8 }}>
@@ -293,6 +348,13 @@ export default function BibliotekaList() {
           ))}
         </div>
       )}
+
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        total={total}
+        totalLabel={pluralizePl(total, POZYCJA)}
+      />
     </div>
   );
 }
@@ -322,11 +384,3 @@ function FilterChip({
   );
 }
 
-function pluralizePozycja(n: number): string {
-  if (n === 1) return "pozycja";
-  const lastTwo = n % 100;
-  const last = n % 10;
-  if (lastTwo >= 12 && lastTwo <= 14) return "pozycji";
-  if (last >= 2 && last <= 4) return "pozycje";
-  return "pozycji";
-}

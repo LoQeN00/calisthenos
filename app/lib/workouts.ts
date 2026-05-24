@@ -350,14 +350,15 @@ async function statsForLogs(db: Db, logIds: string[]) {
 export async function listLogsForTrainee(
   db: Db,
   traineeId: string,
-  opts: { limit?: number } = {},
+  opts: { limit?: number; offset?: number } = {},
 ): Promise<WorkoutLogListItem[]> {
   const baseRows = await db
     .select()
     .from(schema.workoutLogs)
     .where(eq(schema.workoutLogs.traineeId, traineeId))
     .orderBy(desc(schema.workoutLogs.performedOn), desc(schema.workoutLogs.createdAt))
-    .limit(opts.limit ?? 200);
+    .limit(opts.limit ?? 200)
+    .offset(opts.offset ?? 0);
 
   const stats = await statsForLogs(db, baseRows.map((r) => r.id));
   return baseRows.map((r) => ({
@@ -370,6 +371,33 @@ export async function listLogsForTrainee(
     hasVideo: stats.get(r.id)?.hasVideo ?? false,
     avgDifficulty: stats.get(r.id)?.avgDifficulty ?? 0,
   }));
+}
+
+export async function countClientsForTrainer(
+  db: Db,
+  trainerId: string,
+): Promise<number> {
+  const [row] = await db
+    .select({ c: count() })
+    .from(schema.users)
+    .where(
+      and(
+        eq(schema.users.trainerId, trainerId),
+        eq(schema.users.role, "trainee"),
+      ),
+    );
+  return Number(row?.c ?? 0);
+}
+
+export async function countLogsForTrainee(
+  db: Db,
+  traineeId: string,
+): Promise<number> {
+  const [row] = await db
+    .select({ c: count() })
+    .from(schema.workoutLogs)
+    .where(eq(schema.workoutLogs.traineeId, traineeId));
+  return Number(row?.c ?? 0);
 }
 
 export interface WorkoutLogDetail {
@@ -469,7 +497,11 @@ export interface ClientStats {
   activePlanId: string | null;
 }
 
-export async function listClientsForTrainer(db: Db, trainerId: string): Promise<ClientStats[]> {
+export async function listClientsForTrainer(
+  db: Db,
+  trainerId: string,
+  opts: { limit?: number; offset?: number } = {},
+): Promise<ClientStats[]> {
   const clients = await db
     .select({
       id: schema.users.id,
@@ -483,7 +515,9 @@ export async function listClientsForTrainer(db: Db, trainerId: string): Promise<
         eq(schema.users.role, "trainee"),
       ),
     )
-    .orderBy(schema.users.displayName);
+    .orderBy(schema.users.displayName)
+    .limit(opts.limit ?? 200)
+    .offset(opts.offset ?? 0);
 
   if (clients.length === 0) return [];
   const ids = clients.map((c) => c.id);

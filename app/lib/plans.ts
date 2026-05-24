@@ -428,12 +428,21 @@ export async function deletePlan(
       return { kind: "deleted" };
     }
 
-    if (plan.status !== "archived") {
-      await tx
-        .update(schema.plans)
-        .set({ status: "archived" })
-        .where(eq(schema.plans.id, planId));
+    // Plan has logs. We can only archive it (smart-delete intent). Already
+    // archived → there's nothing left to do; the previous code silently
+    // returned a misleading "archived" success — bail out loudly instead so
+    // the user understands the action wasn't a no-op by accident.
+    if (plan.status === "archived") {
+      throw new PlanRepoError(
+        "archived with logs",
+        `Plan jest już zarchiwizowany i ma ${logCount} ${logCount === 1 ? "zapisaną sesję" : "zapisanych sesji"}. Historia treningów jest chroniona — całkowite usunięcie nie jest możliwe.`,
+      );
     }
+
+    await tx
+      .update(schema.plans)
+      .set({ status: "archived" })
+      .where(eq(schema.plans.id, planId));
     return { kind: "archived", logCount };
   });
 }

@@ -11,11 +11,17 @@ import { z } from "zod";
 import { CopyButton } from "~/components/copy-button";
 import { Icons } from "~/components/icons";
 import { Modal } from "~/components/modal";
+import { Pagination, parsePage } from "~/components/pagination";
 import { createInvite, requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import { getEnv } from "~/lib/env";
-import { daysAgo, fmtDate } from "~/lib/format";
-import { listClientsForTrainer } from "~/lib/workouts";
+import { daysAgo, fmtDate, pluralizePl, type PlForms } from "~/lib/format";
+
+const OSOBA: PlForms = { one: "osoba", few: "osoby", many: "osób" };
+import {
+  countClientsForTrainer,
+  listClientsForTrainer,
+} from "~/lib/workouts";
 
 const InviteSchema = z.object({
   displayName: z.string().trim().min(1, "Podaj imię i nazwisko.").max(80),
@@ -29,10 +35,23 @@ const InviteSchema = z.object({
     }),
 });
 
+const PAGE_SIZE = 30;
+
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainer" });
-  const clients = await listClientsForTrainer(db, user.id);
-  return { clients };
+  const url = new URL(args.request.url);
+  const page = parsePage(url.searchParams);
+
+  const total = await countClientsForTrainer(db, user.id);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const offset = (safePage - 1) * PAGE_SIZE;
+
+  const clients = await listClientsForTrainer(db, user.id, {
+    limit: PAGE_SIZE,
+    offset,
+  });
+  return { clients, page: safePage, totalPages, total };
 }
 
 export async function action(args: ActionFunctionArgs) {
@@ -64,7 +83,7 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function TrenerPodopieczniList() {
-  const { clients } = useLoaderData<typeof loader>();
+  const { clients, page, totalPages, total } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [showInviteModal, setShowInviteModal] = useState(false);
 
@@ -85,9 +104,9 @@ export default function TrenerPodopieczniList() {
           </div>
           <h1>Podopieczni</h1>
           <div className="sub">
-            {clients.length === 0
+            {total === 0
               ? "Brak podopiecznych. Wygeneruj pierwsze zaproszenie."
-              : `${clients.length} ${pluralizeOsoba(clients.length)}.`}
+              : `${total} ${pluralizePl(total, OSOBA)}.`}
           </div>
         </div>
         <button
@@ -159,7 +178,7 @@ export default function TrenerPodopieczniList() {
         </Form>
       </Modal>
 
-      {clients.length === 0 ? null : (
+      {total === 0 ? null : (
         <div className="list">
           <div
             className="list-head"
@@ -217,6 +236,13 @@ export default function TrenerPodopieczniList() {
           ))}
         </div>
       )}
+
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        total={total}
+        totalLabel={pluralizePl(total, OSOBA)}
+      />
     </div>
   );
 }
@@ -294,11 +320,3 @@ function initialsOf(name: string): string {
   return ((parts[0]?.[0] ?? "") + (parts[parts.length - 1]?.[0] ?? "")).toUpperCase();
 }
 
-function pluralizeOsoba(n: number): string {
-  if (n === 1) return "osoba";
-  const lastTwo = n % 100;
-  const last = n % 10;
-  if (lastTwo >= 12 && lastTwo <= 14) return "osób";
-  if (last >= 2 && last <= 4) return "osoby";
-  return "osób";
-}

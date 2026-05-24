@@ -9,16 +9,23 @@ import {
 } from "react-router";
 import { ConfirmSubmitButton } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
+import { Pagination, parsePage } from "~/components/pagination";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
-import { daysAgo, fmtDate } from "~/lib/format";
+import { daysAgo, fmtDate, pluralizePl, type PlForms } from "~/lib/format";
+
+const SESJA: PlForms = { one: "sesja", few: "sesje", many: "sesji" };
 import { deletePlan, PlanRepoError } from "~/lib/plans";
-import { listLogsForTrainee } from "~/lib/workouts";
+import { countLogsForTrainee, listLogsForTrainee } from "~/lib/workouts";
+
+const LOGS_PAGE_SIZE = 20;
 
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
+  const url = new URL(args.request.url);
+  const logsPage = parsePage(url.searchParams);
 
   const traineeRows = await db
     .select()
@@ -44,9 +51,25 @@ export async function loader(args: LoaderFunctionArgs) {
   const draftPlan = plans.find((p) => p.status === "draft") ?? null;
   const archivedPlans = plans.filter((p) => p.status === "archived");
 
-  const logs = await listLogsForTrainee(db, traineeId, { limit: 50 });
+  const totalLogs = await countLogsForTrainee(db, traineeId);
+  const totalLogPages = Math.max(1, Math.ceil(totalLogs / LOGS_PAGE_SIZE));
+  const safeLogsPage = Math.min(logsPage, totalLogPages);
+  const logsOffset = (safeLogsPage - 1) * LOGS_PAGE_SIZE;
+  const logs = await listLogsForTrainee(db, traineeId, {
+    limit: LOGS_PAGE_SIZE,
+    offset: logsOffset,
+  });
 
-  return { trainee, activePlan, draftPlan, archivedPlans, logs };
+  return {
+    trainee,
+    activePlan,
+    draftPlan,
+    archivedPlans,
+    logs,
+    logsPage: safeLogsPage,
+    totalLogPages,
+    totalLogs,
+  };
 }
 
 export async function action(args: ActionFunctionArgs) {
@@ -89,8 +112,16 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function TrenerPodopiecznyDetail() {
-  const { trainee, activePlan, draftPlan, archivedPlans, logs } =
-    useLoaderData<typeof loader>();
+  const {
+    trainee,
+    activePlan,
+    draftPlan,
+    archivedPlans,
+    logs,
+    logsPage,
+    totalLogPages,
+    totalLogs,
+  } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
 
   return (
@@ -107,14 +138,14 @@ export default function TrenerPodopiecznyDetail() {
             Podopieczny{trainee.joinedOn && ` · od ${fmtDate(trainee.joinedOn)}`}
           </div>
           <h1>{trainee.displayName}</h1>
-          {logs.length > 0 && logs[0] && (
+          {totalLogs > 0 && logs[0] && (
             <div className="sub">
               Ostatnia sesja{" "}
               <span style={{ color: "var(--ink-2)" }} className="mono">
                 {daysAgo(logs[0].performedOn)}
               </span>{" "}
-              · łącznie <span className="mono">{logs.length}</span>{" "}
-              {pluralizeSesja(logs.length)}
+              · łącznie <span className="mono">{totalLogs}</span>{" "}
+              {pluralizePl(totalLogs, SESJA)}
             </div>
           )}
         </div>
@@ -250,42 +281,50 @@ export default function TrenerPodopiecznyDetail() {
       )}
 
       <h2 style={{ margin: "28px 0 12px", fontSize: 17 }}>Historia treningów</h2>
-      {logs.length === 0 ? (
+      {totalLogs === 0 ? (
         <div className="empty">
           <h3>Brak sesji</h3>
           <div>Ten podopieczny jeszcze nic nie zarejestrował.</div>
         </div>
       ) : (
-        <div className="list">
-          {logs.map((log) => (
-            <Link
-              key={log.id}
-              to={`/trener/podopieczni/${trainee.id}/log/${log.id}`}
-              className="list-row"
-              style={{ gridTemplateColumns: "76px 1fr auto auto", gap: 14 }}
-            >
-              <div className="mono text-xs muted">{fmtDate(log.performedOn)}</div>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 500 }}>{log.sessionName}</div>
-                <div className="text-xs muted" style={{ marginTop: 2 }}>
-                  <span className="mono">{log.exerciseCount}</span> ćwiczeń ·{" "}
-                  <span className="mono">{log.setCount}</span> serii · śr.{" "}
-                  <span className="mono">{log.avgDifficulty}</span>/10
-                  {log.hasVideo && " · video"}
-                  {log.note && (
-                    <span style={{ fontStyle: "italic", color: "var(--ink-2)" }}>
-                      {" "}
-                      · „{log.note.slice(0, 40)}
-                      {log.note.length > 40 ? "…" : ""}"
-                    </span>
-                  )}
+        <>
+          <div className="list">
+            {logs.map((log) => (
+              <Link
+                key={log.id}
+                to={`/trener/podopieczni/${trainee.id}/log/${log.id}`}
+                className="list-row"
+                style={{ gridTemplateColumns: "76px 1fr auto auto", gap: 14 }}
+              >
+                <div className="mono text-xs muted">{fmtDate(log.performedOn)}</div>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 500 }}>{log.sessionName}</div>
+                  <div className="text-xs muted" style={{ marginTop: 2 }}>
+                    <span className="mono">{log.exerciseCount}</span> ćwiczeń ·{" "}
+                    <span className="mono">{log.setCount}</span> serii · śr.{" "}
+                    <span className="mono">{log.avgDifficulty}</span>/10
+                    {log.hasVideo && " · video"}
+                    {log.note && (
+                      <span style={{ fontStyle: "italic", color: "var(--ink-2)" }}>
+                        {" "}
+                        · „{log.note.slice(0, 40)}
+                        {log.note.length > 40 ? "…" : ""}"
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
-              <DifficultyBadge avg={log.avgDifficulty} />
-              <Icons.Chev style={{ color: "var(--muted-2)" }} />
-            </Link>
-          ))}
-        </div>
+                <DifficultyBadge avg={log.avgDifficulty} />
+                <Icons.Chev style={{ color: "var(--muted-2)" }} />
+              </Link>
+            ))}
+          </div>
+          <Pagination
+            page={logsPage}
+            totalPages={totalLogPages}
+            total={totalLogs}
+            totalLabel={pluralizePl(totalLogs, SESJA)}
+          />
+        </>
       )}
 
       {archivedPlans.length > 0 && (
@@ -393,11 +432,3 @@ function DifficultyBadge({ avg }: { avg: number }) {
   );
 }
 
-function pluralizeSesja(n: number): string {
-  if (n === 1) return "sesja";
-  const lastTwo = n % 100;
-  const last = n % 10;
-  if (lastTwo >= 12 && lastTwo <= 14) return "sesji";
-  if (last >= 2 && last <= 4) return "sesje";
-  return "sesji";
-}

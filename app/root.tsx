@@ -62,6 +62,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <link rel="apple-touch-icon" href="/icon.svg" />
         <Meta />
         <Links />
+        {/* No-FOUC theme initializer — reads the `theme` cookie set by the
+            UserMenu toggle and applies the dark class synchronously before
+            the page paints. Allowed by CSP (`script-src 'unsafe-inline'`). */}
+        <script
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: tiny synchronous init that has to run before paint.
+          dangerouslySetInnerHTML={{
+            __html:
+              "(function(){try{var m=document.cookie.match(/(?:^|; )theme=([^;]+)/);if(m&&m[1]==='dark'){document.documentElement.classList.add('theme-dark');}}catch(_){}})();",
+          }}
+        />
       </head>
       <body>
         <ToastProvider>

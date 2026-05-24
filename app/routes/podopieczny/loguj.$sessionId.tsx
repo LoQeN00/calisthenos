@@ -18,7 +18,7 @@ import {
   UploadError,
   uploadFile,
 } from "~/lib/file-uploads";
-import { todayISO } from "~/lib/format";
+import { pluralizePl, todayISO, type PlForms } from "~/lib/format";
 import {
   findActivePlanForTrainee,
   loadSessionForLogging,
@@ -158,6 +158,9 @@ export async function action(args: ActionFunctionArgs) {
 
 type SetState = { reps: string; difficulty: string };
 
+const CWICZENIE: PlForms = { one: "ćwiczenie", few: "ćwiczenia", many: "ćwiczeń" };
+const SERIA: PlForms = { one: "seria", few: "serie", many: "serii" };
+
 export default function LogForm() {
   const { user, session, entries } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
@@ -230,7 +233,7 @@ export default function LogForm() {
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Nowa sesja · {entries.length} {pluralizeCwiczenie(entries.length)}
+            Nowa sesja · {entries.length} {pluralizePl(entries.length, CWICZENIE)}
           </div>
           <h1>{session.name}</h1>
           <div className="sub">
@@ -339,7 +342,7 @@ function ProgressBar({ filled, total }: { filled: number; total: number }) {
           ) : (
             <>
               <span className="mono">{filled}</span> z{" "}
-              <span className="mono">{total}</span> {pluralizeSeria(total)}{" "}
+              <span className="mono">{total}</span> {pluralizePl(total, SERIA)}{" "}
               wypełnion{filled === 1 ? "a" : "ych"}
             </>
           )}
@@ -573,20 +576,3 @@ function SetRow({
   );
 }
 
-function pluralizeCwiczenie(n: number): string {
-  if (n === 1) return "ćwiczenie";
-  const lastTwo = n % 100;
-  const last = n % 10;
-  if (lastTwo >= 12 && lastTwo <= 14) return "ćwiczeń";
-  if (last >= 2 && last <= 4) return "ćwiczenia";
-  return "ćwiczeń";
-}
-
-function pluralizeSeria(n: number): string {
-  if (n === 1) return "seria";
-  const lastTwo = n % 100;
-  const last = n % 10;
-  if (lastTwo >= 12 && lastTwo <= 14) return "serii";
-  if (last >= 2 && last <= 4) return "serie";
-  return "serii";
-}

@@ -10,11 +10,13 @@ import { useEffect, useState } from "react";
 import { FileDropzone } from "~/components/file-dropzone";
 import { Icons } from "~/components/icons";
 import { Modal } from "~/components/modal";
+import { Pagination, parsePage } from "~/components/pagination";
 import { PhotoCard } from "~/components/photo-card";
 import { requireUser } from "~/lib/auth";
 import {
   addBodyPhoto,
   BodyPhotoError,
+  countBodyPhotosForTrainee,
   deleteBodyPhoto,
   listBodyPhotosForTrainee,
 } from "~/lib/body-photos";
@@ -34,11 +36,27 @@ const UploadSchema = z.object({
 
 const DELETE_ACTION_PATH = "/podopieczny/sylwetka";
 
+const PAGE_SIZE = 24;
+
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainee" });
-  const photos = await listBodyPhotosForTrainee(db, user.id);
+  const url = new URL(args.request.url);
+  const page = parsePage(url.searchParams);
+
+  const total = await countBodyPhotosForTrainee(db, user.id);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const offset = (safePage - 1) * PAGE_SIZE;
+
+  const photos = await listBodyPhotosForTrainee(db, user.id, {
+    limit: PAGE_SIZE,
+    offset,
+  });
   return {
     photos: photos.map((p) => ({ ...p, url: signFileUrl(p.fileId, user.id) })),
+    page: safePage,
+    totalPages,
+    total,
   };
 }
 
@@ -90,7 +108,7 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function TraineeBodyGallery() {
-  const { photos } = useLoaderData<typeof loader>();
+  const { photos, page, totalPages, total } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [showAddModal, setShowAddModal] = useState(false);
 
@@ -188,32 +206,40 @@ export default function TraineeBodyGallery() {
         </Form>
       </Modal>
 
-      {photos.length === 0 ? (
+      {total === 0 ? (
         <div className="empty">
           <h3>Brak zdjęć</h3>
           <div>Dodaj pierwsze powyżej.</div>
         </div>
       ) : (
-        <div
-          className="grid"
-          style={{
-            gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-            gap: 12,
-          }}
-        >
-          {photos.map((p) => (
-            <PhotoCard
-              key={p.id}
-              id={p.id}
-              url={p.url}
-              takenOn={p.takenOn}
-              view={p.view}
-              note={p.note}
-              canDelete
-              deleteAction={DELETE_ACTION_PATH}
-            />
-          ))}
-        </div>
+        <>
+          <div
+            className="grid"
+            style={{
+              gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+              gap: 12,
+            }}
+          >
+            {photos.map((p) => (
+              <PhotoCard
+                key={p.id}
+                id={p.id}
+                url={p.url}
+                takenOn={p.takenOn}
+                view={p.view}
+                note={p.note}
+                canDelete
+                deleteAction={DELETE_ACTION_PATH}
+              />
+            ))}
+          </div>
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            total={total}
+            totalLabel={total === 1 ? "zdjęcie" : "zdjęć"}
+          />
+        </>
       )}
     </div>
   );

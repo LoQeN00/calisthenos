@@ -4,7 +4,13 @@ import { Icons } from "~/components/icons";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
-import { daysAgo, fmtDate } from "~/lib/format";
+import { daysAgo, fmtDate, pluralizePl, type PlForms } from "~/lib/format";
+
+const OSOBA_AKTYWNA: PlForms = {
+  one: "osoba aktywna",
+  few: "osoby aktywne",
+  many: "osób aktywnych",
+};
 import { listClientsForTrainer } from "~/lib/workouts";
 
 function isoDaysAgo(n: number): string {
@@ -84,7 +90,7 @@ export default function TrenerPulpit() {
           <div className="sub">
             {noClients
               ? "Zaproś pierwszego podopiecznego, by zacząć."
-              : `${clients.length} ${pluralizeOsoba(clients.length)}.`}
+              : `${clients.length} ${pluralizePl(clients.length, OSOBA_AKTYWNA)}.`}
           </div>
         </div>
         {noClients ? (
@@ -233,11 +239,3 @@ function initialsOf(name: string): string {
   return ((parts[0]?.[0] ?? "") + (parts[parts.length - 1]?.[0] ?? "")).toUpperCase();
 }
 
-function pluralizeOsoba(n: number): string {
-  if (n === 1) return "osoba aktywna";
-  const lastTwo = n % 100;
-  const last = n % 10;
-  if (lastTwo >= 12 && lastTwo <= 14) return "osób aktywnych";
-  if (last >= 2 && last <= 4) return "osoby aktywne";
-  return "osób aktywnych";
-}
