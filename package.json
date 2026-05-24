@@ -2,7 +2,9 @@
   "name": "kalisthenos",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.0.0" },
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "dev": "react-router dev",
     "build": "react-router build",

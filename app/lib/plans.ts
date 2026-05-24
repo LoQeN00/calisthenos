@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, max } from "drizzle-orm";
+import { and, count, desc, eq, inArray, max } from "drizzle-orm";
 import type { Db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import type { PlanForm } from "~/lib/plan-types";
@@ -391,20 +391,50 @@ export async function publishPlan(db: Db, planId: string, trainerId: string): Pr
   });
 }
 
-/** Hard-delete a draft. Cascades to sessions/blocks/items. Verifies ownership. */
-export async function discardPlan(db: Db, planId: string, trainerId: string): Promise<void> {
-  await db.transaction(async (tx) => {
-    const rows = await tx
-      .select({ status: schema.plans.status })
+export type DeletePlanResult =
+  | { kind: "deleted" }
+  | { kind: "archived"; logCount: number };
+
+// Smart delete: hard-delete if no logs reference the plan; otherwise archive
+// to preserve historical sessions (workout_logs.plan_id is ON DELETE RESTRICT).
+export async function deletePlan(
+  db: Db,
+  planId: string,
+  trainerId: string,
+): Promise<DeletePlanResult> {
+  return await db.transaction(async (tx) => {
+    const planRows = await tx
+      .select()
       .from(schema.plans)
       .where(and(eq(schema.plans.id, planId), eq(schema.plans.trainerId, trainerId)))
+      .for("update")
       .limit(1);
-    const target = rows[0];
-    if (!target) return; // already gone or not owned — silent no-op is fine
-    if (target.status !== "draft") {
-      throw new PlanRepoError("not a draft", "Tylko draft można odrzucić.");
+    const plan = planRows[0];
+    if (!plan) {
+      throw new PlanRepoError(
+        "plan not found",
+        "Plan nie istnieje albo nie należy do Ciebie.",
+      );
     }
-    await tx.delete(schema.plans).where(eq(schema.plans.id, planId));
+
+    const logCountRows = await tx
+      .select({ c: count() })
+      .from(schema.workoutLogs)
+      .where(eq(schema.workoutLogs.planId, planId));
+    const logCount = Number(logCountRows[0]?.c ?? 0);
+
+    if (logCount === 0) {
+      await tx.delete(schema.plans).where(eq(schema.plans.id, planId));
+      return { kind: "deleted" };
+    }
+
+    if (plan.status !== "archived") {
+      await tx
+        .update(schema.plans)
+        .set({ status: "archived" })
+        .where(eq(schema.plans.id, planId));
+    }
+    return { kind: "archived", logCount };
   });
 }
 

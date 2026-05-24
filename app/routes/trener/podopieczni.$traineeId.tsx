@@ -1,10 +1,18 @@
 import { and, desc, eq } from "drizzle-orm";
-import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
+import {
+  Form,
+  Link,
+  useActionData,
+  useLoaderData,
+  type ActionFunctionArgs,
+  type LoaderFunctionArgs,
+} from "react-router";
 import { Icons } from "~/components/icons";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import { daysAgo, fmtDate } from "~/lib/format";
+import { deletePlan, PlanRepoError } from "~/lib/plans";
 import { listLogsForTrainee } from "~/lib/workouts";
 
 export async function loader(args: LoaderFunctionArgs) {
@@ -40,9 +48,49 @@ export async function loader(args: LoaderFunctionArgs) {
   return { trainee, activePlan, draftPlan, archivedPlans, logs };
 }
 
+export async function action(args: ActionFunctionArgs) {
+  const user = await requireUser(args.request, db, { role: "trainer" });
+  const traineeId = args.params.traineeId ?? "";
+
+  // Re-verify trainee ownership before any mutation.
+  const traineeRows = await db
+    .select({ id: schema.users.id })
+    .from(schema.users)
+    .where(
+      and(
+        eq(schema.users.id, traineeId),
+        eq(schema.users.trainerId, user.id),
+        eq(schema.users.role, "trainee"),
+      ),
+    )
+    .limit(1);
+  if (traineeRows.length === 0) {
+    throw new Response("not found", { status: 404 });
+  }
+
+  const fd = await args.request.formData();
+  const intent = fd.get("intent");
+  if (intent !== "delete-plan") return null;
+  const planId = String(fd.get("planId") ?? "");
+  if (!planId) return { error: "Brak id planu." };
+  try {
+    const result = await deletePlan(db, planId, user.id);
+    if (result.kind === "deleted") {
+      return { success: "Plan usunięty." };
+    }
+    return {
+      success: `Plan zarchiwizowany — ma ${result.logCount} zapisanych sesji, historia została zachowana.`,
+    };
+  } catch (e) {
+    if (e instanceof PlanRepoError) return { error: e.userMessage };
+    throw e;
+  }
+}
+
 export default function TrenerPodopiecznyDetail() {
   const { trainee, activePlan, draftPlan, archivedPlans, logs } =
     useLoaderData<typeof loader>();
+  const actionData = useActionData<typeof action>();
 
   return (
     <div>
@@ -84,6 +132,38 @@ export default function TrenerPodopiecznyDetail() {
         </div>
       </div>
 
+      {actionData != null && "success" in actionData && actionData.success != null && (
+        <p
+          role="status"
+          style={{
+            color: "var(--ok)",
+            fontSize: 13,
+            marginBottom: 14,
+            padding: "8px 12px",
+            border: "1px solid var(--ok)",
+            borderRadius: 8,
+            background: "var(--accent-soft)",
+          }}
+        >
+          {actionData.success}
+        </p>
+      )}
+      {actionData != null && "error" in actionData && actionData.error != null && (
+        <p
+          role="alert"
+          style={{
+            color: "var(--danger)",
+            fontSize: 13,
+            marginBottom: 14,
+            padding: "8px 12px",
+            border: "1px solid var(--danger)",
+            borderRadius: 8,
+          }}
+        >
+          {actionData.error}
+        </p>
+      )}
+
       {activePlan && (
         <div className="card" style={{ marginBottom: 14 }}>
           <div className="row between" style={{ alignItems: "flex-start" }}>
@@ -102,9 +182,12 @@ export default function TrenerPodopiecznyDetail() {
               </div>
               <h2 style={{ fontSize: 19, marginBottom: 4 }}>{activePlan.name}</h2>
             </div>
-            <Link to={`/trener/plany/${activePlan.id}`} className="btn">
-              <Icons.Edit /> Edytuj plan
-            </Link>
+            <div className="row" style={{ gap: 8 }}>
+              <Link to={`/trener/plany/${activePlan.id}`} className="btn">
+                <Icons.Edit /> Edytuj plan
+              </Link>
+              <DeletePlanForm planId={activePlan.id} planName={activePlan.name} />
+            </div>
           </div>
         </div>
       )}
@@ -138,9 +221,12 @@ export default function TrenerPodopiecznyDetail() {
                 niedokończony
               </div>
             </div>
-            <Link to={`/trener/plany/${draftPlan.id}`} className="btn btn-dark">
-              Wróć do edycji <Icons.Chev />
-            </Link>
+            <div className="row" style={{ gap: 8 }}>
+              <Link to={`/trener/plany/${draftPlan.id}`} className="btn btn-dark">
+                Wróć do edycji <Icons.Chev />
+              </Link>
+              <DeletePlanForm planId={draftPlan.id} planName={draftPlan.name} />
+            </div>
           </div>
         </div>
       )}
@@ -205,13 +291,30 @@ export default function TrenerPodopiecznyDetail() {
           </h2>
           <div className="col" style={{ gap: 8 }}>
             {archivedPlans.map((p) => (
-              <Link
+              <div
                 key={p.id}
-                to={`/trener/plany/${p.id}`}
                 className="card card-hover"
-                style={{ padding: "12px 14px" }}
+                style={{ padding: "12px 14px", position: "relative" }}
               >
-                <div className="row" style={{ gap: 10, alignItems: "flex-start" }}>
+                <Link
+                  to={`/trener/plany/${p.id}`}
+                  aria-label={`Otwórz archiwalny plan ${p.name}`}
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    zIndex: 1,
+                    borderRadius: "inherit",
+                  }}
+                />
+                <div
+                  className="row"
+                  style={{
+                    gap: 10,
+                    alignItems: "flex-start",
+                    position: "relative",
+                    zIndex: 0,
+                  }}
+                >
                   <Icons.Arch style={{ color: "var(--muted)", marginTop: 2 }} />
                   <div style={{ flex: 1 }}>
                     <div className="row" style={{ gap: 8, alignItems: "center" }}>
@@ -228,14 +331,44 @@ export default function TrenerPodopiecznyDetail() {
                       </div>
                     )}
                   </div>
+                  <div style={{ position: "relative", zIndex: 2 }}>
+                    <DeletePlanForm planId={p.id} planName={p.name} />
+                  </div>
                   <Icons.Chev style={{ color: "var(--muted-2)" }} />
                 </div>
-              </Link>
+              </div>
             ))}
           </div>
         </>
       )}
     </div>
+  );
+}
+
+function DeletePlanForm({ planId, planName }: { planId: string; planName: string }) {
+  return (
+    <Form method="post">
+      <input type="hidden" name="intent" value="delete-plan" />
+      <input type="hidden" name="planId" value={planId} />
+      <button
+        type="submit"
+        className="btn btn-icon btn-ghost"
+        style={{ color: "var(--danger)" }}
+        title="Usuń plan"
+        aria-label={`Usuń plan ${planName}`}
+        onClick={(e) => {
+          if (
+            !confirm(
+              `Usunąć plan „${planName}"?\n\nJeśli ma już zalogowane sesje, zostanie zarchiwizowany (historia zachowana). Inaczej — skasowany na stałe.`,
+            )
+          ) {
+            e.preventDefault();
+          }
+        }}
+      >
+        <Icons.X />
+      </button>
+    </Form>
   );
 }
 

@@ -21,7 +21,7 @@ import {
 } from "~/lib/plan-types";
 import {
   createDraftFromActive,
-  discardPlan,
+  deletePlan,
   findAnyDraftFor,
   loadPlanForTrainer,
   PlanRepoError,
@@ -112,8 +112,8 @@ export async function action(args: ActionFunctionArgs) {
   const intent = fd.get("intent");
 
   try {
-    if (intent === "discard") {
-      await discardPlan(db, planId, user.id);
+    if (intent === "delete") {
+      await deletePlan(db, planId, user.id);
       throw redirect("/trener/plany");
     }
 
@@ -382,15 +382,19 @@ export default function PlanEditor() {
           <button
             type="submit"
             name="intent"
-            value="discard"
+            value="delete"
             className="btn btn-danger"
             onClick={(e) => {
-              if (!confirm("Odrzucić ten draft? Niezapisane zmiany przepadną.")) {
+              if (
+                !confirm(
+                  `Usunąć plan „${plan.name}"?\n\nJeśli ma już zalogowane sesje podopiecznego, zostanie zarchiwizowany (historia zachowana). Jeśli nie — zostanie skasowany na stałe.`,
+                )
+              ) {
                 e.preventDefault();
               }
             }}
           >
-            Odrzuć draft
+            Usuń plan
           </button>
         </Form>
       </div>
