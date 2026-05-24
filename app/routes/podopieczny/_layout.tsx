@@ -66,7 +66,7 @@ export default function PodopiecznyLayout() {
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark" />
-          <span>kalisthenos</span>
+          <span>calisthenos</span>
           <span className="brand-dot" />
         </div>
         <span className="topbar-eyebrow">PODOPIECZNY · {user.displayName.toUpperCase()}</span>

@@ -85,7 +85,7 @@ export default function Login() {
       <div className="auth-card">
         <div className="brand" style={{ marginBottom: 18 }}>
           <span className="brand-mark" />
-          <span>kalisthenos</span>
+          <span>calisthenos</span>
           <span className="brand-dot" />
         </div>
         <div className="eyebrow" style={{ marginBottom: 6 }}>

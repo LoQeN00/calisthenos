@@ -1,6 +1,6 @@
 {
-  "name": "kalisthenos",
-  "short_name": "kalisthenos",
+  "name": "calisthenos",
+  "short_name": "calisthenos",
   "description": "Aplikacja do treningu kalistenicznego — trener i podopieczny w jednym miejscu.",
   "start_url": "/",
   "scope": "/",
