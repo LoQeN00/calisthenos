@@ -29,7 +29,12 @@ export async function loader(args: LoaderFunctionArgs) {
     })),
   }));
 
-  return { log: detail.log, trainee: detail.trainee, exercises };
+  return {
+    log: detail.log,
+    trainee: detail.trainee,
+    exercises,
+    totalExpectedSets: detail.totalExpectedSets,
+  };
 }
 
 function tone(diff: number): string {
@@ -46,8 +51,10 @@ function initialsOf(name: string): string {
 }
 
 export default function TrenerWorkoutLogDetail() {
-  const { log, trainee, exercises } = useLoaderData<typeof loader>();
+  const { log, trainee, exercises, totalExpectedSets } =
+    useLoaderData<typeof loader>();
   const totalSets = exercises.reduce((a, e) => a + e.sets.length, 0);
+  const skippedSets = Math.max(0, totalExpectedSets - totalSets);
   const allDiff = exercises.flatMap((e) => e.sets.map((s) => s.log.difficulty));
   const avgDiff =
     allDiff.length === 0
@@ -91,8 +98,23 @@ export default function TrenerWorkoutLogDetail() {
               <span className="mono" style={{ color: "var(--ink)", fontWeight: 600 }}>
                 {totalSets}
               </span>{" "}
-              serii
+              {totalExpectedSets > 0 ? (
+                <>
+                  z{" "}
+                  <span className="mono" style={{ color: "var(--ink)", fontWeight: 600 }}>
+                    {totalExpectedSets}
+                  </span>{" "}
+                  serii
+                </>
+              ) : (
+                "serii"
+              )}
             </span>
+            {skippedSets > 0 && (
+              <span style={{ color: "var(--warn)", fontWeight: 600 }}>
+                · {skippedSets} pominięt{skippedSets === 1 ? "a" : "ych"}
+              </span>
+            )}
             <span>·</span>
             <span>
               śr. trudność{" "}
@@ -152,6 +174,24 @@ export default function TrenerWorkoutLogDetail() {
             setCount === 0
               ? 0
               : ex.sets.reduce((a, s) => a + s.log.difficulty, 0) / setCount;
+          const skippedHere = Math.max(0, ex.expectedSets - setCount);
+
+          // Render a row per planned ordinal, looking up the logged set with
+          // matching ordinal. Missing ordinals = skipped. Falls back to
+          // whatever was logged if plan info is unavailable.
+          const setsByOrdinal = new Map(
+            ex.sets.map((s) => [s.log.ordinal, s]),
+          );
+          const lastLoggedOrdinal =
+            ex.sets.length > 0
+              ? Math.max(...ex.sets.map((s) => s.log.ordinal))
+              : -1;
+          const rowCount = Math.max(ex.expectedSets, lastLoggedOrdinal + 1);
+          const rows = Array.from({ length: rowCount }, (_, ordinal) => ({
+            ordinal,
+            logged: setsByOrdinal.get(ordinal) ?? null,
+          }));
+
           return (
             <div key={ex.log.id} className="card card-padless">
               <div
@@ -172,6 +212,19 @@ export default function TrenerWorkoutLogDetail() {
                     <span className={`badge${ex.exercise.unit === "REPS" ? " active" : ""}`}>
                       {ex.exercise.unit}
                     </span>
+                    {skippedHere > 0 && (
+                      <span
+                        className="badge"
+                        style={{
+                          background: "rgba(226, 162, 58, 0.12)",
+                          borderColor: "var(--warn)",
+                          color: "var(--warn)",
+                        }}
+                        title={`${skippedHere} z ${ex.expectedSets} serii pominięte`}
+                      >
+                        {setCount}/{ex.expectedSets} serii
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="row" style={{ gap: 18 }}>
@@ -239,63 +292,114 @@ export default function TrenerWorkoutLogDetail() {
                     <span className="label-mini">Wizualnie</span>
                     <span className="label-mini">Video</span>
                   </div>
-                  {ex.sets.map((s, sIdx) => (
-                    <div
-                      key={s.log.id}
-                      className="set-grid"
-                      style={{
-                        gridTemplateColumns: "44px 78px 70px 1fr 60px",
-                        padding: "8px 0",
-                        borderTop: sIdx > 0 ? "1px dashed var(--line)" : "none",
-                        alignItems: "center",
-                      }}
-                    >
-                      <span className="mono" style={{ fontWeight: 600 }}>
-                        #{sIdx + 1}
-                      </span>
-                      <span className="mono">
-                        <span style={{ fontWeight: 600, fontSize: 15 }}>{s.log.reps}</span>{" "}
-                        <span className="muted text-xs">
-                          {ex.exercise.unit === "SEC" ? "sek" : "rep"}
-                        </span>
-                      </span>
-                      <span
-                        className="mono"
+                  {rows.map(({ ordinal, logged }, rowIdx) =>
+                    logged == null ? (
+                      <div
+                        key={`skip-${ordinal}`}
                         style={{
-                          color: tone(s.log.difficulty),
-                          fontWeight: 600,
+                          display: "grid",
+                          gridTemplateColumns: "44px 1fr",
+                          padding: "8px 0",
+                          borderTop: rowIdx > 0 ? "1px dashed var(--line)" : "none",
+                          alignItems: "center",
+                          color: "var(--muted)",
+                          opacity: 0.75,
                         }}
                       >
-                        {s.log.difficulty}/10
-                      </span>
-                      <div style={{ display: "flex", gap: 2 }}>
-                        {Array.from({ length: 10 }, (_, n) => `cell-${n}`).map((cellKey, n) => (
-                          <div
-                            key={cellKey}
-                            style={{
-                              flex: 1,
-                              height: 6,
-                              borderRadius: 2,
-                              background:
-                                n < s.log.difficulty ? tone(s.log.difficulty) : "var(--surface-2)",
-                            }}
-                          />
-                        ))}
+                        <span className="mono" style={{ fontWeight: 600 }}>
+                          #{ordinal + 1}
+                        </span>
+                        <span
+                          className="mono"
+                          style={{
+                            fontSize: 11,
+                            textTransform: "uppercase",
+                            letterSpacing: ".08em",
+                            color: "var(--warn)",
+                            fontWeight: 600,
+                          }}
+                        >
+                          Pominięta
+                          {ex.expectedReps > 0 && (
+                            <span
+                              className="muted"
+                              style={{
+                                marginLeft: 8,
+                                textTransform: "none",
+                                letterSpacing: 0,
+                                fontWeight: 400,
+                              }}
+                            >
+                              · plan: {ex.expectedReps}{" "}
+                              {ex.exercise.unit === "SEC" ? "sek." : "powt."}
+                            </span>
+                          )}
+                        </span>
                       </div>
-                      <span>
-                        {s.videoUrl ? (
-                          <VideoButton
-                            src={s.videoUrl}
-                            title={`${ex.exercise.name} · seria ${sIdx + 1}`}
-                            label="video"
-                            size="sm"
-                          />
-                        ) : (
-                          <span className="mono text-xs muted">—</span>
-                        )}
-                      </span>
-                    </div>
-                  ))}
+                    ) : (
+                      <div
+                        key={logged.log.id}
+                        className="set-grid"
+                        style={{
+                          gridTemplateColumns: "44px 78px 70px 1fr 60px",
+                          padding: "8px 0",
+                          borderTop: rowIdx > 0 ? "1px dashed var(--line)" : "none",
+                          alignItems: "center",
+                        }}
+                      >
+                        <span className="mono" style={{ fontWeight: 600 }}>
+                          #{ordinal + 1}
+                        </span>
+                        <span className="mono">
+                          <span style={{ fontWeight: 600, fontSize: 15 }}>
+                            {logged.log.reps}
+                          </span>{" "}
+                          <span className="muted text-xs">
+                            {ex.exercise.unit === "SEC" ? "sek" : "rep"}
+                          </span>
+                        </span>
+                        <span
+                          className="mono"
+                          style={{
+                            color: tone(logged.log.difficulty),
+                            fontWeight: 600,
+                          }}
+                        >
+                          {logged.log.difficulty}/10
+                        </span>
+                        <div style={{ display: "flex", gap: 2 }}>
+                          {Array.from({ length: 10 }, (_, n) => `cell-${n}`).map(
+                            (cellKey, n) => (
+                              <div
+                                key={cellKey}
+                                style={{
+                                  flex: 1,
+                                  height: 6,
+                                  borderRadius: 2,
+                                  background:
+                                    n < logged.log.difficulty
+                                      ? tone(logged.log.difficulty)
+                                      : "var(--surface-2)",
+                                }}
+                              />
+                            ),
+                          )}
+                        </div>
+                        <span>
+                          {logged.videoUrl ? (
+                            <VideoButton
+                              src={logged.videoUrl}
+                              title={`${ex.exercise.name} · seria ${ordinal + 1}`}
+                              label="video"
+                              size="sm"
+                            />
+                          ) : (
+                            <span className="mono text-xs muted">—</span>
+                          )}
+                        </span>
+                      </div>
+                    ),
+                  )}
                 </div>
 
               </div>

@@ -70,14 +70,24 @@ export async function action(args: ActionFunctionArgs) {
   try {
     const exercisesPayload: Array<{
       exerciseId: string;
-      sets: Array<{ reps: number; difficulty: number; videoFileId: string | null }>;
+      sets: Array<{
+        ordinal: number;
+        reps: number;
+        difficulty: number;
+        videoFileId: string | null;
+      }>;
     }> = [];
 
     let anySetLogged = false;
     let allSetsFilled = true;
 
     for (const [eIdx, entry] of detail.entries.entries()) {
-      const sets: Array<{ reps: number; difficulty: number; videoFileId: string | null }> = [];
+      const sets: Array<{
+        ordinal: number;
+        reps: number;
+        difficulty: number;
+        videoFileId: string | null;
+      }> = [];
       for (let sIdx = 0; sIdx < entry.expectedSets; sIdx++) {
         const repsRaw = fd.get(`e_${eIdx}_s_${sIdx}_reps`);
         const diffRaw = fd.get(`e_${eIdx}_s_${sIdx}_diff`);
@@ -123,7 +133,7 @@ export async function action(args: ActionFunctionArgs) {
           videoFileId = uploaded.id;
         }
 
-        sets.push({ reps, difficulty, videoFileId });
+        sets.push({ ordinal: sIdx, reps, difficulty, videoFileId });
         anySetLogged = true;
       }
 

@@ -410,7 +410,13 @@ export interface WorkoutLogDetail {
       log: schema.WorkoutSetLog;
       videoFileId: string | null;
     }>;
+    /** Number of sets the plan expected at log time; 0 if plan data unavailable. */
+    expectedSets: number;
+    /** Planned reps/seconds per set; 0 if plan data unavailable. */
+    expectedReps: number;
   }>;
+  /** Sum of `expectedSets` across all exercises. 0 if plan unavailable. */
+  totalExpectedSets: number;
 }
 
 /** Load a workout log with all its details. Returns null if not visible to the viewer. */
@@ -452,7 +458,12 @@ export async function loadLogForViewer(
     .orderBy(schema.workoutExerciseLogs.ordinal);
 
   if (exLogs.length === 0) {
-    return { log: head.log, trainee: head.trainee, exercises: [] };
+    return {
+      log: head.log,
+      trainee: head.trainee,
+      exercises: [],
+      totalExpectedSets: 0,
+    };
   }
 
   const exLogIds = exLogs.map((e) => e.log.id);
@@ -469,17 +480,39 @@ export async function loadLogForViewer(
     setsByExLog.set(s.workoutExerciseLogId, list);
   }
 
-  return {
-    log: head.log,
-    trainee: head.trainee,
-    exercises: exLogs.map((e) => ({
+  // Reconstruct the planned entries for this session (same shape the logging
+  // form sees). Matched 1:1 by position with exLogs — that's the contract
+  // saveWorkoutLog upholds: one workout_exercise_log per plan entry, in
+  // entry order. If the plan can't be loaded (deleted? RESTRICT should make
+  // that impossible, but be defensive), fall back to 0 = "no expected info".
+  const planSession = await loadSessionForLogging(
+    db,
+    head.log.planId,
+    head.log.planSessionId,
+  );
+  const entries = planSession?.entries ?? [];
+
+  const exercises = exLogs.map((e, i) => {
+    const entry = entries[i];
+    return {
       log: e.log,
       exercise: e.exercise,
       sets: (setsByExLog.get(e.log.id) ?? []).map((s) => ({
         log: s,
         videoFileId: s.videoFileId,
       })),
-    })),
+      expectedSets: entry?.expectedSets ?? 0,
+      expectedReps: entry?.expectedReps ?? 0,
+    };
+  });
+
+  const totalExpectedSets = exercises.reduce((a, e) => a + e.expectedSets, 0);
+
+  return {
+    log: head.log,
+    trainee: head.trainee,
+    exercises,
+    totalExpectedSets,
   };
 }
 
@@ -574,6 +607,15 @@ export class WorkoutSaveError extends Error {
 }
 
 export interface SaveSetInput {
+  /**
+   * Original planned position of this set (0-indexed). Preserving it — rather
+   * than re-indexing on insert — lets the viewer detect *which* sets were
+   * skipped: any ordinal in [0, expectedSets) without a corresponding row is
+   * a skip. Old logs (saved before this change) have consecutive ordinals
+   * 0..n-1; in that case the missing tail is treated as "skipped at the end",
+   * which is still informative.
+   */
+  ordinal: number;
   reps: number;
   difficulty: number;
   videoFileId: string | null;
@@ -630,9 +672,9 @@ export async function saveWorkoutLog(
 
       if (ex.sets.length > 0) {
         await tx.insert(schema.workoutSetLogs).values(
-          ex.sets.map((s, sIdx) => ({
+          ex.sets.map((s) => ({
             workoutExerciseLogId: exLogId,
-            ordinal: sIdx,
+            ordinal: s.ordinal,
             reps: s.reps,
             difficulty: s.difficulty,
             videoFileId: s.videoFileId,
