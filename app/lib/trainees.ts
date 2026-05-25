@@ -1,0 +1,127 @@
+import { and, eq } from "drizzle-orm";
+import type { Db } from "~/lib/db/client";
+import * as schema from "~/lib/db/schema";
+import { deleteFileBlob } from "~/lib/file-uploads";
+
+export class TraineeDeleteError extends Error {
+  constructor(
+    message: string,
+    public readonly userMessage: string,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Permanently delete a trainee and everything they own.
+ *
+ * Cascade map (from schema):
+ * - plans.traineeId, workoutLogs.traineeId, bodyPhotos.traineeId, sessions.userId
+ *   → ON DELETE CASCADE. These cascade-delete automatically when the user is
+ *   removed, dragging their children with them (plan sessions/blocks/items,
+ *   workout exercise/set logs).
+ *
+ * What we have to handle manually:
+ * - `invites.consumed_by_user` / `invites.replaces_user_id`: no ON DELETE
+ *   defined → defaults to NO ACTION → would block. We NULL them first.
+ * - `files.uploaded_by`: ON DELETE RESTRICT → would block deletion. The trainee
+ *   only ever uploads `body_photo` and `set_video` files. We delete those file
+ *   rows (and their blobs post-commit) before deleting the user. We must drop
+ *   `body_photos` rows first because `body_photos.file_id` is RESTRICT.
+ *   `workout_set_logs.video_file_id` is SET NULL, so it doesn't block.
+ */
+export async function deleteTraineeFully(
+  db: Db,
+  trainerId: string,
+  traineeId: string,
+): Promise<{ displayName: string; deletedFiles: number }> {
+  // Verify ownership + role outside the tx so the error message is friendlier.
+  const traineeRows = await db
+    .select({
+      id: schema.users.id,
+      displayName: schema.users.displayName,
+      role: schema.users.role,
+      trainerId: schema.users.trainerId,
+    })
+    .from(schema.users)
+    .where(eq(schema.users.id, traineeId))
+    .limit(1);
+  const trainee = traineeRows[0];
+  if (!trainee || trainee.trainerId !== trainerId || trainee.role !== "trainee") {
+    throw new TraineeDeleteError(
+      `trainee ${traineeId} not owned by ${trainerId}`,
+      "Podopieczny nie istnieje albo nie należy do Ciebie.",
+    );
+  }
+
+  // Collect blob paths inside the tx, delete from disk only after commit.
+  const storagePaths = await db.transaction(async (tx) => {
+    // 1) Null out invite back-references (no ON DELETE defined on these FKs).
+    await tx
+      .update(schema.invites)
+      .set({ consumedByUser: null })
+      .where(eq(schema.invites.consumedByUser, traineeId));
+    await tx
+      .update(schema.invites)
+      .set({ replacesUserId: null })
+      .where(eq(schema.invites.replacesUserId, traineeId));
+
+    // 2) Drop the trainee's body photos first — body_photos.file_id is RESTRICT,
+    //    so the file rows can't be removed while a body_photo still references
+    //    them.
+    await tx
+      .delete(schema.bodyPhotos)
+      .where(eq(schema.bodyPhotos.traineeId, traineeId));
+
+    // 3) Delete every file the trainee uploaded. Capture storagePaths for the
+    //    post-commit blob cleanup. workout_set_logs.video_file_id is SET NULL,
+    //    so it won't block; exercise_demo files are uploaded by the trainer, so
+    //    they won't appear here.
+    const removedFiles = await tx
+      .delete(schema.files)
+      .where(eq(schema.files.uploadedBy, traineeId))
+      .returning({ storagePath: schema.files.storagePath });
+
+    // 4) Finally delete the user. Cascades through sessions, plans (with
+    //    sessions/blocks/items), workout_logs (with exercise/set logs).
+    await tx.delete(schema.users).where(eq(schema.users.id, traineeId));
+
+    return removedFiles.map((r) => r.storagePath);
+  });
+
+  // 5) Best-effort blob removal. A failure here leaves orphans on disk but the
+  //    DB is already consistent — preferable to crashing the request.
+  let deletedFiles = 0;
+  for (const path of storagePaths) {
+    try {
+      await deleteFileBlob(path);
+      deletedFiles += 1;
+    } catch {
+      // Swallow.
+    }
+  }
+
+  return { displayName: trainee.displayName, deletedFiles };
+}
+
+/** Sanity helper used by the route to re-verify ownership before showing the form. */
+export async function assertTraineeOwnedBy(
+  db: Db,
+  trainerId: string,
+  traineeId: string,
+): Promise<void> {
+  const rows = await db
+    .select({ id: schema.users.id })
+    .from(schema.users)
+    .where(
+      and(
+        eq(schema.users.id, traineeId),
+        eq(schema.users.trainerId, trainerId),
+        eq(schema.users.role, "trainee"),
+      ),
+    )
+    .limit(1);
+  if (rows.length === 0) {
+    throw new Response("not found", { status: 404 });
+  }
+}

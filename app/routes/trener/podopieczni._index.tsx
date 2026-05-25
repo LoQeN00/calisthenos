@@ -41,6 +41,7 @@ export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainer" });
   const url = new URL(args.request.url);
   const page = parsePage(url.searchParams);
+  const deletedName = url.searchParams.get("usuniety");
 
   const total = await countClientsForTrainer(db, user.id);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -51,7 +52,7 @@ export async function loader(args: LoaderFunctionArgs) {
     limit: PAGE_SIZE,
     offset,
   });
-  return { clients, page: safePage, totalPages, total };
+  return { clients, page: safePage, totalPages, total, deletedName };
 }
 
 export async function action(args: ActionFunctionArgs) {
@@ -83,7 +84,8 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function TrenerPodopieczniList() {
-  const { clients, page, totalPages, total } = useLoaderData<typeof loader>();
+  const { clients, page, totalPages, total, deletedName } =
+    useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [showInviteModal, setShowInviteModal] = useState(false);
 
@@ -117,6 +119,23 @@ export default function TrenerPodopieczniList() {
           <Icons.Plus /> Zaproś podopiecznego
         </button>
       </div>
+
+      {deletedName != null && deletedName.length > 0 && (
+        <output
+          style={{
+            display: "block",
+            color: "var(--ok)",
+            fontSize: 13,
+            marginBottom: 14,
+            padding: "8px 12px",
+            border: "1px solid var(--ok)",
+            borderRadius: 8,
+            background: "var(--accent-soft)",
+          }}
+        >
+          Podopieczny „{deletedName}" został usunięty wraz ze wszystkimi danymi.
+        </output>
+      )}
 
       {hasInvite && actionData != null && "invite" in actionData && actionData.invite != null && (
         <InviteCreatedCard invite={actionData.invite} />

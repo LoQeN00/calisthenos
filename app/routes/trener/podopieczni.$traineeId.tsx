@@ -2,6 +2,7 @@ import { and, desc, eq } from "drizzle-orm";
 import {
   Form,
   Link,
+  redirect,
   useActionData,
   useLoaderData,
   type ActionFunctionArgs,
@@ -17,6 +18,7 @@ import { daysAgo, fmtDate, pluralizePl, type PlForms } from "~/lib/format";
 
 const SESJA: PlForms = { one: "sesja", few: "sesje", many: "sesji" };
 import { deletePlan, PlanRepoError } from "~/lib/plans";
+import { deleteTraineeFully, TraineeDeleteError } from "~/lib/trainees";
 import { countLogsForTrainee, listLogsForTrainee } from "~/lib/workouts";
 
 const LOGS_PAGE_SIZE = 20;
@@ -49,7 +51,6 @@ export async function loader(args: LoaderFunctionArgs) {
 
   const activePlan = plans.find((p) => p.status === "active") ?? null;
   const draftPlan = plans.find((p) => p.status === "draft") ?? null;
-  const archivedPlans = plans.filter((p) => p.status === "archived");
 
   const totalLogs = await countLogsForTrainee(db, traineeId);
   const totalLogPages = Math.max(1, Math.ceil(totalLogs / LOGS_PAGE_SIZE));
@@ -64,7 +65,6 @@ export async function loader(args: LoaderFunctionArgs) {
     trainee,
     activePlan,
     draftPlan,
-    archivedPlans,
     logs,
     logsPage: safeLogsPage,
     totalLogPages,
@@ -94,6 +94,20 @@ export async function action(args: ActionFunctionArgs) {
 
   const fd = await args.request.formData();
   const intent = fd.get("intent");
+
+  if (intent === "delete-trainee") {
+    try {
+      const { displayName } = await deleteTraineeFully(db, user.id, traineeId);
+      throw redirect(
+        `/trener/podopieczni?usuniety=${encodeURIComponent(displayName)}`,
+      );
+    } catch (e) {
+      if (e instanceof Response) throw e;
+      if (e instanceof TraineeDeleteError) return { error: e.userMessage };
+      throw e;
+    }
+  }
+
   if (intent !== "delete-plan") return null;
   const planId = String(fd.get("planId") ?? "");
   if (!planId) return { error: "Brak id planu." };
@@ -116,7 +130,6 @@ export default function TrenerPodopiecznyDetail() {
     trainee,
     activePlan,
     draftPlan,
-    archivedPlans,
     logs,
     logsPage,
     totalLogPages,
@@ -330,63 +343,55 @@ export default function TrenerPodopiecznyDetail() {
         </>
       )}
 
-      {archivedPlans.length > 0 && (
-        <>
-          <h2 className="muted" style={{ margin: "28px 0 12px", fontSize: 17 }}>
-            Archiwum planów
-          </h2>
-          <div className="col" style={{ gap: 8 }}>
-            {archivedPlans.map((p) => (
-              <div
-                key={p.id}
-                className="card card-hover"
-                style={{ padding: "12px 14px", position: "relative" }}
-              >
-                <Link
-                  to={`/trener/plany/${p.id}`}
-                  aria-label={`Otwórz archiwalny plan ${p.name}`}
-                  style={{
-                    position: "absolute",
-                    inset: 0,
-                    zIndex: 1,
-                    borderRadius: "inherit",
-                  }}
-                />
-                <div
-                  className="row"
-                  style={{
-                    gap: 10,
-                    alignItems: "flex-start",
-                    position: "relative",
-                    zIndex: 0,
-                  }}
-                >
-                  <Icons.Arch style={{ color: "var(--muted)", marginTop: 2 }} />
-                  <div style={{ flex: 1 }}>
-                    <div className="row" style={{ gap: 8, alignItems: "center" }}>
-                      <span className="badge archived">
-                        <span className="badge-dot" />
-                        archiwum
-                      </span>
-                      <span className="mono text-xs muted">v{p.version}</span>
-                    </div>
-                    <div style={{ fontSize: 14, fontWeight: 500, marginTop: 4 }}>{p.name}</div>
-                    {p.publishedAt && (
-                      <div className="text-xs muted" style={{ marginTop: 2 }}>
-                        opublikowany {fmtDate(p.publishedAt.toString())}
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ position: "relative", zIndex: 2 }}>
-                    <DeletePlanForm planId={p.id} planName={p.name} />
-                  </div>
-                  <Icons.Chev style={{ color: "var(--muted-2)" }} />
-                </div>
+      <div
+        style={{
+          marginTop: 40,
+          paddingTop: 20,
+          borderTop: "1px solid var(--line)",
+        }}
+      >
+        <h2 className="muted" style={{ fontSize: 14, marginBottom: 10 }}>
+          Strefa niebezpieczna
+        </h2>
+        <div
+          className="card"
+          style={{
+            padding: 14,
+            borderColor: "var(--danger)",
+            borderStyle: "dashed",
+          }}
+        >
+          <div
+            className="row between"
+            style={{ gap: 12, alignItems: "center", flexWrap: "wrap" }}
+          >
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>
+                Usuń podopiecznego
               </div>
-            ))}
+              <div className="text-xs muted">
+                Konto, wszystkie plany, historia treningów, zdjęcia sylwetki
+                i nagrania video zostaną <strong>nieodwracalnie skasowane</strong>.
+              </div>
+            </div>
+            <Form method="post" style={{ flexShrink: 0 }}>
+              <input type="hidden" name="intent" value="delete-trainee" />
+              <ConfirmSubmitButton
+                className="btn btn-danger"
+                confirmOptions={{
+                  title: `Usunąć podopiecznego „${trainee.displayName}"?`,
+                  message:
+                    "Wszystkie dane tej osoby (plany, sesje, video, zdjęcia) zostaną nieodwracalnie skasowane. Tej operacji nie da się cofnąć.",
+                  destructive: true,
+                  confirmText: "Usuń podopiecznego",
+                }}
+              >
+                <Icons.Trash /> Usuń podopiecznego
+              </ConfirmSubmitButton>
+            </Form>
           </div>
-        </>
-      )}
+        </div>
+      </div>
     </div>
   );
 }

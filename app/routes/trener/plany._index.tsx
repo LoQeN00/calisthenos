@@ -1,4 +1,4 @@
-import { and, count, eq, sql } from "drizzle-orm";
+import { and, count, eq, ne, sql } from "drizzle-orm";
 import {
   Form,
   Link,
@@ -18,7 +18,7 @@ import * as schema from "~/lib/db/schema";
 import { fmtDate } from "~/lib/format";
 import { deletePlan, PlanRepoError } from "~/lib/plans";
 
-const STATUS_TABS = ["all", "active", "draft", "archived"] as const;
+const STATUS_TABS = ["all", "active", "draft"] as const;
 type StatusTab = (typeof STATUS_TABS)[number];
 
 function parseStatus(raw: string | null): StatusTab {
@@ -42,26 +42,34 @@ export async function loader(args: LoaderFunctionArgs) {
       .groupBy(schema.planSessions.planId),
   );
 
-  const conditions = [eq(schema.plans.trainerId, user.id)];
+  // Archived plans are hidden from the trainer UI — they're created automatically
+  // on publish to preserve history but offer no actionable value here.
+  const conditions = [
+    eq(schema.plans.trainerId, user.id),
+    ne(schema.plans.status, "archived"),
+  ];
   if (status !== "all") {
     conditions.push(eq(schema.plans.status, status));
   }
 
-  // Tab badge counts (always all four).
+  // Tab badge counts (active + draft only).
   const statusCounts = await db
     .select({ status: schema.plans.status, c: count() })
     .from(schema.plans)
-    .where(eq(schema.plans.trainerId, user.id))
+    .where(
+      and(eq(schema.plans.trainerId, user.id), ne(schema.plans.status, "archived")),
+    )
     .groupBy(schema.plans.status);
   const counts = {
     all: 0,
     active: 0,
     draft: 0,
-    archived: 0,
   } as Record<StatusTab, number>;
   for (const r of statusCounts) {
-    counts[r.status as Exclude<StatusTab, "all">] = Number(r.c);
-    counts.all += Number(r.c);
+    if (r.status === "active" || r.status === "draft") {
+      counts[r.status] = Number(r.c);
+      counts.all += Number(r.c);
+    }
   }
 
   const total = counts[status];
@@ -129,7 +137,6 @@ export default function PlanyList() {
     all: "Wszystkie",
     active: "Aktywne",
     draft: "Drafty",
-    archived: "Archiwum",
   };
 
   return (
@@ -143,7 +150,7 @@ export default function PlanyList() {
           <div className="sub">
             {counts.all === 0
               ? "Brak planów."
-              : `${counts.all} ${pluralizePl(counts.all, PLAN)} łącznie · ${counts.active} aktywnych · ${counts.draft} draftów · ${counts.archived} w archiwum.`}
+              : `${counts.all} ${pluralizePl(counts.all, PLAN)} łącznie · ${counts.active} aktywnych · ${counts.draft} draftów.`}
           </div>
         </div>
         <Link to="/trener/plany/nowy" className="btn btn-primary">
@@ -219,9 +226,7 @@ export default function PlanyList() {
               ? "Brak planów"
               : status === "active"
                 ? "Brak aktywnych planów"
-                : status === "draft"
-                  ? "Brak draftów"
-                  : "Archiwum jest puste"}
+                : "Brak draftów"}
           </h3>
           <div>
             {status === "draft"
