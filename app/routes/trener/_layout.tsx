@@ -1,4 +1,4 @@
-import { and, count, eq } from "drizzle-orm";
+import { and, count, eq, isNull } from "drizzle-orm";
 import {
   NavLink,
   Outlet,
@@ -21,7 +21,12 @@ export async function loader(args: LoaderFunctionArgs) {
   const [exerciseCountRow] = await db
     .select({ c: count() })
     .from(schema.exercises)
-    .where(eq(schema.exercises.trainerId, user.id));
+    .where(
+      and(
+        eq(schema.exercises.trainerId, user.id),
+        isNull(schema.exercises.archivedAt),
+      ),
+    );
   const [planCountRow] = await db
     .select({ c: count() })
     .from(schema.plans)
