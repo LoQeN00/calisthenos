@@ -147,6 +147,24 @@ export const Icons = {
       <path d="M14 6h7v7" />
     </>,
   ),
+  TrendDown: makeIcon(
+    <>
+      <path d="M3 7l6 6 4-4 8 9" />
+      <path d="M14 18h7v-7" />
+    </>,
+  ),
+  Chart: makeIcon(
+    <>
+      <path d="M3 3v18h18" />
+      <path d="M7 14l4-4 3 3 5-6" />
+    </>,
+  ),
+  Trophy: makeIcon(
+    <>
+      <path d="M8 21h8M12 17v4M7 4h10v4a5 5 0 0 1-10 0V4z" />
+      <path d="M5 6H3v2a3 3 0 0 0 3 3M19 6h2v2a3 3 0 0 1-3 3" />
+    </>,
+  ),
   Filter: makeIcon(<path d="M3 5h18l-7 9v6l-4-2v-4z" />),
   Sun: makeIcon(
     <>

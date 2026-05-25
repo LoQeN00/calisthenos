@@ -25,6 +25,10 @@ export default [
         "podopieczni/:traineeId/sylwetka",
         "routes/trener/podopieczni.$traineeId.sylwetka.tsx",
       ),
+      route(
+        "podopieczni/:traineeId/statystyki",
+        "routes/trener/podopieczni.$traineeId.statystyki.tsx",
+      ),
     ]),
   ]),
   ...prefix("podopieczny", [
@@ -35,6 +39,7 @@ export default [
       route("loguj/:sessionId", "routes/podopieczny/loguj.$sessionId.tsx"),
       route("historia", "routes/podopieczny/historia._index.tsx"),
       route("historia/:logId", "routes/podopieczny/historia.$logId.tsx"),
+      route("statystyki", "routes/podopieczny/statystyki.tsx"),
       route("sylwetka", "routes/podopieczny/sylwetka.tsx"),
     ]),
   ]),

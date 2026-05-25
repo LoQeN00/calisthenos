@@ -54,6 +54,7 @@ const NAV_ITEMS = [
   { to: "/podopieczny", label: "Mój plan", end: true, icon: "Dashboard" as const, tailKey: null },
   { to: "/podopieczny/sesje", label: "Sesje", end: false, icon: "Plans" as const, tailKey: "sessions" as const },
   { to: "/podopieczny/historia", label: "Historia", end: false, icon: "History" as const, tailKey: "history" as const },
+  { to: "/podopieczny/statystyki", label: "Statystyki", end: false, icon: "Chart" as const, tailKey: null },
   { to: "/podopieczny/sylwetka", label: "Sylwetka", end: false, icon: "Camera" as const, tailKey: "photos" as const },
 ];
 

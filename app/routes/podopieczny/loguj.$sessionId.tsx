@@ -19,6 +19,7 @@ import {
   uploadFile,
 } from "~/lib/file-uploads";
 import { pluralizePl, todayISO, type PlForms } from "~/lib/format";
+import { detectNewPRsForLog } from "~/lib/stats";
 import {
   findActivePlanForTrainee,
   loadSessionForLogging,
@@ -146,7 +147,20 @@ export async function action(args: ActionFunctionArgs) {
       exercises: exercisesPayload,
     });
     cleanup.commit();
-    throw redirect(`/podopieczny/historia/${newLogId}`);
+
+    // Detect new PRs set in this log and pass exercise IDs via the URL so the
+    // log detail page can fire a toast. Read-only side query; failure is a
+    // non-event (we just skip the toast).
+    let prQs = "";
+    try {
+      const prs = await detectNewPRsForLog(db, user.id, newLogId);
+      if (prs.length > 0) {
+        prQs = `?pr=${prs.map((p) => p.exerciseId).join(",")}`;
+      }
+    } catch {
+      // Swallow — toast is purely additive.
+    }
+    throw redirect(`/podopieczny/historia/${newLogId}${prQs}`);
   } catch (e) {
     if (e instanceof Response) throw e; // redirect bubbles
     await cleanup.cleanup();

@@ -1,5 +1,12 @@
-import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
+import { useEffect, useRef } from "react";
+import {
+  Link,
+  useLoaderData,
+  useSearchParams,
+  type LoaderFunctionArgs,
+} from "react-router";
 import { Icons } from "~/components/icons";
+import { useToast } from "~/components/toast-provider";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import { signFileUrl } from "~/lib/files";
@@ -37,6 +44,8 @@ export default function TraineeLogDetail() {
     allDiff.length === 0
       ? 0
       : Math.round((allDiff.reduce((a, b) => a + b, 0) / allDiff.length) * 10) / 10;
+
+  usePRToasts(exercises);
 
   return (
     <div>
@@ -83,6 +92,37 @@ export default function TraineeLogDetail() {
       </div>
     </div>
   );
+}
+
+function usePRToasts(
+  exercises: Array<{ exercise: { id: string; name: string; unit: "REPS" | "SEC" } }>,
+) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const toast = useToast();
+  const firedRef = useRef(false);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fires once on first render with ?pr=…
+  useEffect(() => {
+    if (firedRef.current) return;
+    const raw = searchParams.get("pr");
+    if (!raw) return;
+    firedRef.current = true;
+
+    const ids = raw.split(",").filter(Boolean);
+    const byId = new Map(exercises.map((e) => [e.exercise.id, e.exercise]));
+    const names = ids.map((id) => byId.get(id)?.name).filter((n): n is string => !!n);
+
+    if (names.length === 1) {
+      toast(`🏆 Nowy rekord w ${names[0]}!`, { durationMs: 5000 });
+    } else if (names.length > 1) {
+      toast(`🏆 Nowe rekordy: ${names.join(", ")}`, { durationMs: 6000 });
+    }
+
+    // Strip the param so a refresh doesn't refire.
+    const next = new URLSearchParams(searchParams);
+    next.delete("pr");
+    setSearchParams(next, { replace: true });
+  }, []);
 }
 
 type ExWithSigned = {

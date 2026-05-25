@@ -150,6 +150,9 @@ export default function TrenerPodopiecznyDetail() {
           )}
         </div>
         <div className="row" style={{ gap: 8 }}>
+          <Link to={`/trener/podopieczni/${trainee.id}/statystyki`} className="btn">
+            <Icons.Chart /> Statystyki
+          </Link>
           <Link to={`/trener/podopieczni/${trainee.id}/sylwetka`} className="btn">
             <Icons.Camera /> Sylwetka
           </Link>
