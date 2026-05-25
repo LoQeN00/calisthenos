@@ -26,7 +26,9 @@ RUN npm run build
 # ------------------------------------------------------------
 FROM node:22-alpine AS runtime
 
-RUN apk add --no-cache tini
+# tini = PID 1 / signal forwarder; su-exec = lightweight gosu used by the
+# entrypoint to drop from root → node after fixing /data perms.
+RUN apk add --no-cache tini su-exec
 
 WORKDIR /app
 
@@ -45,16 +47,23 @@ COPY app ./app
 COPY scripts ./scripts
 COPY drizzle.config.ts tsconfig.json ./
 
-# Volume mount point for uploads (matches DATA_DIR). The `VOLUME` Dockerfile
-# directive is intentionally omitted — Railway rejects it and manages the
-# mount via Railway Volumes configured in the service UI. For local Docker /
-# other platforms, mount a volume at /data via the platform's own mechanism.
+# Entrypoint that fixes /data perms (root-owned by Railway volume mount) and
+# drops to the `node` user.
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Volume mount point for uploads (matches DATA_DIR). Created here so the app
+# works even without a volume mount. The `VOLUME` Dockerfile directive is
+# intentionally omitted — Railway rejects it and manages the mount via Railway
+# Volumes configured in the service UI. Permissions on the *mounted* volume
+# are fixed at runtime by docker-entrypoint.sh.
 RUN mkdir -p /data && chown -R node:node /app /data
 
-# Run as the unprivileged `node` user provided by the base image.
-USER node
+# IMPORTANT: stay as root here so the entrypoint can chown /data on container
+# start. The entrypoint drops privileges to `node` via su-exec before exec'ing
+# the final command, so the Node process itself runs unprivileged.
 
 EXPOSE 3000
 
-ENTRYPOINT ["/sbin/tini", "--"]
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
 CMD ["sh", "-c", "npm run db:migrate && npm run db:seed && exec npm run start"]

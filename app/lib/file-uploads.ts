@@ -151,7 +151,32 @@ export async function uploadFile(
   // If a cleanup queue is passed, register the (fileId, path) pair so a later
   // failure in the orchestrating action also rolls this row + blob back.
   const storage = getStorage();
-  const bytes = (await storage.write(storagePath, fileBuffer)).bytes;
+  let bytes: number;
+  try {
+    bytes = (await storage.write(storagePath, fileBuffer)).bytes;
+  } catch (err: unknown) {
+    // EACCES / EPERM almost always means DATA_DIR exists but is not writable
+    // by the runtime user — usually a Railway volume mount that wasn't
+    // chowned to `node` at container start. Surface a clean error instead of
+    // a 500 so the trainee sees an actionable message.
+    const code =
+      typeof err === "object" && err !== null
+        ? (err as { code?: string }).code
+        : undefined;
+    if (code === "EACCES" || code === "EPERM") {
+      throw new UploadError(
+        `${code} writing to ${storagePath} (DATA_DIR not writable by runtime user)`,
+        "Serwer nie może zapisać pliku — uprawnienia woluminu. Skontaktuj się z administratorem.",
+      );
+    }
+    if (code === "ENOSPC") {
+      throw new UploadError(
+        `ENOSPC writing to ${storagePath}`,
+        "Brak miejsca na dysku serwera. Skontaktuj się z administratorem.",
+      );
+    }
+    throw err;
+  }
 
   try {
     const [row] = await db
