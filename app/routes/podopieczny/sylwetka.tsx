@@ -7,6 +7,12 @@ import {
 } from "react-router";
 import { z } from "zod";
 import { useEffect, useState } from "react";
+import {
+  SideBySideSection,
+  TimelineSection,
+  type ResolvedPair,
+  type TimelineByView,
+} from "~/components/body-photo-compare";
 import { FileDropzone } from "~/components/file-dropzone";
 import { Icons } from "~/components/icons";
 import { Modal } from "~/components/modal";
@@ -23,6 +29,7 @@ import {
 import { db } from "~/lib/db/client";
 import { signFileUrl } from "~/lib/files";
 import { todayISO } from "~/lib/format";
+import { getSideBySidePhotoPairs } from "~/lib/stats";
 
 const UploadSchema = z.object({
   view: z.enum(["front", "side", "back"]),
@@ -48,15 +55,55 @@ export async function loader(args: LoaderFunctionArgs) {
   const safePage = Math.min(page, totalPages);
   const offset = (safePage - 1) * PAGE_SIZE;
 
-  const photos = await listBodyPhotosForTrainee(db, user.id, {
-    limit: PAGE_SIZE,
-    offset,
-  });
+  const [photos, pairs, allPhotos] = await Promise.all([
+    listBodyPhotosForTrainee(db, user.id, { limit: PAGE_SIZE, offset }),
+    getSideBySidePhotoPairs(db, user.id),
+    // For the timeline strip we want every photo — but cap at 500 so we don't
+    // blow up the page if a trainee uploads daily for years.
+    listBodyPhotosForTrainee(db, user.id, { limit: 500 }),
+  ]);
+
+  const resolvedPairs: ResolvedPair[] = pairs.map((p) => ({
+    view: p.view,
+    hasPair: p.hasPair,
+    daysBetween: p.daysBetween,
+    first: p.first
+      ? {
+          id: p.first.id,
+          url: signFileUrl(p.first.fileId, user.id),
+          takenOn: p.first.takenOn,
+        }
+      : null,
+    latest: p.latest
+      ? {
+          id: p.latest.id,
+          url: signFileUrl(p.latest.fileId, user.id),
+          takenOn: p.latest.takenOn,
+        }
+      : null,
+  }));
+
+  const timelineRows: TimelineByView[] = (["front", "side", "back"] as const).map(
+    (view) => ({
+      view,
+      photos: allPhotos
+        .filter((p) => p.view === view)
+        .sort((a, b) => (a.takenOn < b.takenOn ? -1 : 1))
+        .map((p) => ({
+          id: p.id,
+          url: signFileUrl(p.fileId, user.id),
+          takenOn: p.takenOn,
+        })),
+    }),
+  );
+
   return {
     photos: photos.map((p) => ({ ...p, url: signFileUrl(p.fileId, user.id) })),
     page: safePage,
     totalPages,
     total,
+    resolvedPairs,
+    timelineRows,
   };
 }
 
@@ -108,7 +155,8 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function TraineeBodyGallery() {
-  const { photos, page, totalPages, total } = useLoaderData<typeof loader>();
+  const { photos, page, totalPages, total, resolvedPairs, timelineRows } =
+    useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [showAddModal, setShowAddModal] = useState(false);
 
@@ -213,6 +261,10 @@ export default function TraineeBodyGallery() {
         </div>
       ) : (
         <>
+          <SideBySideSection pairs={resolvedPairs} />
+          <TimelineSection rows={timelineRows} />
+
+          <h2 style={{ fontSize: 17, margin: "8px 0 12px" }}>Wszystkie zdjęcia</h2>
           <div
             className="grid"
             style={{

@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { Db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 
@@ -15,21 +15,50 @@ function isoDaysAgo(n: number): string {
     .slice(0, 10);
 }
 
+function isoDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function round1(n: number): number {
+  return Math.round(n * 10) / 10;
+}
+
+function avg(xs: number[]): number {
+  if (xs.length === 0) return 0;
+  return xs.reduce((a, b) => a + b, 0) / xs.length;
+}
+
+function mondayOf(d: Date): Date {
+  const utc = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const day = utc.getUTCDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  utc.setUTCDate(utc.getUTCDate() + diff);
+  return utc;
+}
+
 // ============================================================
-// Trainee: hero numbers (total sessions, streak, total reps).
+// Hero numbers
 // ============================================================
 
 export interface HeroStats {
   totalSessions: number;
   totalReps: number;
+  totalSecondsUnderTension: number;
   streakWeeks: number;
+  longestStreakWeeks: number;
+  journeyDayNumber: number; // 0 when no sessions
+  firstSessionOn: string | null;
 }
 
 export async function getHeroStats(db: Db, traineeId: string): Promise<HeroStats> {
+  // Totals: count sessions, sum reps separately for REPS-unit and SEC-unit
+  // exercises (a "rep" of a SEC exercise is a second, not a count).
   const [totalsRow] = await db
     .select({
       sessions: sql<number>`COUNT(DISTINCT ${schema.workoutLogs.id})::int`,
-      reps: sql<number>`COALESCE(SUM(${schema.workoutSetLogs.reps}), 0)::bigint`,
+      reps: sql<number>`COALESCE(SUM(CASE WHEN ${schema.exercises.unit} = 'REPS' THEN ${schema.workoutSetLogs.reps} ELSE 0 END), 0)::bigint`,
+      secs: sql<number>`COALESCE(SUM(CASE WHEN ${schema.exercises.unit} = 'SEC'  THEN ${schema.workoutSetLogs.reps} ELSE 0 END), 0)::bigint`,
+      first: sql<string | null>`MIN(${schema.workoutLogs.performedOn})`,
     })
     .from(schema.workoutLogs)
     .leftJoin(
@@ -40,17 +69,20 @@ export async function getHeroStats(db: Db, traineeId: string): Promise<HeroStats
       schema.workoutSetLogs,
       eq(schema.workoutSetLogs.workoutExerciseLogId, schema.workoutExerciseLogs.id),
     )
+    .leftJoin(
+      schema.exercises,
+      eq(schema.exercises.id, schema.workoutExerciseLogs.exerciseId),
+    )
     .where(eq(schema.workoutLogs.traineeId, traineeId));
 
   const totalSessions = Number(totalsRow?.sessions ?? 0);
   const totalReps = Number(totalsRow?.reps ?? 0);
+  const totalSecondsUnderTension = Number(totalsRow?.secs ?? 0);
+  const firstSessionOn = totalsRow?.first ?? null;
 
   // Streak: count consecutive ISO weeks (Mon–Sun) ending with this week.
-  // We treat the current week as "in progress" — if it has 0 sessions we
-  // don't break the streak yet (anchor on last week with activity).
   const weekRows = await db
     .select({
-      // date_trunc('week', ...) in Postgres returns Monday 00:00 UTC.
       weekStart: sql<string>`date_trunc('week', ${schema.workoutLogs.performedOn})::date`,
     })
     .from(schema.workoutLogs)
@@ -58,35 +90,40 @@ export async function getHeroStats(db: Db, traineeId: string): Promise<HeroStats
     .groupBy(sql`date_trunc('week', ${schema.workoutLogs.performedOn})`)
     .orderBy(sql`date_trunc('week', ${schema.workoutLogs.performedOn}) DESC`);
 
-  const streakWeeks = computeStreak(weekRows.map((r) => r.weekStart));
+  const allWeeks = weekRows.map((r) => r.weekStart);
+  const streakWeeks = computeStreak(allWeeks);
+  const longestStreakWeeks = computeLongestStreak(allWeeks);
 
-  return { totalSessions, totalReps, streakWeeks };
+  const journeyDayNumber =
+    firstSessionOn == null
+      ? 0
+      : Math.max(
+          1,
+          Math.floor(
+            (new Date(isoDate(new Date())).getTime() -
+              new Date(firstSessionOn).getTime()) /
+              (24 * 60 * 60 * 1000),
+          ) + 1,
+        );
+
+  return {
+    totalSessions,
+    totalReps,
+    totalSecondsUnderTension,
+    streakWeeks,
+    longestStreakWeeks,
+    journeyDayNumber,
+    firstSessionOn,
+  };
 }
 
-/**
- * Given an unsorted list of ISO date strings (YYYY-MM-DD) each pinned to a
- * Monday, count the streak of consecutive weeks ending with either the
- * current week or the most recent week with activity. If the most recent
- * activity is older than 1 week beyond "current week minus N", streak ends.
- *
- * Exported for unit testing.
- */
 export function computeStreak(weekStarts: string[]): number {
   if (weekStarts.length === 0) return 0;
-
-  const unique = Array.from(new Set(weekStarts)).sort().reverse(); // newest first
+  const unique = Array.from(new Set(weekStarts)).sort().reverse();
   const currentMondayMs = mondayOf(new Date()).getTime();
   const week = 7 * 24 * 60 * 60 * 1000;
-
-  // Find the anchor: current week if it has activity, otherwise allow the
-  // previous week (current week is "in progress" — not yet broken).
   const newestActivityMs = new Date(unique[0]!).getTime();
-  if (newestActivityMs < currentMondayMs - week) {
-    // The newest activity is older than last week → streak is broken.
-    return 0;
-  }
-
-  // Count back: each step must be exactly `week` apart.
+  if (newestActivityMs < currentMondayMs - week) return 0;
   let streak = 0;
   let expectedMs =
     newestActivityMs === currentMondayMs ? currentMondayMs : currentMondayMs - week;
@@ -96,31 +133,38 @@ export function computeStreak(weekStarts: string[]): number {
       streak += 1;
       expectedMs -= week;
     } else if (ms < expectedMs) {
-      // Gap.
       break;
     }
-    // ms > expectedMs shouldn't happen given sorted-desc input.
   }
   return streak;
 }
 
-function mondayOf(d: Date): Date {
-  // Returns the Monday of the week containing `d`, at UTC midnight, to align
-  // with Postgres `date_trunc('week', ...)` which uses ISO weeks.
-  const utc = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  const day = utc.getUTCDay(); // 0 = Sun, 1 = Mon, …
-  const diff = day === 0 ? -6 : 1 - day;
-  utc.setUTCDate(utc.getUTCDate() + diff);
-  return utc;
+export function computeLongestStreak(weekStarts: string[]): number {
+  if (weekStarts.length === 0) return 0;
+  const unique = Array.from(new Set(weekStarts)).sort();
+  const week = 7 * 24 * 60 * 60 * 1000;
+  let longest = 1;
+  let current = 1;
+  for (let i = 1; i < unique.length; i++) {
+    const prev = new Date(unique[i - 1]!).getTime();
+    const here = new Date(unique[i]!).getTime();
+    if (here - prev === week) {
+      current += 1;
+      if (current > longest) longest = current;
+    } else {
+      current = 1;
+    }
+  }
+  return longest;
 }
 
 // ============================================================
-// Trainee: this week vs 8-week average.
+// This week vs 8-week average
 // ============================================================
 
 export interface ThisWeekStats {
   thisWeek: number;
-  avgPerWeek: number; // last 8 completed weeks (excluding current)
+  avgPerWeek: number;
 }
 
 export async function getThisWeekStats(db: Db, traineeId: string): Promise<ThisWeekStats> {
@@ -151,16 +195,12 @@ export async function getThisWeekStats(db: Db, traineeId: string): Promise<ThisW
   const past = Number(pastRow?.c ?? 0);
   return {
     thisWeek: Number(thisWeekRow?.c ?? 0),
-    avgPerWeek: Math.round((past / 8) * 10) / 10,
+    avgPerWeek: round1(past / 8),
   };
 }
 
-function isoDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
 // ============================================================
-// Trainee + Trainer: personal records per exercise.
+// Personal records per exercise
 // ============================================================
 
 export interface PRRecord {
@@ -168,8 +208,8 @@ export interface PRRecord {
   exerciseName: string;
   unit: "REPS" | "SEC";
   pr: number;
-  prAchievedOn: string; // ISO date
-  isFresh: boolean; // achieved in last 7 days
+  prAchievedOn: string;
+  isFresh: boolean;
 }
 
 export async function getPersonalRecords(
@@ -177,9 +217,6 @@ export async function getPersonalRecords(
   traineeId: string,
   opts: { limit?: number } = {},
 ): Promise<PRRecord[]> {
-  // Per exercise: MAX reps + the date of (one of) the workouts that hit it.
-  // We use a window function — `RANK() OVER (PARTITION BY exercise_id ORDER BY reps DESC, performed_on DESC)`
-  // — to grab a single canonical row per exercise. Recent ties win.
   const sub = db.$with("ranked").as(
     db
       .select({
@@ -231,17 +268,19 @@ export async function getPersonalRecords(
 }
 
 // ============================================================
-// Trainer: 4 health-check tiles + exercise progress table.
+// Health-check tiles for trainer
 // ============================================================
 
 export interface HealthStats {
   daysSinceLastSession: number | null;
   sessionsLast7: number;
-  recentAvgRpe: number; // last 5 sessions
-  historicalAvgRpe: number; // all-time
+  sessionsLast30: number;
+  avgIntervalDays: number | null;
+  recentAvgRpe: number;
+  historicalAvgRpe: number;
   rpeTrend: "up" | "flat" | "down";
-  redZonePct: number; // % sets with difficulty >= 9 in last 30 days
-  allDonePct: number; // % sessions with allDone=true in last 30 days
+  redZonePct: number;
+  allDonePct: number;
   hasAnyLog30d: boolean;
 }
 
@@ -250,12 +289,19 @@ export async function getHealthStats(db: Db, traineeId: string): Promise<HealthS
   const sevenDaysAgo = isoDaysAgo(7);
   const thirtyDaysAgo = isoDaysAgo(30);
 
-  // Last session date.
-  const [lastRow] = await db
-    .select({ last: sql<string | null>`MAX(${schema.workoutLogs.performedOn})` })
+  // Last + first session, total count for interval calculation.
+  const [boundsRow] = await db
+    .select({
+      last: sql<string | null>`MAX(${schema.workoutLogs.performedOn})`,
+      first: sql<string | null>`MIN(${schema.workoutLogs.performedOn})`,
+      c: sql<number>`COUNT(*)::int`,
+    })
     .from(schema.workoutLogs)
     .where(eq(schema.workoutLogs.traineeId, traineeId));
-  const last = lastRow?.last ?? null;
+  const last = boundsRow?.last ?? null;
+  const first = boundsRow?.first ?? null;
+  const total = Number(boundsRow?.c ?? 0);
+
   const daysSinceLastSession =
     last == null
       ? null
@@ -266,8 +312,15 @@ export async function getHealthStats(db: Db, traineeId: string): Promise<HealthS
               (24 * 60 * 60 * 1000),
           ),
         );
+  const avgIntervalDays =
+    last == null || first == null || total < 2
+      ? null
+      : round1(
+          (new Date(last).getTime() - new Date(first).getTime()) /
+            (24 * 60 * 60 * 1000) /
+            (total - 1),
+        );
 
-  // Sessions in last 7 days.
   const [s7Row] = await db
     .select({ c: sql<number>`COUNT(*)::int` })
     .from(schema.workoutLogs)
@@ -277,8 +330,17 @@ export async function getHealthStats(db: Db, traineeId: string): Promise<HealthS
         gte(schema.workoutLogs.performedOn, sevenDaysAgo),
       ),
     );
+  const [s30Row] = await db
+    .select({ c: sql<number>`COUNT(*)::int` })
+    .from(schema.workoutLogs)
+    .where(
+      and(
+        eq(schema.workoutLogs.traineeId, traineeId),
+        gte(schema.workoutLogs.performedOn, thirtyDaysAgo),
+      ),
+    );
 
-  // Recent avg RPE: last 5 sessions (by performedOn desc, then createdAt).
+  // Recent avg RPE: last 5 sessions.
   const recentLogs = await db
     .select({ id: schema.workoutLogs.id })
     .from(schema.workoutLogs)
@@ -302,7 +364,6 @@ export async function getHealthStats(db: Db, traineeId: string): Promise<HealthS
     recentAvgRpe = round1(Number(r?.avg ?? 0));
   }
 
-  // Historical avg RPE.
   const [histRpeRow] = await db
     .select({
       avg: sql<number>`COALESCE(AVG(${schema.workoutSetLogs.difficulty}), 0)::float`,
@@ -319,12 +380,10 @@ export async function getHealthStats(db: Db, traineeId: string): Promise<HealthS
     .where(eq(schema.workoutLogs.traineeId, traineeId));
   const historicalAvgRpe = round1(Number(histRpeRow?.avg ?? 0));
 
-  // Trend: ±0.3 is "flat".
   const delta = recentAvgRpe - historicalAvgRpe;
   const rpeTrend: HealthStats["rpeTrend"] =
     delta > 0.3 ? "up" : delta < -0.3 ? "down" : "flat";
 
-  // Red zone (RPE >= 9) in last 30d.
   const [redRow] = await db
     .select({
       red: sql<number>`COALESCE(SUM(CASE WHEN ${schema.workoutSetLogs.difficulty} >= 9 THEN 1 ELSE 0 END), 0)::int`,
@@ -348,7 +407,6 @@ export async function getHealthStats(db: Db, traineeId: string): Promise<HealthS
   const redTotal = Number(redRow?.total ?? 0);
   const redZonePct = redTotal === 0 ? 0 : Math.round((Number(redRow!.red) / redTotal) * 100);
 
-  // % sesji allDone in last 30d.
   const [adRow] = await db
     .select({
       done: sql<number>`COALESCE(SUM(CASE WHEN ${schema.workoutLogs.allDone} THEN 1 ELSE 0 END), 0)::int`,
@@ -367,6 +425,8 @@ export async function getHealthStats(db: Db, traineeId: string): Promise<HealthS
   return {
     daysSinceLastSession,
     sessionsLast7: Number(s7Row?.c ?? 0),
+    sessionsLast30: Number(s30Row?.c ?? 0),
+    avgIntervalDays,
     recentAvgRpe,
     historicalAvgRpe,
     rpeTrend,
@@ -376,12 +436,55 @@ export async function getHealthStats(db: Db, traineeId: string): Promise<HealthS
   };
 }
 
-function round1(n: number): number {
-  return Math.round(n * 10) / 10;
+// ============================================================
+// Activity heatmap (per-day session counts, last N weeks)
+// ============================================================
+
+export interface HeatmapDay {
+  date: string; // YYYY-MM-DD
+  count: number;
+}
+
+/**
+ * Returns one entry per day going back `weeks` ISO weeks (Mon-anchored).
+ * Days with no sessions get count = 0. The array is ordered chronologically.
+ */
+export async function getActivityHeatmap(
+  db: Db,
+  traineeId: string,
+  weeks: number,
+): Promise<HeatmapDay[]> {
+  const startMonday = new Date(
+    mondayOf(new Date()).getTime() - (weeks - 1) * 7 * 24 * 60 * 60 * 1000,
+  );
+
+  const rows = await db
+    .select({
+      date: schema.workoutLogs.performedOn,
+      c: sql<number>`COUNT(*)::int`,
+    })
+    .from(schema.workoutLogs)
+    .where(
+      and(
+        eq(schema.workoutLogs.traineeId, traineeId),
+        gte(schema.workoutLogs.performedOn, isoDate(startMonday)),
+      ),
+    )
+    .groupBy(schema.workoutLogs.performedOn);
+  const byDate = new Map(rows.map((r) => [r.date, Number(r.c)]));
+
+  const out: HeatmapDay[] = [];
+  const days = weeks * 7;
+  for (let i = 0; i < days; i++) {
+    const d = new Date(startMonday.getTime() + i * 24 * 60 * 60 * 1000);
+    const key = isoDate(d);
+    out.push({ date: key, count: byDate.get(key) ?? 0 });
+  }
+  return out;
 }
 
 // ============================================================
-// Trainer: exercise progress (PR + delta of last 4 vs prior 4).
+// Exercise progress (PR + delta of last 4 vs prior 4) + plateau + sparklines
 // ============================================================
 
 export interface ExerciseProgress {
@@ -390,19 +493,31 @@ export interface ExerciseProgress {
   unit: "REPS" | "SEC";
   pr: number;
   prAchievedOn: string;
-  recentAvgReps: number; // avg across most recent 4 workouts of this exercise
-  priorAvgReps: number; // avg across previous 4 (positions 5–8)
-  deltaPct: number | null; // null when prior has no data
-  status: "up" | "flat" | "down" | "new"; // "new" when fewer than 5 sessions
-  sessionCount: number; // distinct workout logs that include this exercise
+  recentAvgReps: number;
+  priorAvgReps: number;
+  recentAvgRpe: number;
+  priorAvgRpe: number;
+  deltaPct: number | null;
+  status: "up" | "flat" | "down" | "new";
+  sessionCount: number;
 }
 
-export async function getExerciseProgress(
+interface PerExerciseRow {
+  exerciseId: string;
+  workoutLogId: string;
+  performedOn: string;
+  createdAt: Date;
+  avgReps: number;
+  maxReps: number;
+  avgRpe: number;
+  exerciseName: string;
+  unit: "REPS" | "SEC";
+}
+
+async function loadPerExerciseHistory(
   db: Db,
   traineeId: string,
-): Promise<ExerciseProgress[]> {
-  // Per (exercise, workout_log) compute average reps for that exercise on that day.
-  // Then for each exercise, sort by performedOn desc and split top-4 vs next-4.
+): Promise<Map<string, PerExerciseRow[]>> {
   const rows = await db
     .select({
       exerciseId: schema.workoutExerciseLogs.exerciseId,
@@ -411,6 +526,7 @@ export async function getExerciseProgress(
       createdAt: schema.workoutLogs.createdAt,
       avgReps: sql<number>`AVG(${schema.workoutSetLogs.reps})::float`,
       maxReps: sql<number>`MAX(${schema.workoutSetLogs.reps})::int`,
+      avgRpe: sql<number>`AVG(${schema.workoutSetLogs.difficulty})::float`,
       exerciseName: schema.exercises.name,
       unit: schema.exercises.unit,
     })
@@ -437,39 +553,58 @@ export async function getExerciseProgress(
       schema.exercises.unit,
     );
 
-  // Group by exercise; sort each group by performedOn DESC, createdAt DESC.
-  type Row = (typeof rows)[number];
-  const byExercise = new Map<string, Row[]>();
+  const byExercise = new Map<string, PerExerciseRow[]>();
   for (const r of rows) {
     const list = byExercise.get(r.exerciseId) ?? [];
-    list.push(r);
+    list.push({
+      exerciseId: r.exerciseId,
+      workoutLogId: r.workoutLogId,
+      performedOn: r.performedOn,
+      createdAt: r.createdAt,
+      avgReps: Number(r.avgReps),
+      maxReps: Number(r.maxReps),
+      avgRpe: Number(r.avgRpe),
+      exerciseName: r.exerciseName,
+      unit: r.unit,
+    });
     byExercise.set(r.exerciseId, list);
   }
-
-  const result: ExerciseProgress[] = [];
-  for (const [exerciseId, group] of byExercise) {
-    group.sort((a, b) => {
+  // Sort each group desc (newest first).
+  for (const list of byExercise.values()) {
+    list.sort((a, b) => {
       if (a.performedOn !== b.performedOn) {
         return a.performedOn < b.performedOn ? 1 : -1;
       }
-      return (a.createdAt < b.createdAt ? 1 : -1);
+      return a.createdAt < b.createdAt ? 1 : -1;
     });
-    const first = group[0]!;
+  }
+  return byExercise;
+}
 
-    // PR: max(maxReps) + the date when it happened (newest tie wins).
+export async function getExerciseProgress(
+  db: Db,
+  traineeId: string,
+): Promise<ExerciseProgress[]> {
+  const byExercise = await loadPerExerciseHistory(db, traineeId);
+  const result: ExerciseProgress[] = [];
+
+  for (const group of byExercise.values()) {
+    const first = group[0]!;
     let pr = 0;
     let prAchievedOn = first.performedOn;
     for (const r of group) {
-      if (Number(r.maxReps) > pr) {
-        pr = Number(r.maxReps);
+      if (r.maxReps > pr) {
+        pr = r.maxReps;
         prAchievedOn = r.performedOn;
       }
     }
 
     const recent = group.slice(0, 4);
     const prior = group.slice(4, 8);
-    const recentAvg = recent.length === 0 ? 0 : avg(recent.map((r) => Number(r.avgReps)));
-    const priorAvg = prior.length === 0 ? 0 : avg(prior.map((r) => Number(r.avgReps)));
+    const recentAvg = avg(recent.map((r) => r.avgReps));
+    const priorAvg = avg(prior.map((r) => r.avgReps));
+    const recentRpe = avg(recent.map((r) => r.avgRpe));
+    const priorRpe = avg(prior.map((r) => r.avgRpe));
 
     let status: ExerciseProgress["status"];
     let deltaPct: number | null;
@@ -482,20 +617,21 @@ export async function getExerciseProgress(
     }
 
     result.push({
-      exerciseId,
+      exerciseId: first.exerciseId,
       exerciseName: first.exerciseName,
       unit: first.unit,
       pr,
       prAchievedOn,
       recentAvgReps: round1(recentAvg),
       priorAvgReps: round1(priorAvg),
+      recentAvgRpe: round1(recentRpe),
+      priorAvgRpe: round1(priorRpe),
       deltaPct,
       status,
       sessionCount: group.length,
     });
   }
 
-  // Sort: "down" first (needs attention), then "flat", "up", "new" last.
   const order: Record<ExerciseProgress["status"], number> = {
     down: 0,
     flat: 1,
@@ -510,14 +646,652 @@ export async function getExerciseProgress(
   return result;
 }
 
-function avg(xs: number[]): number {
-  if (xs.length === 0) return 0;
-  return xs.reduce((a, b) => a + b, 0) / xs.length;
+// ============================================================
+// Plateau detector: ≥3 recent sessions with flat/declining reps AND non-falling RPE
+// ============================================================
+
+export interface PlateauExercise {
+  exerciseId: string;
+  exerciseName: string;
+  unit: "REPS" | "SEC";
+  sessionsConsidered: number;
+  recentAvgReps: number;
+  recentAvgRpe: number;
+  pr: number;
+}
+
+export async function getPlateauExercises(
+  db: Db,
+  traineeId: string,
+): Promise<PlateauExercise[]> {
+  const byExercise = await loadPerExerciseHistory(db, traineeId);
+  const out: PlateauExercise[] = [];
+
+  for (const group of byExercise.values()) {
+    if (group.length < 3) continue;
+    const window = group.slice(0, Math.min(4, group.length));
+
+    // Reps: not increasing across the window (sorted desc means values stay
+    // flat or get lower going back in time → "not increasing" means newest
+    // value ≤ oldest in window).
+    const newestReps = window[0]!.avgReps;
+    const oldestReps = window[window.length - 1]!.avgReps;
+    const repsStuck = newestReps <= oldestReps + 0.5; // tolerate noise
+
+    // RPE: not decreasing (struggling at least as much as before).
+    const newestRpe = window[0]!.avgRpe;
+    const oldestRpe = window[window.length - 1]!.avgRpe;
+    const rpeNonFalling = newestRpe >= oldestRpe - 0.3;
+
+    if (repsStuck && rpeNonFalling) {
+      let pr = 0;
+      for (const r of group) if (r.maxReps > pr) pr = r.maxReps;
+      out.push({
+        exerciseId: group[0]!.exerciseId,
+        exerciseName: group[0]!.exerciseName,
+        unit: group[0]!.unit,
+        sessionsConsidered: window.length,
+        recentAvgReps: round1(newestReps),
+        recentAvgRpe: round1(newestRpe),
+        pr,
+      });
+    }
+  }
+
+  out.sort((a, b) => b.recentAvgRpe - a.recentAvgRpe);
+  return out;
 }
 
 // ============================================================
-// PR detection after a workout save — used by the logging route to drive
-// the "Pobiłeś rekord!" toast.
+// Sparklines for top N exercises (by usage)
+// ============================================================
+
+export interface ExerciseSparkline {
+  exerciseId: string;
+  exerciseName: string;
+  unit: "REPS" | "SEC";
+  pr: number;
+  prAchievedOn: string;
+  points: Array<{ performedOn: string; avgReps: number; avgRpe: number }>;
+}
+
+export async function getTopExerciseSparklines(
+  db: Db,
+  traineeId: string,
+  topN: number,
+): Promise<ExerciseSparkline[]> {
+  const byExercise = await loadPerExerciseHistory(db, traineeId);
+  const ordered = Array.from(byExercise.entries())
+    .map(([_, group]) => group)
+    .filter((g) => g.length >= 2)
+    .sort((a, b) => b.length - a.length)
+    .slice(0, topN);
+
+  return ordered.map((group) => {
+    const chrono = [...group].reverse(); // oldest first for the line
+    let pr = 0;
+    let prAchievedOn = chrono[0]!.performedOn;
+    for (const r of group) {
+      if (r.maxReps > pr) {
+        pr = r.maxReps;
+        prAchievedOn = r.performedOn;
+      }
+    }
+    return {
+      exerciseId: group[0]!.exerciseId,
+      exerciseName: group[0]!.exerciseName,
+      unit: group[0]!.unit,
+      pr,
+      prAchievedOn,
+      points: chrono.map((r) => ({
+        performedOn: r.performedOn,
+        avgReps: round1(r.avgReps),
+        avgRpe: round1(r.avgRpe),
+      })),
+    };
+  });
+}
+
+// ============================================================
+// "Easier at the same reps" — same reps now, lower RPE than historically
+// ============================================================
+
+export interface EasierExercise {
+  exerciseId: string;
+  exerciseName: string;
+  unit: "REPS" | "SEC";
+  reps: number;
+  recentRpe: number;
+  priorRpe: number;
+  recentDate: string;
+  priorDate: string;
+}
+
+export async function getEasierAtSameReps(
+  db: Db,
+  traineeId: string,
+): Promise<EasierExercise[]> {
+  const byExercise = await loadPerExerciseHistory(db, traineeId);
+  const out: EasierExercise[] = [];
+
+  // For each exercise, look at the most-recent session's rounded avgReps.
+  // Find an older session (>= 30 days earlier) with the same rounded reps
+  // and a higher avg RPE (≥ 1.0 difference for signal).
+  for (const group of byExercise.values()) {
+    if (group.length < 2) continue;
+    const recent = group[0]!;
+    const recentRoundedReps = Math.round(recent.avgReps);
+    if (recentRoundedReps === 0) continue;
+    const recentDateMs = new Date(recent.performedOn).getTime();
+    const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+
+    let best: PerExerciseRow | null = null;
+    for (let i = 1; i < group.length; i++) {
+      const prev = group[i]!;
+      if (Math.round(prev.avgReps) !== recentRoundedReps) continue;
+      if (recentDateMs - new Date(prev.performedOn).getTime() < thirtyDays) continue;
+      if (prev.avgRpe - recent.avgRpe < 1) continue;
+      if (best == null || prev.avgRpe > best.avgRpe) best = prev;
+    }
+    if (best != null) {
+      out.push({
+        exerciseId: recent.exerciseId,
+        exerciseName: recent.exerciseName,
+        unit: recent.unit,
+        reps: recentRoundedReps,
+        recentRpe: round1(recent.avgRpe),
+        priorRpe: round1(best.avgRpe),
+        recentDate: recent.performedOn,
+        priorDate: best.performedOn,
+      });
+    }
+  }
+
+  out.sort((a, b) => b.priorRpe - b.recentRpe - (a.priorRpe - a.recentRpe));
+  return out;
+}
+
+// ============================================================
+// Effort balance (last 30d)
+// ============================================================
+
+export interface EffortBalance {
+  easy: number;
+  mid: number;
+  hard: number;
+  total: number;
+  verdict: "balanced" | "too-hard" | "too-easy" | "no-data";
+}
+
+export async function getEffortBalance(
+  db: Db,
+  traineeId: string,
+): Promise<EffortBalance> {
+  const thirtyDaysAgo = isoDaysAgo(30);
+  const sessions = await db
+    .select({
+      id: schema.workoutLogs.id,
+      avgRpe: sql<number>`AVG(${schema.workoutSetLogs.difficulty})::float`,
+    })
+    .from(schema.workoutLogs)
+    .innerJoin(
+      schema.workoutExerciseLogs,
+      eq(schema.workoutExerciseLogs.workoutLogId, schema.workoutLogs.id),
+    )
+    .innerJoin(
+      schema.workoutSetLogs,
+      eq(schema.workoutSetLogs.workoutExerciseLogId, schema.workoutExerciseLogs.id),
+    )
+    .where(
+      and(
+        eq(schema.workoutLogs.traineeId, traineeId),
+        gte(schema.workoutLogs.performedOn, thirtyDaysAgo),
+      ),
+    )
+    .groupBy(schema.workoutLogs.id);
+
+  let easy = 0;
+  let mid = 0;
+  let hard = 0;
+  for (const s of sessions) {
+    const rpe = Number(s.avgRpe);
+    if (rpe <= 4.5) easy++;
+    else if (rpe < 8) mid++;
+    else hard++;
+  }
+  const total = sessions.length;
+  let verdict: EffortBalance["verdict"];
+  if (total === 0) verdict = "no-data";
+  else if (hard / total > 0.5) verdict = "too-hard";
+  else if (easy / total > 0.5) verdict = "too-easy";
+  else verdict = "balanced";
+
+  return { easy, mid, hard, total, verdict };
+}
+
+// ============================================================
+// Tag distribution (last 30d) — % per category from exercises.tags
+// ============================================================
+
+export interface TagShare {
+  tag: string;
+  count: number;
+  pct: number;
+}
+
+export async function getTagDistribution(
+  db: Db,
+  traineeId: string,
+  days = 30,
+): Promise<{ shares: TagShare[]; untagged: number; totalExerciseLogs: number }> {
+  const cutoff = isoDaysAgo(days);
+
+  // One row per exercise-log occurrence in the window, with that exercise's tags.
+  const rows = await db
+    .select({
+      tags: schema.exercises.tags,
+    })
+    .from(schema.workoutExerciseLogs)
+    .innerJoin(
+      schema.workoutLogs,
+      eq(schema.workoutLogs.id, schema.workoutExerciseLogs.workoutLogId),
+    )
+    .innerJoin(
+      schema.exercises,
+      eq(schema.exercises.id, schema.workoutExerciseLogs.exerciseId),
+    )
+    .where(
+      and(
+        eq(schema.workoutLogs.traineeId, traineeId),
+        gte(schema.workoutLogs.performedOn, cutoff),
+      ),
+    );
+
+  const counts = new Map<string, number>();
+  let untagged = 0;
+  for (const r of rows) {
+    if (!r.tags || r.tags.length === 0) {
+      untagged += 1;
+      continue;
+    }
+    // Each tag on the exercise gets one "credit" per occurrence.
+    for (const t of r.tags) {
+      counts.set(t, (counts.get(t) ?? 0) + 1);
+    }
+  }
+
+  const totalCredits = Array.from(counts.values()).reduce((a, b) => a + b, 0) + untagged;
+  const shares: TagShare[] = Array.from(counts.entries())
+    .map(([tag, count]) => ({
+      tag,
+      count,
+      pct: totalCredits === 0 ? 0 : Math.round((count / totalCredits) * 100),
+    }))
+    .sort((a, b) => b.count - a.count);
+
+  return { shares, untagged, totalExerciseLogs: rows.length };
+}
+
+// ============================================================
+// Month summary: sessions + PR-y + top exercise this month
+// ============================================================
+
+export interface MonthSummary {
+  monthLabel: string; // e.g. "Maj 2026"
+  sessions: number;
+  prsThisMonth: number;
+  topExerciseName: string | null;
+  topExerciseSessions: number;
+}
+
+export async function getMonthSummary(db: Db, traineeId: string): Promise<MonthSummary> {
+  const now = new Date();
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const monthStartIso = isoDate(monthStart);
+  const monthLabel = `${MONTH_NAMES[now.getUTCMonth()]} ${now.getUTCFullYear()}`;
+
+  const [sCountRow] = await db
+    .select({ c: sql<number>`COUNT(*)::int` })
+    .from(schema.workoutLogs)
+    .where(
+      and(
+        eq(schema.workoutLogs.traineeId, traineeId),
+        gte(schema.workoutLogs.performedOn, monthStartIso),
+      ),
+    );
+  const sessionsThisMonth = Number(sCountRow?.c ?? 0);
+
+  // Top exercise by # of sessions in the month.
+  const topRows = await db
+    .select({
+      exerciseId: schema.workoutExerciseLogs.exerciseId,
+      name: schema.exercises.name,
+      c: sql<number>`COUNT(DISTINCT ${schema.workoutLogs.id})::int`,
+    })
+    .from(schema.workoutExerciseLogs)
+    .innerJoin(
+      schema.workoutLogs,
+      eq(schema.workoutLogs.id, schema.workoutExerciseLogs.workoutLogId),
+    )
+    .innerJoin(
+      schema.exercises,
+      eq(schema.exercises.id, schema.workoutExerciseLogs.exerciseId),
+    )
+    .where(
+      and(
+        eq(schema.workoutLogs.traineeId, traineeId),
+        gte(schema.workoutLogs.performedOn, monthStartIso),
+      ),
+    )
+    .groupBy(schema.workoutExerciseLogs.exerciseId, schema.exercises.name)
+    .orderBy(sql`COUNT(DISTINCT ${schema.workoutLogs.id}) DESC`)
+    .limit(1);
+  const topExerciseName = topRows[0]?.name ?? null;
+  const topExerciseSessions = Number(topRows[0]?.c ?? 0);
+
+  // PR-y w tym miesiącu: count exercises whose all-time PR achieved date
+  // falls inside this month.
+  const prRecords = await getPersonalRecords(db, traineeId, { limit: 500 });
+  const prsThisMonth = prRecords.filter((p) => p.prAchievedOn >= monthStartIso).length;
+
+  return {
+    monthLabel,
+    sessions: sessionsThisMonth,
+    prsThisMonth,
+    topExerciseName,
+    topExerciseSessions,
+  };
+}
+
+const MONTH_NAMES = [
+  "Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec",
+  "Lipiec", "Sierpień", "Wrzesień", "Październik", "Listopad", "Grudzień",
+];
+
+// ============================================================
+// Plan session usage — how often each plan_session was performed (active plan)
+// ============================================================
+
+export interface PlanSessionUsage {
+  sessionId: string;
+  sessionName: string;
+  ordinal: number;
+  doneCount: number;
+  lastPerformedOn: string | null;
+}
+
+export async function getActivePlanSessionUsage(
+  db: Db,
+  traineeId: string,
+): Promise<{ planName: string | null; sessions: PlanSessionUsage[] }> {
+  const [plan] = await db
+    .select({ id: schema.plans.id, name: schema.plans.name })
+    .from(schema.plans)
+    .where(
+      and(eq(schema.plans.traineeId, traineeId), eq(schema.plans.status, "active")),
+    )
+    .limit(1);
+  if (!plan) return { planName: null, sessions: [] };
+
+  const sessions = await db
+    .select({
+      id: schema.planSessions.id,
+      name: schema.planSessions.name,
+      ordinal: schema.planSessions.ordinal,
+    })
+    .from(schema.planSessions)
+    .where(eq(schema.planSessions.planId, plan.id))
+    .orderBy(asc(schema.planSessions.ordinal));
+  if (sessions.length === 0) return { planName: plan.name, sessions: [] };
+
+  const counts = await db
+    .select({
+      sessionId: schema.workoutLogs.planSessionId,
+      c: sql<number>`COUNT(*)::int`,
+      last: sql<string | null>`MAX(${schema.workoutLogs.performedOn})`,
+    })
+    .from(schema.workoutLogs)
+    .where(
+      and(
+        eq(schema.workoutLogs.traineeId, traineeId),
+        eq(schema.workoutLogs.planId, plan.id),
+        inArray(
+          schema.workoutLogs.planSessionId,
+          sessions.map((s) => s.id),
+        ),
+      ),
+    )
+    .groupBy(schema.workoutLogs.planSessionId);
+  const byId = new Map(counts.map((r) => [r.sessionId, r]));
+
+  return {
+    planName: plan.name,
+    sessions: sessions.map((s) => ({
+      sessionId: s.id,
+      sessionName: s.name,
+      ordinal: s.ordinal,
+      doneCount: Number(byId.get(s.id)?.c ?? 0),
+      lastPerformedOn: byId.get(s.id)?.last ?? null,
+    })),
+  };
+}
+
+// ============================================================
+// Current plan totals (reps / seconds-under-tension / sets)
+// ============================================================
+
+export interface CurrentPlanTotals {
+  planName: string | null;
+  publishedAt: string | null;
+  totalSets: number;
+  totalReps: number;
+  totalSeconds: number;
+  totalSessionsOnPlan: number;
+}
+
+export async function getCurrentPlanTotals(
+  db: Db,
+  traineeId: string,
+): Promise<CurrentPlanTotals> {
+  const [plan] = await db
+    .select({
+      id: schema.plans.id,
+      name: schema.plans.name,
+      publishedAt: schema.plans.publishedAt,
+    })
+    .from(schema.plans)
+    .where(
+      and(eq(schema.plans.traineeId, traineeId), eq(schema.plans.status, "active")),
+    )
+    .limit(1);
+  if (!plan) {
+    return {
+      planName: null,
+      publishedAt: null,
+      totalSets: 0,
+      totalReps: 0,
+      totalSeconds: 0,
+      totalSessionsOnPlan: 0,
+    };
+  }
+
+  const [row] = await db
+    .select({
+      sets: sql<number>`COUNT(${schema.workoutSetLogs.id})::int`,
+      reps: sql<number>`COALESCE(SUM(CASE WHEN ${schema.exercises.unit} = 'REPS' THEN ${schema.workoutSetLogs.reps} ELSE 0 END), 0)::bigint`,
+      secs: sql<number>`COALESCE(SUM(CASE WHEN ${schema.exercises.unit} = 'SEC'  THEN ${schema.workoutSetLogs.reps} ELSE 0 END), 0)::bigint`,
+      sessions: sql<number>`COUNT(DISTINCT ${schema.workoutLogs.id})::int`,
+    })
+    .from(schema.workoutLogs)
+    .leftJoin(
+      schema.workoutExerciseLogs,
+      eq(schema.workoutExerciseLogs.workoutLogId, schema.workoutLogs.id),
+    )
+    .leftJoin(
+      schema.workoutSetLogs,
+      eq(schema.workoutSetLogs.workoutExerciseLogId, schema.workoutExerciseLogs.id),
+    )
+    .leftJoin(
+      schema.exercises,
+      eq(schema.exercises.id, schema.workoutExerciseLogs.exerciseId),
+    )
+    .where(
+      and(
+        eq(schema.workoutLogs.traineeId, traineeId),
+        eq(schema.workoutLogs.planId, plan.id),
+      ),
+    );
+
+  return {
+    planName: plan.name,
+    publishedAt: plan.publishedAt ? plan.publishedAt.toISOString() : null,
+    totalSets: Number(row?.sets ?? 0),
+    totalReps: Number(row?.reps ?? 0),
+    totalSeconds: Number(row?.secs ?? 0),
+    totalSessionsOnPlan: Number(row?.sessions ?? 0),
+  };
+}
+
+// ============================================================
+// Video coverage (% sets with a video, last 30d)
+// ============================================================
+
+export interface VideoCoverage {
+  pct: number;
+  withVideo: number;
+  total: number;
+}
+
+export async function getVideoCoverage(
+  db: Db,
+  traineeId: string,
+  days = 30,
+): Promise<VideoCoverage> {
+  const cutoff = isoDaysAgo(days);
+  const [row] = await db
+    .select({
+      withVideo: sql<number>`COALESCE(SUM(CASE WHEN ${schema.workoutSetLogs.videoFileId} IS NOT NULL THEN 1 ELSE 0 END), 0)::int`,
+      total: sql<number>`COUNT(*)::int`,
+    })
+    .from(schema.workoutSetLogs)
+    .innerJoin(
+      schema.workoutExerciseLogs,
+      eq(schema.workoutExerciseLogs.id, schema.workoutSetLogs.workoutExerciseLogId),
+    )
+    .innerJoin(
+      schema.workoutLogs,
+      eq(schema.workoutLogs.id, schema.workoutExerciseLogs.workoutLogId),
+    )
+    .where(
+      and(
+        eq(schema.workoutLogs.traineeId, traineeId),
+        gte(schema.workoutLogs.performedOn, cutoff),
+      ),
+    );
+  const total = Number(row?.total ?? 0);
+  const withVideo = Number(row?.withVideo ?? 0);
+  return {
+    total,
+    withVideo,
+    pct: total === 0 ? 0 : Math.round((withVideo / total) * 100),
+  };
+}
+
+// ============================================================
+// Body photo coverage
+// ============================================================
+
+export interface BodyPhotoCoverage {
+  totalPhotos: number;
+  daysSinceLast: number | null;
+  views: { front: boolean; side: boolean; back: boolean };
+}
+
+export async function getBodyPhotoCoverage(
+  db: Db,
+  traineeId: string,
+): Promise<BodyPhotoCoverage> {
+  const rows = await db
+    .select({
+      view: schema.bodyPhotos.view,
+      takenOn: schema.bodyPhotos.takenOn,
+    })
+    .from(schema.bodyPhotos)
+    .where(eq(schema.bodyPhotos.traineeId, traineeId));
+
+  const views = { front: false, side: false, back: false };
+  let lastIso: string | null = null;
+  for (const r of rows) {
+    if (r.view === "front") views.front = true;
+    else if (r.view === "side") views.side = true;
+    else if (r.view === "back") views.back = true;
+    if (lastIso == null || r.takenOn > lastIso) lastIso = r.takenOn;
+  }
+  const daysSinceLast =
+    lastIso == null
+      ? null
+      : Math.max(
+          0,
+          Math.floor(
+            (new Date(isoDate(new Date())).getTime() - new Date(lastIso).getTime()) /
+              (24 * 60 * 60 * 1000),
+          ),
+        );
+  return { totalPhotos: rows.length, daysSinceLast, views };
+}
+
+// ============================================================
+// Side-by-side body photos (first vs latest per view)
+// ============================================================
+
+export interface SideBySidePhotoPair {
+  view: schema.BodyPhotoView;
+  first: { id: string; fileId: string; takenOn: string } | null;
+  latest: { id: string; fileId: string; takenOn: string } | null;
+  hasPair: boolean;
+  daysBetween: number | null;
+}
+
+export async function getSideBySidePhotoPairs(
+  db: Db,
+  traineeId: string,
+): Promise<SideBySidePhotoPair[]> {
+  const rows = await db
+    .select({
+      id: schema.bodyPhotos.id,
+      fileId: schema.bodyPhotos.fileId,
+      view: schema.bodyPhotos.view,
+      takenOn: schema.bodyPhotos.takenOn,
+    })
+    .from(schema.bodyPhotos)
+    .where(eq(schema.bodyPhotos.traineeId, traineeId))
+    .orderBy(asc(schema.bodyPhotos.takenOn));
+
+  const views: schema.BodyPhotoView[] = ["front", "side", "back"];
+  return views.map((view) => {
+    const ofView = rows.filter((r) => r.view === view);
+    const first = ofView[0] ?? null;
+    const latest = ofView[ofView.length - 1] ?? null;
+    const isSame = first && latest && first.id === latest.id;
+    const daysBetween =
+      first && latest && !isSame
+        ? Math.floor(
+            (new Date(latest.takenOn).getTime() - new Date(first.takenOn).getTime()) /
+              (24 * 60 * 60 * 1000),
+          )
+        : null;
+    return {
+      view,
+      first,
+      latest,
+      hasPair: !!(first && latest && !isSame),
+      daysBetween,
+    };
+  });
+}
+
+// ============================================================
+// PR detection after a workout save (used by logging route → toast)
 // ============================================================
 
 export interface NewPRForLog {
@@ -527,20 +1301,11 @@ export interface NewPRForLog {
   reps: number;
 }
 
-/**
- * Given a freshly-saved workoutLogId for this trainee, return the list of
- * exercises whose PR was set or tied in *that* log (i.e. the max reps in
- * this log is ≥ all prior logs' max for that exercise).
- *
- * Ties with prior count as "fresh PR" too — same logical reason as
- * `getPersonalRecords` favouring the newest date.
- */
 export async function detectNewPRsForLog(
   db: Db,
   traineeId: string,
   workoutLogId: string,
 ): Promise<NewPRForLog[]> {
-  // Max reps per exercise in this log.
   const thisLog = await db
     .select({
       exerciseId: schema.workoutExerciseLogs.exerciseId,
@@ -568,7 +1333,6 @@ export async function detectNewPRsForLog(
 
   const exerciseIds = thisLog.map((r) => r.exerciseId);
 
-  // Prior max per exercise across all OTHER logs for this trainee.
   const priors = await db
     .select({
       exerciseId: schema.workoutExerciseLogs.exerciseId,
@@ -598,8 +1362,6 @@ export async function detectNewPRsForLog(
     const prior = priorByEx.get(r.exerciseId) ?? 0;
     const thisMax = Number(r.maxReps);
     if (thisMax > prior) {
-      // Strict greater: first-time exercise (prior=0) always qualifies if any
-      // reps were logged.
       out.push({
         exerciseId: r.exerciseId,
         exerciseName: r.name,

@@ -1,11 +1,18 @@
 import { and, eq } from "drizzle-orm";
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
+import {
+  SideBySideSection,
+  TimelineSection,
+  type ResolvedPair,
+  type TimelineByView,
+} from "~/components/body-photo-compare";
+import { PhotoCard } from "~/components/photo-card";
 import { requireUser } from "~/lib/auth";
 import { listBodyPhotosForTrainee } from "~/lib/body-photos";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import { signFileUrl } from "~/lib/files";
-import { PhotoCard } from "~/components/photo-card";
+import { getSideBySidePhotoPairs } from "~/lib/stats";
 
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainer" });
@@ -25,15 +32,56 @@ export async function loader(args: LoaderFunctionArgs) {
   const trainee = traineeRows[0];
   if (!trainee) throw new Response("not found", { status: 404 });
 
-  const photos = await listBodyPhotosForTrainee(db, traineeId);
+  const [photos, pairs] = await Promise.all([
+    listBodyPhotosForTrainee(db, traineeId, { limit: 500 }),
+    getSideBySidePhotoPairs(db, traineeId),
+  ]);
+
+  const resolvedPairs: ResolvedPair[] = pairs.map((p) => ({
+    view: p.view,
+    hasPair: p.hasPair,
+    daysBetween: p.daysBetween,
+    first: p.first
+      ? {
+          id: p.first.id,
+          url: signFileUrl(p.first.fileId, user.id),
+          takenOn: p.first.takenOn,
+        }
+      : null,
+    latest: p.latest
+      ? {
+          id: p.latest.id,
+          url: signFileUrl(p.latest.fileId, user.id),
+          takenOn: p.latest.takenOn,
+        }
+      : null,
+  }));
+
+  const timelineRows: TimelineByView[] = (["front", "side", "back"] as const).map(
+    (view) => ({
+      view,
+      photos: photos
+        .filter((p) => p.view === view)
+        .sort((a, b) => (a.takenOn < b.takenOn ? -1 : 1))
+        .map((p) => ({
+          id: p.id,
+          url: signFileUrl(p.fileId, user.id),
+          takenOn: p.takenOn,
+        })),
+    }),
+  );
+
   return {
     trainee,
     photos: photos.map((p) => ({ ...p, url: signFileUrl(p.fileId, user.id) })),
+    resolvedPairs,
+    timelineRows,
   };
 }
 
 export default function TrenerSylwetkaPodopiecznego() {
-  const { trainee, photos } = useLoaderData<typeof loader>();
+  const { trainee, photos, resolvedPairs, timelineRows } =
+    useLoaderData<typeof loader>();
 
   return (
     <div>
@@ -65,25 +113,31 @@ export default function TrenerSylwetkaPodopiecznego() {
           <div>Podopieczny jeszcze nie wgrał żadnego zdjęcia.</div>
         </div>
       ) : (
-        <div
-          className="grid"
-          style={{
-            gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
-            gap: 12,
-          }}
-        >
-          {photos.map((p) => (
-            <PhotoCard
-              key={p.id}
-              id={p.id}
-              url={p.url}
-              takenOn={p.takenOn}
-              view={p.view}
-              note={p.note}
-              canDelete={false}
-            />
-          ))}
-        </div>
+        <>
+          <SideBySideSection pairs={resolvedPairs} />
+          <TimelineSection rows={timelineRows} />
+
+          <h2 style={{ fontSize: 17, margin: "8px 0 12px" }}>Wszystkie zdjęcia</h2>
+          <div
+            className="grid"
+            style={{
+              gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+              gap: 12,
+            }}
+          >
+            {photos.map((p) => (
+              <PhotoCard
+                key={p.id}
+                id={p.id}
+                url={p.url}
+                takenOn={p.takenOn}
+                view={p.view}
+                note={p.note}
+                canDelete={false}
+              />
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
