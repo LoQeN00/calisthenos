@@ -217,16 +217,22 @@ export async function getPersonalRecords(
   traineeId: string,
   opts: { limit?: number } = {},
 ): Promise<PRRecord[]> {
+  // ROW_NUMBER (not RANK) — if several sets tie on (reps, performed_on) for
+  // an exercise (e.g. 3×8 pull-ups in one session) RANK would return all of
+  // them with rank=1 and we'd display the same PR three times. ROW_NUMBER
+  // assigns 1, 2, 3, … unconditionally so the filter keeps exactly one row
+  // per exercise.
   const sub = db.$with("ranked").as(
     db
       .select({
         exerciseId: schema.workoutExerciseLogs.exerciseId,
         reps: schema.workoutSetLogs.reps,
         performedOn: schema.workoutLogs.performedOn,
-        rnk: sql<number>`RANK() OVER (
+        rnk: sql<number>`ROW_NUMBER() OVER (
           PARTITION BY ${schema.workoutExerciseLogs.exerciseId}
           ORDER BY ${schema.workoutSetLogs.reps} DESC,
-                   ${schema.workoutLogs.performedOn} DESC
+                   ${schema.workoutLogs.performedOn} DESC,
+                   ${schema.workoutSetLogs.id} ASC
         )`.as("rnk"),
       })
       .from(schema.workoutSetLogs)
@@ -850,12 +856,16 @@ export async function getEffortBalance(
     )
     .groupBy(schema.workoutLogs.id);
 
+  // Buckets aligned with the UI legend (Lekkie ≤ 4 / Umiarkowane 5–7 / Ciężkie ≥ 8).
+  // Session avg RPE is a float, so we treat [<5, <8, ≥8] as the integer-bucket
+  // equivalents — an avg of 4.x still feels "light", an avg of 7.x still feels
+  // "moderate".
   let easy = 0;
   let mid = 0;
   let hard = 0;
   for (const s of sessions) {
     const rpe = Number(s.avgRpe);
-    if (rpe <= 4.5) easy++;
+    if (rpe < 5) easy++;
     else if (rpe < 8) mid++;
     else hard++;
   }
