@@ -90,6 +90,12 @@ export const Icons = {
       <path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />
     </>,
   ),
+  Download: makeIcon(
+    <>
+      <path d="M12 4v12M6 10l6 6 6-6" />
+      <path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />
+    </>,
+  ),
   Calendar: makeIcon(
     <>
       <rect x="3" y="5" width="18" height="16" rx="2" />

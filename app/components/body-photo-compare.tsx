@@ -4,7 +4,7 @@ import { fmtDate } from "~/lib/format";
 
 // ============================================================
 // Side-by-side: pierwsze vs najnowsze zdjęcie z ujęcia.
-// `pairs` are the URL-resolved version of `SideBySidePhotoPair` from stats.ts.
+// Tiles are clickable buttons that open the lightbox at the corresponding photo.
 // ============================================================
 
 export interface ResolvedPair {
@@ -15,13 +15,22 @@ export interface ResolvedPair {
   daysBetween: number | null;
 }
 
-export function SideBySideSection({ pairs }: { pairs: ResolvedPair[] }) {
+export function SideBySideSection({
+  pairs,
+  onOpenPhoto,
+}: {
+  pairs: ResolvedPair[];
+  onOpenPhoto: (id: string) => void;
+}) {
   const hasAny = pairs.some((p) => p.first != null);
   if (!hasAny) return null;
 
   return (
     <section style={{ marginBottom: 24 }}>
-      <h2 style={{ fontSize: 17, marginBottom: 10 }}>Porównanie</h2>
+      <div className="row between" style={{ alignItems: "baseline", marginBottom: 10 }}>
+        <h2 style={{ fontSize: 17, margin: 0 }}>Porównanie</h2>
+        <span className="text-xs muted">kliknij zdjęcie aby powiększyć</span>
+      </div>
       <div
         className="grid"
         style={{
@@ -30,14 +39,20 @@ export function SideBySideSection({ pairs }: { pairs: ResolvedPair[] }) {
         }}
       >
         {pairs.map((p) => (
-          <ViewPair key={p.view} pair={p} />
+          <ViewPair key={p.view} pair={p} onOpenPhoto={onOpenPhoto} />
         ))}
       </div>
     </section>
   );
 }
 
-function ViewPair({ pair }: { pair: ResolvedPair }) {
+function ViewPair({
+  pair,
+  onOpenPhoto,
+}: {
+  pair: ResolvedPair;
+  onOpenPhoto: (id: string) => void;
+}) {
   if (pair.first == null) {
     return (
       <div
@@ -71,7 +86,6 @@ function ViewPair({ pair }: { pair: ResolvedPair }) {
   }
 
   if (!pair.hasPair) {
-    // Single photo (only one taken in this view so far).
     return (
       <div className="card" style={{ padding: 12 }}>
         <div
@@ -86,7 +100,12 @@ function ViewPair({ pair }: { pair: ResolvedPair }) {
         >
           {BODY_VIEW_LABELS[pair.view]} · jedno zdjęcie
         </div>
-        <PhotoTile url={pair.first.url} takenOn={pair.first.takenOn} />
+        <PhotoTile
+          id={pair.first.id}
+          url={pair.first.url}
+          takenOn={pair.first.takenOn}
+          onClick={onOpenPhoto}
+        />
       </div>
     );
   }
@@ -117,15 +136,19 @@ function ViewPair({ pair }: { pair: ResolvedPair }) {
         style={{ gridTemplateColumns: "1fr 1fr", gap: 8, alignItems: "start" }}
       >
         <PhotoTile
+          id={pair.first.id}
           url={pair.first.url}
           takenOn={pair.first.takenOn}
           tag="pierwsze"
+          onClick={onOpenPhoto}
         />
         <PhotoTile
+          id={pair.latest!.id}
           url={pair.latest!.url}
           takenOn={pair.latest!.takenOn}
           tag="ostatnie"
           highlight
+          onClick={onOpenPhoto}
         />
       </div>
     </div>
@@ -133,32 +156,44 @@ function ViewPair({ pair }: { pair: ResolvedPair }) {
 }
 
 function PhotoTile({
+  id,
   url,
   takenOn,
   tag,
   highlight,
+  onClick,
 }: {
+  id: string;
   url: string;
   takenOn: string;
   tag?: string;
   highlight?: boolean;
+  onClick: (id: string) => void;
 }) {
   return (
-    <div
+    <button
+      type="button"
+      onClick={() => onClick(id)}
+      aria-label={`Otwórz zdjęcie z ${fmtDate(takenOn)}`}
       style={{
         position: "relative",
         aspectRatio: "3 / 4",
         borderRadius: 8,
         overflow: "hidden",
         background: "var(--ink)",
-        border: highlight
-          ? "2px solid var(--accent)"
-          : "1px solid var(--line)",
+        border: highlight ? "2px solid var(--accent)" : "1px solid var(--line)",
+        padding: 0,
+        margin: 0,
+        cursor: "pointer",
+        display: "block",
+        width: "100%",
+        font: "inherit",
+        color: "inherit",
       }}
     >
       <img
         src={url}
-        alt={`Sylwetka — ${fmtDate(takenOn)}`}
+        alt=""
         loading="lazy"
         style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
       />
@@ -198,136 +233,6 @@ function PhotoTile({
       >
         {fmtDate(takenOn)}
       </div>
-    </div>
-  );
-}
-
-// ============================================================
-// Timeline: oś czasu zdjęć per ujęcie (3 rzędy horyzontalnego scrolla).
-// ============================================================
-
-export interface TimelinePhoto {
-  id: string;
-  url: string;
-  takenOn: string;
-}
-
-export interface TimelineByView {
-  view: BodyPhotoView;
-  photos: TimelinePhoto[];
-}
-
-export function TimelineSection({ rows }: { rows: TimelineByView[] }) {
-  const hasAny = rows.some((r) => r.photos.length > 0);
-  if (!hasAny) return null;
-  return (
-    <section style={{ marginBottom: 24 }}>
-      <h2 style={{ fontSize: 17, marginBottom: 10 }}>Oś czasu</h2>
-      <div className="col" style={{ gap: 12 }}>
-        {rows.map((row) => (
-          <TimelineRow key={row.view} row={row} />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function TimelineRow({ row }: { row: TimelineByView }) {
-  if (row.photos.length === 0) {
-    return (
-      <div
-        className="card"
-        style={{
-          padding: 12,
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-        }}
-      >
-        <div
-          className="mono"
-          style={{
-            fontSize: 10,
-            textTransform: "uppercase",
-            letterSpacing: ".08em",
-            color: "var(--muted)",
-            width: 60,
-          }}
-        >
-          {BODY_VIEW_LABELS[row.view]}
-        </div>
-        <div className="text-xs muted" style={{ fontStyle: "italic" }}>
-          brak zdjęć
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="card" style={{ padding: 12 }}>
-      <div
-        className="mono"
-        style={{
-          fontSize: 10,
-          textTransform: "uppercase",
-          letterSpacing: ".08em",
-          color: "var(--muted)",
-          marginBottom: 8,
-        }}
-      >
-        {BODY_VIEW_LABELS[row.view]} · {row.photos.length}
-      </div>
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          overflowX: "auto",
-          paddingBottom: 4,
-        }}
-      >
-        {row.photos.map((p) => (
-          <div
-            key={p.id}
-            style={{
-              position: "relative",
-              flex: "0 0 100px",
-              aspectRatio: "3 / 4",
-              borderRadius: 6,
-              overflow: "hidden",
-              background: "var(--ink)",
-              border: "1px solid var(--line)",
-            }}
-          >
-            <img
-              src={p.url}
-              alt={`Sylwetka — ${fmtDate(p.takenOn)}`}
-              loading="lazy"
-              style={{
-                width: "100%",
-                height: "100%",
-                objectFit: "cover",
-                display: "block",
-              }}
-            />
-            <div
-              style={{
-                position: "absolute",
-                bottom: 0,
-                left: 0,
-                right: 0,
-                background: "linear-gradient(to top, rgba(0,0,0,.7), transparent)",
-                color: "#fff",
-                padding: "6px 6px 4px",
-                fontFamily: "var(--font-mono)",
-                fontSize: 9.5,
-                fontWeight: 600,
-                lineHeight: 1.2,
-              }}
-            >
-              {fmtDate(p.takenOn)}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
+    </button>
   );
 }

@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from "react";
 import {
   Form,
   useActionData,
@@ -6,18 +7,19 @@ import {
   type LoaderFunctionArgs,
 } from "react-router";
 import { z } from "zod";
-import { useEffect, useState } from "react";
 import {
   SideBySideSection,
-  TimelineSection,
   type ResolvedPair,
-  type TimelineByView,
 } from "~/components/body-photo-compare";
 import { FileDropzone } from "~/components/file-dropzone";
 import { Icons } from "~/components/icons";
 import { Modal } from "~/components/modal";
 import { Pagination, parsePage } from "~/components/pagination";
 import { PhotoCard } from "~/components/photo-card";
+import {
+  PhotoLightbox,
+  type LightboxPhoto,
+} from "~/components/photo-lightbox";
 import { requireUser } from "~/lib/auth";
 import {
   addBodyPhoto,
@@ -27,6 +29,7 @@ import {
   listBodyPhotosForTrainee,
 } from "~/lib/body-photos";
 import { db } from "~/lib/db/client";
+import type { BodyPhotoView } from "~/lib/db/schema";
 import { signFileUrl } from "~/lib/files";
 import { todayISO } from "~/lib/format";
 import { getSideBySidePhotoPairs } from "~/lib/stats";
@@ -43,7 +46,7 @@ const UploadSchema = z.object({
 
 const DELETE_ACTION_PATH = "/podopieczny/sylwetka";
 
-const PAGE_SIZE = 24;
+const PAGE_SIZE = 60;
 
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainee" });
@@ -55,12 +58,9 @@ export async function loader(args: LoaderFunctionArgs) {
   const safePage = Math.min(page, totalPages);
   const offset = (safePage - 1) * PAGE_SIZE;
 
-  const [photos, pairs, allPhotos] = await Promise.all([
+  const [photos, pairs] = await Promise.all([
     listBodyPhotosForTrainee(db, user.id, { limit: PAGE_SIZE, offset }),
     getSideBySidePhotoPairs(db, user.id),
-    // For the timeline strip we want every photo — but cap at 500 so we don't
-    // blow up the page if a trainee uploads daily for years.
-    listBodyPhotosForTrainee(db, user.id, { limit: 500 }),
   ]);
 
   const resolvedPairs: ResolvedPair[] = pairs.map((p) => ({
@@ -83,27 +83,12 @@ export async function loader(args: LoaderFunctionArgs) {
       : null,
   }));
 
-  const timelineRows: TimelineByView[] = (["front", "side", "back"] as const).map(
-    (view) => ({
-      view,
-      photos: allPhotos
-        .filter((p) => p.view === view)
-        .sort((a, b) => (a.takenOn < b.takenOn ? -1 : 1))
-        .map((p) => ({
-          id: p.id,
-          url: signFileUrl(p.fileId, user.id),
-          takenOn: p.takenOn,
-        })),
-    }),
-  );
-
   return {
     photos: photos.map((p) => ({ ...p, url: signFileUrl(p.fileId, user.id) })),
     page: safePage,
     totalPages,
     total,
     resolvedPairs,
-    timelineRows,
   };
 }
 
@@ -154,18 +139,75 @@ export async function action(args: ActionFunctionArgs) {
   return { ok: true };
 }
 
+type ViewFilter = "all" | BodyPhotoView;
+
 export default function TraineeBodyGallery() {
-  const { photos, page, totalPages, total, resolvedPairs, timelineRows } =
+  const { photos, page, totalPages, total, resolvedPairs } =
     useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [showAddModal, setShowAddModal] = useState(false);
+  const [filter, setFilter] = useState<ViewFilter>("all");
+  const [lightboxId, setLightboxId] = useState<string | null>(null);
 
-  // Auto-close the modal after a successful upload so the trainee sees the
-  // gallery update.
   const uploadOk = actionData != null && "ok" in actionData && actionData.ok === true;
   useEffect(() => {
-    if (uploadOk) setShowAddModal(false);
+    if (uploadOk) {
+      setShowAddModal(false);
+      // Close lightbox after delete so we don't show a stale photo on the
+      // refreshed list.
+      setLightboxId(null);
+    }
   }, [uploadOk]);
+
+  const counts = useMemo(() => countByView(photos), [photos]);
+  const filteredPhotos = useMemo(
+    () => (filter === "all" ? photos : photos.filter((p) => p.view === filter)),
+    [photos, filter],
+  );
+
+  // Photos in the order the lightbox should navigate through (filtered + sorted).
+  const lightboxPhotos: LightboxPhoto[] = useMemo(
+    () =>
+      filteredPhotos.map((p) => ({
+        id: p.id,
+        url: p.url,
+        view: p.view,
+        takenOn: p.takenOn,
+        note: p.note,
+        mimeType: p.mimeType,
+      })),
+    [filteredPhotos],
+  );
+
+  // If user opens a lightbox from side-by-side (potentially a photo outside
+  // the current filter), fall back to the unfiltered photo list for nav.
+  const lightboxPhotosAll: LightboxPhoto[] = useMemo(
+    () =>
+      photos.map((p) => ({
+        id: p.id,
+        url: p.url,
+        view: p.view,
+        takenOn: p.takenOn,
+        note: p.note,
+        mimeType: p.mimeType,
+      })),
+    [photos],
+  );
+
+  const openFromSideBySide = (id: string) => {
+    // Side-by-side click → open lightbox with ALL photos as nav list (filter
+    // ignored intentionally so they can scroll through everything).
+    setLightboxId(id);
+  };
+
+  // Decide which list to feed the lightbox with: if the open id is in the
+  // filtered set, use filtered; otherwise use the full list.
+  const activeLightboxPhotos: LightboxPhoto[] =
+    lightboxId != null && lightboxPhotos.some((p) => p.id === lightboxId)
+      ? lightboxPhotos
+      : lightboxPhotosAll;
+
+  const groups = useMemo(() => groupByMonth(filteredPhotos), [filteredPhotos]);
 
   return (
     <div>
@@ -261,30 +303,22 @@ export default function TraineeBodyGallery() {
         </div>
       ) : (
         <>
-          <SideBySideSection pairs={resolvedPairs} />
-          <TimelineSection rows={timelineRows} />
+          <SideBySideSection
+            pairs={resolvedPairs}
+            onOpenPhoto={openFromSideBySide}
+          />
 
-          <h2 style={{ fontSize: 17, margin: "8px 0 12px" }}>Wszystkie zdjęcia</h2>
-          <div
-            className="grid"
-            style={{
-              gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-              gap: 12,
-            }}
-          >
-            {photos.map((p) => (
-              <PhotoCard
-                key={p.id}
-                id={p.id}
-                url={p.url}
-                takenOn={p.takenOn}
-                view={p.view}
-                note={p.note}
-                canDelete
-                deleteAction={DELETE_ACTION_PATH}
-              />
-            ))}
-          </div>
+          <FilterTabs filter={filter} setFilter={setFilter} counts={counts} />
+
+          {filteredPhotos.length === 0 ? (
+            <div className="empty" style={{ marginTop: 12 }}>
+              <h3>Brak zdjęć w tym ujęciu</h3>
+              <div>Zmień filtr lub wgraj nowe.</div>
+            </div>
+          ) : (
+            <PhotoGrid groups={groups} onOpenPhoto={setLightboxId} />
+          )}
+
           <Pagination
             page={page}
             totalPages={totalPages}
@@ -293,6 +327,176 @@ export default function TraineeBodyGallery() {
           />
         </>
       )}
+
+      <PhotoLightbox
+        photos={activeLightboxPhotos}
+        currentId={lightboxId}
+        onClose={() => setLightboxId(null)}
+        onNavigate={setLightboxId}
+        deleteAction={DELETE_ACTION_PATH}
+      />
     </div>
   );
+}
+
+// ============================================================
+// Filter tabs
+// ============================================================
+
+function FilterTabs({
+  filter,
+  setFilter,
+  counts,
+}: {
+  filter: ViewFilter;
+  setFilter: (f: ViewFilter) => void;
+  counts: Record<ViewFilter, number>;
+}) {
+  const TABS: Array<{ key: ViewFilter; label: string }> = [
+    { key: "all", label: "Wszystkie" },
+    { key: "front", label: "Przód" },
+    { key: "side", label: "Bok" },
+    { key: "back", label: "Tył" },
+  ];
+  return (
+    <div className="row wrap" style={{ gap: 6, marginBottom: 14 }}>
+      {TABS.map((tab) => {
+        const isActive = filter === tab.key;
+        return (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => setFilter(tab.key)}
+            className={isActive ? "btn btn-sm btn-dark" : "btn btn-sm"}
+          >
+            {tab.label}
+            <span
+              className="mono"
+              style={{
+                marginLeft: 8,
+                fontSize: 10,
+                opacity: 0.7,
+              }}
+            >
+              {counts[tab.key] ?? 0}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============================================================
+// Grid grouped by month
+// ============================================================
+
+interface PhotoGroup {
+  label: string;
+  photos: Array<{
+    id: string;
+    url: string;
+    takenOn: string;
+    view: BodyPhotoView;
+    note: string | null;
+  }>;
+}
+
+function PhotoGrid({
+  groups,
+  onOpenPhoto,
+}: {
+  groups: PhotoGroup[];
+  onOpenPhoto: (id: string) => void;
+}) {
+  return (
+    <div className="col" style={{ gap: 18 }}>
+      {groups.map((g) => (
+        <div key={g.label}>
+          <div
+            className="mono"
+            style={{
+              fontSize: 11,
+              textTransform: "uppercase",
+              letterSpacing: ".1em",
+              color: "var(--muted)",
+              marginBottom: 8,
+            }}
+          >
+            {g.label} · {g.photos.length}
+          </div>
+          <div
+            className="grid"
+            style={{
+              gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+              gap: 12,
+            }}
+          >
+            {g.photos.map((p) => (
+              <PhotoCard
+                key={p.id}
+                id={p.id}
+                url={p.url}
+                takenOn={p.takenOn}
+                view={p.view}
+                note={p.note}
+                onOpen={onOpenPhoto}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ============================================================
+// Helpers
+// ============================================================
+
+function countByView(
+  photos: Array<{ view: BodyPhotoView }>,
+): Record<ViewFilter, number> {
+  const out: Record<ViewFilter, number> = {
+    all: photos.length,
+    front: 0,
+    side: 0,
+    back: 0,
+  };
+  for (const p of photos) {
+    out[p.view] += 1;
+  }
+  return out;
+}
+
+const MONTHS_PL = [
+  "Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec",
+  "Lipiec", "Sierpień", "Wrzesień", "Październik", "Listopad", "Grudzień",
+];
+
+function groupByMonth<
+  T extends { id: string; url: string; takenOn: string; view: BodyPhotoView; note: string | null },
+>(photos: T[]): PhotoGroup[] {
+  // Already arrives sorted desc by takenOn from the loader.
+  const groups = new Map<string, PhotoGroup>();
+  const order: string[] = [];
+  for (const p of photos) {
+    const d = new Date(p.takenOn);
+    const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
+    const label = `${MONTHS_PL[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+    let g = groups.get(key);
+    if (!g) {
+      g = { label, photos: [] };
+      groups.set(key, g);
+      order.push(key);
+    }
+    g.photos.push({
+      id: p.id,
+      url: p.url,
+      takenOn: p.takenOn,
+      view: p.view,
+      note: p.note,
+    });
+  }
+  return order.map((k) => groups.get(k)!);
 }

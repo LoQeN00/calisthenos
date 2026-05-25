@@ -1,5 +1,3 @@
-import { Form } from "react-router";
-import { ConfirmSubmitButton } from "~/components/confirm-provider";
 import type { BodyPhotoView } from "~/lib/db/schema";
 import { fmtDate } from "~/lib/format";
 
@@ -15,27 +13,28 @@ export interface PhotoCardProps {
   takenOn: string;
   view: BodyPhotoView;
   note: string | null;
-  /** If true, renders the delete button (`<Form>` posting `intent=delete` to `deleteAction`). */
-  canDelete: boolean;
-  /**
-   * Form `action` URL used by the delete button. Required when `canDelete=true`
-   * — the component intentionally never relies on the current-URL default so it
-   * stays portable across routes.
-   */
-  deleteAction?: string;
+  /** Click opens the lightbox at this photo. */
+  onOpen: (id: string) => void;
 }
 
+/**
+ * Thumbnail card for the gallery grid. Click opens the lightbox. The lightbox
+ * owns download + delete actions so the card stays a clean preview.
+ */
 export function PhotoCard({
   id,
   url,
   takenOn,
   view,
   note,
-  canDelete,
-  deleteAction,
+  onOpen,
 }: PhotoCardProps) {
   return (
-    <div
+    <button
+      type="button"
+      onClick={() => onOpen(id)}
+      className="photo-card-btn"
+      aria-label={`Otwórz zdjęcie z ${fmtDate(takenOn)} — ${BODY_VIEW_LABELS[view]}`}
       style={{
         position: "relative",
         aspectRatio: "3 / 4",
@@ -43,100 +42,82 @@ export function PhotoCard({
         overflow: "hidden",
         background: "var(--ink)",
         border: "1px solid var(--line)",
+        padding: 0,
+        margin: 0,
+        cursor: "pointer",
+        display: "block",
+        width: "100%",
+        font: "inherit",
+        color: "inherit",
+        textAlign: "left",
       }}
     >
       <img
         src={url}
-        alt={`Sylwetka — ${BODY_VIEW_LABELS[view]}, ${fmtDate(takenOn)}`}
+        alt=""
         loading="lazy"
         style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
       />
-      <div
+      <span
         style={{
           position: "absolute",
-          top: 6,
-          left: 6,
-          background: "rgba(0,0,0,.55)",
+          top: 8,
+          left: 8,
+          background: "rgba(0,0,0,.6)",
           color: "#fff",
-          padding: "2px 7px",
+          padding: "3px 8px",
           borderRadius: 4,
           fontSize: 10,
           fontFamily: "var(--font-mono)",
           textTransform: "uppercase",
-          letterSpacing: ".06em",
+          letterSpacing: ".08em",
+          fontWeight: 600,
         }}
       >
         {BODY_VIEW_LABELS[view]}
-      </div>
+      </span>
       <div
         style={{
           position: "absolute",
           inset: 0,
           background:
-            "linear-gradient(to top, rgba(0,0,0,.65) 0%, transparent 35%, transparent 65%, rgba(0,0,0,.35) 100%)",
+            "linear-gradient(to top, rgba(0,0,0,.75) 0%, transparent 38%)",
           pointerEvents: "none",
         }}
       />
       <div
         style={{
           position: "absolute",
-          bottom: 6,
-          left: 8,
-          right: 8,
+          bottom: 8,
+          left: 10,
+          right: 10,
           color: "#fff",
-          fontSize: 11,
           fontFamily: "var(--font-mono)",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-end",
-          gap: 6,
+          fontSize: 12,
+          fontWeight: 600,
         }}
       >
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontWeight: 600 }}>{fmtDate(takenOn)}</div>
-          {note != null && note.length > 0 && (
-            <div
-              style={{
-                fontSize: 10,
-                opacity: 0.85,
-                marginTop: 2,
-                fontStyle: "italic",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              „{note}"
-            </div>
-          )}
-        </div>
-        {canDelete && deleteAction != null && (
-          <Form method="post" action={deleteAction} style={{ flexShrink: 0 }}>
-            <input type="hidden" name="intent" value="delete" />
-            <input type="hidden" name="photoId" value={id} />
-            <ConfirmSubmitButton
-              confirmOptions={{
-                title: "Usunąć zdjęcie?",
-                message: "Tej operacji nie da się cofnąć.",
-                destructive: true,
-                confirmText: "Usuń",
-              }}
-              style={{
-                background: "rgba(0,0,0,.55)",
-                color: "#fff",
-                border: 0,
-                padding: "4px 8px",
-                fontSize: 11,
-                borderRadius: 4,
-                cursor: "pointer",
-              }}
-              aria-label="Usuń zdjęcie"
-            >
-              usuń
-            </ConfirmSubmitButton>
-          </Form>
+        <div>{fmtDate(takenOn)}</div>
+        {note != null && note.length > 0 && (
+          <div
+            style={{
+              fontSize: 11,
+              opacity: 0.85,
+              marginTop: 3,
+              fontStyle: "italic",
+              fontWeight: 400,
+              fontFamily: "var(--font-body)",
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+              lineHeight: 1.3,
+            }}
+          >
+            „{note}"
+          </div>
         )}
       </div>
-    </div>
+    </button>
   );
 }
