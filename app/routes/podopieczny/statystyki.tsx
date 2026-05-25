@@ -1,4 +1,4 @@
-import { useLoaderData, type LoaderFunctionArgs } from "react-router";
+import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import {
   Heatmap,
@@ -21,6 +21,7 @@ import {
   getThisWeekStats,
   getTopExerciseSparklines,
 } from "~/lib/stats";
+import { getAvailableWrappedMonths } from "~/lib/wrapped";
 
 const SESJA: PlForms = { one: "sesja", few: "sesje", many: "sesji" };
 const TYDZIEN: PlForms = { one: "tydzień", few: "tygodnie", many: "tygodni" };
@@ -39,6 +40,7 @@ export async function loader(args: LoaderFunctionArgs) {
     monthSummary,
     effort,
     tagDist,
+    wrappedMonths,
   ] = await Promise.all([
     getHeroStats(db, user.id),
     getThisWeekStats(db, user.id),
@@ -49,6 +51,7 @@ export async function loader(args: LoaderFunctionArgs) {
     getMonthSummary(db, user.id),
     getEffortBalance(db, user.id),
     getTagDistribution(db, user.id, 30),
+    getAvailableWrappedMonths(db, user.id),
   ]);
   return {
     hero,
@@ -60,6 +63,7 @@ export async function loader(args: LoaderFunctionArgs) {
     monthSummary,
     effort,
     tagDist,
+    wrappedMonths,
   };
 }
 
@@ -74,6 +78,7 @@ export default function TraineeStatystyki() {
     monthSummary,
     effort,
     tagDist,
+    wrappedMonths,
   } = useLoaderData<typeof loader>();
   const isQuiet = hero.totalSessions === 0;
 
@@ -122,9 +127,70 @@ export default function TraineeStatystyki() {
           <EasierSection easier={easier} />
 
           <PRSection prs={prs} />
+
+          <WrappedSection months={wrappedMonths} />
         </>
       )}
     </div>
+  );
+}
+
+function WrappedSection({
+  months,
+}: {
+  months: ReturnType<typeof useLoaderData<typeof loader>>["wrappedMonths"];
+}) {
+  if (months.length === 0) return null;
+  return (
+    <Section title="Twoje wrappedy" icon={<Icons.Sparkle />}>
+      <div className="text-xs muted" style={{ marginBottom: 10 }}>
+        Każdego 1. dnia miesiąca odblokowuje się retrospektywa poprzedniego.
+      </div>
+      <div
+        className="grid"
+        style={{
+          gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+          gap: 10,
+        }}
+      >
+        {months.map((m, idx) => (
+          <Link
+            key={m.ym}
+            to={`/podopieczny/wrapped/${m.ym}`}
+            className="card card-hover"
+            style={{
+              padding: 14,
+              textDecoration: "none",
+              display: "block",
+              background: idx === 0 ? "var(--ink)" : "var(--surface)",
+              color: idx === 0 ? "var(--bg)" : "inherit",
+            }}
+          >
+            <div
+              className="mono"
+              style={{
+                fontSize: 10,
+                textTransform: "uppercase",
+                letterSpacing: ".1em",
+                opacity: idx === 0 ? 0.65 : 0.5,
+                marginBottom: 6,
+              }}
+            >
+              Wrapped
+            </div>
+            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>
+              {m.label}
+            </div>
+            <div
+              className="text-xs"
+              style={{ opacity: idx === 0 ? 0.7 : undefined }}
+            >
+              {m.sessions} {m.sessions === 1 ? "sesja" : "sesji"}
+            </div>
+          </Link>
+        ))}
+      </div>
+    </Section>
   );
 }
 

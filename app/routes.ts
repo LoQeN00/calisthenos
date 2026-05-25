@@ -42,5 +42,7 @@ export default [
       route("statystyki", "routes/podopieczny/statystyki.tsx"),
       route("sylwetka", "routes/podopieczny/sylwetka.tsx"),
     ]),
+    // Wrapped lives OUTSIDE the sidenav layout so it can render full-screen.
+    route("wrapped/:ym", "routes/podopieczny/wrapped.$ym.tsx"),
   ]),
 ] satisfies RouteConfig;

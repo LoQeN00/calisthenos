@@ -1,4 +1,5 @@
 import { and, count, eq, gte } from "drizzle-orm";
+import { useEffect, useState } from "react";
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { requireUser } from "~/lib/auth";
@@ -9,6 +10,120 @@ import {
   listLogsForTrainee,
   loadActivePlanSummaryForTrainee,
 } from "~/lib/workouts";
+import { getLatestAvailableWrapped } from "~/lib/wrapped";
+
+// ============================================================
+// Wrapped banner — appears when the previous month's wrapped is fresh and
+// hasn't been viewed yet (`localStorage.wrapped-viewed-YYYY-MM`). Hidden on
+// SSR/initial-render to avoid hydration mismatch + a flash for repeat viewers.
+// ============================================================
+
+function WrappedBanner({
+  wrapped,
+}: {
+  wrapped: NonNullable<
+    ReturnType<typeof useLoaderData<typeof loader>>["latestWrapped"]
+  >;
+}) {
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    try {
+      const viewed = localStorage.getItem(`wrapped-viewed-${wrapped.ym}`);
+      const dismissed = localStorage.getItem(`wrapped-dismissed-${wrapped.ym}`);
+      if (!viewed && !dismissed) setShow(true);
+    } catch {
+      // localStorage blocked → just show; clicking through marks it server-side
+      // on the wrapped page itself anyway.
+      setShow(true);
+    }
+  }, [wrapped.ym]);
+
+  const dismiss = () => {
+    try {
+      localStorage.setItem(`wrapped-dismissed-${wrapped.ym}`, "1");
+    } catch {
+      // ignored
+    }
+    setShow(false);
+  };
+
+  if (!show) return null;
+  return (
+    <div
+      className="card"
+      style={{
+        background: "var(--ink)",
+        color: "var(--bg)",
+        border: 0,
+        padding: 18,
+        marginBottom: 20,
+        position: "relative",
+        overflow: "hidden",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        flexWrap: "wrap",
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          top: -40,
+          right: -40,
+          width: 180,
+          height: 180,
+          borderRadius: "50%",
+          background: "var(--accent)",
+          opacity: 0.18,
+          pointerEvents: "none",
+        }}
+      />
+      <div style={{ position: "relative", flex: 1, minWidth: 200 }}>
+        <div
+          className="mono"
+          style={{
+            fontSize: 10,
+            textTransform: "uppercase",
+            letterSpacing: ".12em",
+            color: "var(--accent)",
+            marginBottom: 6,
+          }}
+        >
+          ✨ Świeży wrapped
+        </div>
+        <div style={{ fontSize: 19, fontWeight: 600, marginBottom: 4 }}>
+          Twój {wrapped.label} jest gotowy.
+        </div>
+        <div style={{ fontSize: 13, opacity: 0.7 }}>
+          {wrapped.sessions} {wrapped.sessions === 1 ? "sesja" : "sesji"} do
+          obejrzenia w klimacie Spotify Wrapped.
+        </div>
+      </div>
+      <div
+        className="row"
+        style={{ gap: 8, position: "relative", flexShrink: 0 }}
+      >
+        <button
+          type="button"
+          onClick={dismiss}
+          className="btn"
+          style={{
+            background: "transparent",
+            color: "var(--bg)",
+            borderColor: "rgba(255,255,255,.18)",
+          }}
+        >
+          Później
+        </button>
+        <Link to={`/podopieczny/wrapped/${wrapped.ym}`} className="btn btn-primary">
+          Otwórz wrapped <Icons.Chev />
+        </Link>
+      </div>
+    </div>
+  );
+}
 
 function isoDaysAgo(n: number): string {
   return new Date(Date.now() - n * 24 * 60 * 60 * 1000)
@@ -36,6 +151,10 @@ export async function loader(args: LoaderFunctionArgs) {
     .from(schema.workoutLogs)
     .where(eq(schema.workoutLogs.traineeId, user.id));
 
+  // Latest wrapped (previous calendar month, if it has data). Banner is
+  // suppressed client-side once the trainee opens the wrapped.
+  const latestWrapped = await getLatestAvailableWrapped(db, user.id);
+
   return {
     user,
     planSummary,
@@ -44,17 +163,21 @@ export async function loader(args: LoaderFunctionArgs) {
       weekSessions: Number(weekRow?.c ?? 0),
       totalSessions: Number(totalRow?.c ?? 0),
     },
+    latestWrapped,
   };
 }
 
 export default function TraineeDashboard() {
-  const { user, planSummary, recent, stats } = useLoaderData<typeof loader>();
+  const { user, planSummary, recent, stats, latestWrapped } =
+    useLoaderData<typeof loader>();
 
   const firstName = user.displayName.split(" ")[0] ?? user.displayName;
   const lastSessionLabel = recent[0]?.performedOn ? daysAgo(recent[0].performedOn) : null;
 
   return (
     <div>
+      {latestWrapped && <WrappedBanner wrapped={latestWrapped} />}
+
       <div
         className="row between"
         style={{
