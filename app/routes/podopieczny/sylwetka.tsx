@@ -165,47 +165,25 @@ export default function TraineeBodyGallery() {
     [photos, filter],
   );
 
-  // Photos in the order the lightbox should navigate through (filtered + sorted).
-  const lightboxPhotos: LightboxPhoto[] = useMemo(
-    () =>
-      filteredPhotos.map((p) => ({
+  // Lightbox navigation is always scoped to the clicked photo's VIEW (so
+  // tapping a "tył" photo lets you swipe through other "tył" photos, even if
+  // the gallery filter is "Wszystkie"). The filter only controls what's
+  // visible in the grid.
+  const activeLightboxPhotos: LightboxPhoto[] = useMemo(() => {
+    if (lightboxId == null) return [];
+    const opened = photos.find((p) => p.id === lightboxId);
+    if (!opened) return [];
+    return photos
+      .filter((p) => p.view === opened.view)
+      .map((p) => ({
         id: p.id,
         url: p.url,
         view: p.view,
         takenOn: p.takenOn,
         note: p.note,
         mimeType: p.mimeType,
-      })),
-    [filteredPhotos],
-  );
-
-  // If user opens a lightbox from side-by-side (potentially a photo outside
-  // the current filter), fall back to the unfiltered photo list for nav.
-  const lightboxPhotosAll: LightboxPhoto[] = useMemo(
-    () =>
-      photos.map((p) => ({
-        id: p.id,
-        url: p.url,
-        view: p.view,
-        takenOn: p.takenOn,
-        note: p.note,
-        mimeType: p.mimeType,
-      })),
-    [photos],
-  );
-
-  const openFromSideBySide = (id: string) => {
-    // Side-by-side click → open lightbox with ALL photos as nav list (filter
-    // ignored intentionally so they can scroll through everything).
-    setLightboxId(id);
-  };
-
-  // Decide which list to feed the lightbox with: if the open id is in the
-  // filtered set, use filtered; otherwise use the full list.
-  const activeLightboxPhotos: LightboxPhoto[] =
-    lightboxId != null && lightboxPhotos.some((p) => p.id === lightboxId)
-      ? lightboxPhotos
-      : lightboxPhotosAll;
+      }));
+  }, [lightboxId, photos]);
 
   const groups = useMemo(() => groupByMonth(filteredPhotos), [filteredPhotos]);
 
@@ -305,7 +283,7 @@ export default function TraineeBodyGallery() {
         <>
           <SideBySideSection
             pairs={resolvedPairs}
-            onOpenPhoto={openFromSideBySide}
+            onOpenPhoto={setLightboxId}
           />
 
           <FilterTabs filter={filter} setFilter={setFilter} counts={counts} />

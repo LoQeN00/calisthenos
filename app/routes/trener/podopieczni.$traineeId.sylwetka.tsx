@@ -81,34 +81,24 @@ export default function TrenerSylwetkaPodopiecznego() {
     [photos, filter],
   );
 
-  const lightboxPhotosFiltered: LightboxPhoto[] = useMemo(
-    () =>
-      filteredPhotos.map((p) => ({
+  // Lightbox nav scoped to the clicked photo's VIEW — clicking a "tył" photo
+  // gives you only "tył" photos to swipe through, even with filter on
+  // "Wszystkie". The filter only governs the grid.
+  const activeLightboxPhotos: LightboxPhoto[] = useMemo(() => {
+    if (lightboxId == null) return [];
+    const opened = photos.find((p) => p.id === lightboxId);
+    if (!opened) return [];
+    return photos
+      .filter((p) => p.view === opened.view)
+      .map((p) => ({
         id: p.id,
         url: p.url,
         view: p.view,
         takenOn: p.takenOn,
         note: p.note,
         mimeType: p.mimeType,
-      })),
-    [filteredPhotos],
-  );
-  const lightboxPhotosAll: LightboxPhoto[] = useMemo(
-    () =>
-      photos.map((p) => ({
-        id: p.id,
-        url: p.url,
-        view: p.view,
-        takenOn: p.takenOn,
-        note: p.note,
-        mimeType: p.mimeType,
-      })),
-    [photos],
-  );
-  const activeLightboxPhotos: LightboxPhoto[] =
-    lightboxId != null && lightboxPhotosFiltered.some((p) => p.id === lightboxId)
-      ? lightboxPhotosFiltered
-      : lightboxPhotosAll;
+      }));
+  }, [lightboxId, photos]);
 
   const groups = useMemo(() => groupByMonth(filteredPhotos), [filteredPhotos]);
 
