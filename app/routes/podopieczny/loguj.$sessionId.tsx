@@ -170,7 +170,7 @@ export async function action(args: ActionFunctionArgs) {
   }
 }
 
-type SetState = { reps: string; difficulty: string };
+type SetState = { reps: string; difficulty: string; skipped: boolean };
 
 const CWICZENIE: PlForms = { one: "ćwiczenie", few: "ćwiczenia", many: "ćwiczeń" };
 const SERIA: PlForms = { one: "seria", few: "serie", many: "serii" };
@@ -192,6 +192,7 @@ export default function LogForm() {
       Array.from({ length: entry.expectedSets }, () => ({
         reps: "",
         difficulty: "",
+        skipped: false,
       })),
     ),
   );
@@ -206,35 +207,69 @@ export default function LogForm() {
     );
   };
 
+  // Mark a set as explicitly skipped. Clears any partial input so it doesn't
+  // resurface if the trainee later "Cofnij"-clicks it (they'll start fresh).
+  const skipSet = (eIdx: number, sIdx: number) => {
+    setSetStates((prev) =>
+      prev.map((sets, i) =>
+        i === eIdx
+          ? sets.map((s, j) =>
+              j === sIdx
+                ? { reps: "", difficulty: "", skipped: true }
+                : s,
+            )
+          : sets,
+      ),
+    );
+  };
+
+  const unskipSet = (eIdx: number, sIdx: number) => {
+    setSetStates((prev) =>
+      prev.map((sets, i) =>
+        i === eIdx
+          ? sets.map((s, j) =>
+              j === sIdx
+                ? { reps: "", difficulty: "", skipped: false }
+                : s,
+            )
+          : sets,
+      ),
+    );
+  };
+
   const copyFromFirst = (eIdx: number) => {
     setSetStates((prev) =>
       prev.map((sets, i) => {
         if (i !== eIdx) return sets;
         const first = sets[0];
-        if (!first) return sets;
+        if (!first || first.skipped) return sets;
         return sets.map((s, j) =>
-          j === 0
+          j === 0 || s.skipped
             ? s
             : {
                 reps: s.reps || first.reps,
                 difficulty: s.difficulty || first.difficulty,
+                skipped: false,
               },
         );
       }),
     );
   };
 
-  // Progress: a set counts as "filled" when both reps and difficulty are set.
+  // Progress: filled = reps + difficulty set; skipped = explicitly opted-out.
+  // Pending = neither (still needs trainee attention before submit feels done).
   const stats = useMemo(() => {
     let total = 0;
     let filled = 0;
+    let skipped = 0;
     for (const sets of setStates) {
       for (const s of sets) {
         total++;
-        if (s.reps.trim() !== "" && s.difficulty !== "") filled++;
+        if (s.skipped) skipped++;
+        else if (s.reps.trim() !== "" && s.difficulty !== "") filled++;
       }
     }
-    return { total, filled };
+    return { total, filled, skipped };
   }, [setStates]);
 
   return (
@@ -251,7 +286,8 @@ export default function LogForm() {
           </div>
           <h1>{session.name}</h1>
           <div className="sub">
-            Zarejestruj wykonane serie. Pominięte rzędy = nieukończone serie.
+            Zarejestruj wykonane serie. Pominięte serie nie wliczają się do
+            statystyk — kliknij „Pomiń" obok serii, której nie zrobiłeś.
           </div>
         </div>
       </div>
@@ -298,6 +334,8 @@ export default function LogForm() {
               totalEntries={entries.length}
               sets={setStates[eIdx] ?? []}
               onUpdateSet={(sIdx, patch) => updateSet(eIdx, sIdx, patch)}
+              onSkipSet={(sIdx) => skipSet(eIdx, sIdx)}
+              onUnskipSet={(sIdx) => unskipSet(eIdx, sIdx)}
               onCopyFromFirst={() => copyFromFirst(eIdx)}
             />
           ))
@@ -310,7 +348,11 @@ export default function LogForm() {
         )}
 
         {entries.length > 0 && (
-          <ProgressBar filled={stats.filled} total={stats.total} />
+          <ProgressBar
+            filled={stats.filled}
+            skipped={stats.skipped}
+            total={stats.total}
+          />
         )}
 
         <div className="row" style={{ gap: 8, marginTop: 6 }}>
@@ -334,30 +376,82 @@ export default function LogForm() {
   );
 }
 
-function ProgressBar({ filled, total }: { filled: number; total: number }) {
-  const pct = total === 0 ? 0 : Math.round((filled / total) * 100);
-  const complete = filled === total && total > 0;
+function ProgressBar({
+  filled,
+  skipped,
+  total,
+}: {
+  filled: number;
+  skipped: number;
+  total: number;
+}) {
+  const accounted = filled + skipped;
+  const pct = total === 0 ? 0 : Math.round((accounted / total) * 100);
+  const filledPct = total === 0 ? 0 : (filled / total) * 100;
+  const skippedPct = total === 0 ? 0 : (skipped / total) * 100;
+  const allFilled = filled === total && total > 0;
+  const allAccounted = accounted === total && total > 0;
+  const pending = total - accounted;
+
   return (
     <div
       className="card"
       style={{
         padding: "10px 14px",
-        background: complete ? "var(--accent-soft)" : "var(--surface)",
-        borderColor: complete ? "var(--accent)" : undefined,
+        background: allFilled ? "var(--accent-soft)" : "var(--surface)",
+        borderColor: allFilled ? "var(--accent)" : undefined,
       }}
     >
       <div className="row between" style={{ marginBottom: 6, gap: 8 }}>
         <span style={{ fontSize: 13, fontWeight: 500 }}>
-          {complete ? (
+          {allFilled ? (
             <>
               <Icons.Check style={{ color: "var(--ok)" }} /> Wszystkie serie
               wypełnione
+            </>
+          ) : allAccounted ? (
+            <>
+              <span className="mono">{filled}</span> wypełnion
+              {filled === 1 ? "a" : "ych"}
+              {skipped > 0 && (
+                <>
+                  {" · "}
+                  <span className="mono" style={{ color: "var(--muted)" }}>
+                    {skipped}
+                  </span>{" "}
+                  <span className="muted">
+                    {pluralizePl(skipped, {
+                      one: "pominięta",
+                      few: "pominięte",
+                      many: "pominiętych",
+                    })}
+                  </span>
+                </>
+              )}
             </>
           ) : (
             <>
               <span className="mono">{filled}</span> z{" "}
               <span className="mono">{total}</span> {pluralizePl(total, SERIA)}{" "}
               wypełnion{filled === 1 ? "a" : "ych"}
+              {skipped > 0 && (
+                <>
+                  {" · "}
+                  <span className="mono" style={{ color: "var(--muted)" }}>
+                    {skipped}
+                  </span>{" "}
+                  <span className="muted">pominięte</span>
+                </>
+              )}
+              {pending > 0 && (
+                <>
+                  {" · "}
+                  <span className="mono" style={{ color: "var(--muted-2)" }}>
+                    {pending}
+                  </span>{" "}
+                  <span className="muted-2">do uzupełnienia</span>
+                </>
+              )}
             </>
           )}
         </span>
@@ -365,6 +459,7 @@ function ProgressBar({ filled, total }: { filled: number; total: number }) {
       </div>
       <div
         style={{
+          display: "flex",
           height: 4,
           background: "var(--surface-2)",
           borderRadius: 2,
@@ -373,10 +468,18 @@ function ProgressBar({ filled, total }: { filled: number; total: number }) {
       >
         <div
           style={{
-            width: `${pct}%`,
+            width: `${filledPct}%`,
             height: "100%",
-            background: complete ? "var(--ok)" : "var(--accent)",
+            background: allFilled ? "var(--ok)" : "var(--accent)",
             transition: "width .15s ease, background .15s ease",
+          }}
+        />
+        <div
+          style={{
+            width: `${skippedPct}%`,
+            height: "100%",
+            background: "var(--muted-2)",
+            transition: "width .15s ease",
           }}
         />
       </div>
@@ -390,6 +493,8 @@ function EntryCard({
   totalEntries,
   sets,
   onUpdateSet,
+  onSkipSet,
+  onUnskipSet,
   onCopyFromFirst,
 }: {
   entry: import("~/lib/workouts").LoggingEntry;
@@ -397,11 +502,14 @@ function EntryCard({
   totalEntries: number;
   sets: SetState[];
   onUpdateSet: (sIdx: number, patch: Partial<SetState>) => void;
+  onSkipSet: (sIdx: number) => void;
+  onUnskipSet: (sIdx: number) => void;
   onCopyFromFirst: () => void;
 }) {
   const showCopyButton = entry.expectedSets > 1;
   const firstFilled =
     sets.length > 0 &&
+    !sets[0]?.skipped &&
     (sets[0]?.reps?.trim() !== "" || sets[0]?.difficulty !== "");
 
   return (
@@ -461,18 +569,28 @@ function EntryCard({
       </div>
 
       <div style={{ padding: 12, display: "grid", gap: 10 }}>
-        {sets.map((set, sIdx) => (
-          <SetRow
-            // biome-ignore lint/suspicious/noArrayIndexKey: deterministic enumeration; rows never reorder.
-            key={sIdx}
-            eIdx={eIdx}
-            sIdx={sIdx}
-            unit={entry.unit}
-            expectedReps={entry.expectedReps}
-            set={set}
-            onChange={(patch) => onUpdateSet(sIdx, patch)}
-          />
-        ))}
+        {sets.map((set, sIdx) =>
+          set.skipped ? (
+            <SkippedSetRow
+              // biome-ignore lint/suspicious/noArrayIndexKey: deterministic enumeration; rows never reorder.
+              key={sIdx}
+              sIdx={sIdx}
+              onUnskip={() => onUnskipSet(sIdx)}
+            />
+          ) : (
+            <SetRow
+              // biome-ignore lint/suspicious/noArrayIndexKey: deterministic enumeration; rows never reorder.
+              key={sIdx}
+              eIdx={eIdx}
+              sIdx={sIdx}
+              unit={entry.unit}
+              expectedReps={entry.expectedReps}
+              set={set}
+              onChange={(patch) => onUpdateSet(sIdx, patch)}
+              onSkip={() => onSkipSet(sIdx)}
+            />
+          ),
+        )}
       </div>
     </div>
   );
@@ -491,6 +609,7 @@ function SetRow({
   expectedReps,
   set,
   onChange,
+  onSkip,
 }: {
   eIdx: number;
   sIdx: number;
@@ -498,6 +617,7 @@ function SetRow({
   expectedReps: number;
   set: SetState;
   onChange: (patch: Partial<SetState>) => void;
+  onSkip: () => void;
 }) {
   const diffName = `e_${eIdx}_s_${sIdx}_diff`;
 
@@ -524,15 +644,32 @@ function SetRow({
       }}
     >
       <div
+        className="row between"
+        style={{ alignItems: "center", marginBottom: -2 }}
+      >
+        <span className="mono text-xs muted">Seria #{sIdx + 1}</span>
+        <button
+          type="button"
+          onClick={onSkip}
+          className="btn btn-sm btn-ghost"
+          style={{
+            fontSize: 11,
+            color: "var(--muted)",
+            padding: "2px 8px",
+            height: 24,
+          }}
+          title="Oznacz tę serię jako pominiętą (nie wlicza się do statystyk)"
+        >
+          <Icons.X style={{ fontSize: 11 }} /> Pomiń
+        </button>
+      </div>
+      <div
         className="row"
         style={{
           gap: 10,
           alignItems: "flex-end",
         }}
       >
-        <span className="mono text-xs muted" style={{ width: 28 }}>
-          #{sIdx + 1}
-        </span>
         <div className="field" style={{ minWidth: 0, flex: 1 }}>
           <label
             className="uppercase-label"
@@ -586,6 +723,61 @@ function SetRow({
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Compact placeholder for a set that the trainee explicitly marked as skipped.
+ * Renders no form inputs — the action's "row left blank" path already treats
+ * missing fields as skipped (no DB row, doesn't pollute stats).
+ */
+function SkippedSetRow({
+  sIdx,
+  onUnskip,
+}: {
+  sIdx: number;
+  onUnskip: () => void;
+}) {
+  return (
+    <div
+      style={{
+        background: "var(--surface-2)",
+        border: "1px dashed var(--line-2)",
+        borderRadius: 8,
+        padding: "10px 12px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 10,
+      }}
+    >
+      <div className="row" style={{ gap: 10, alignItems: "center" }}>
+        <span className="mono text-xs muted">Seria #{sIdx + 1}</span>
+        <span
+          className="mono"
+          style={{
+            fontSize: 11,
+            textTransform: "uppercase",
+            letterSpacing: ".08em",
+            color: "var(--muted)",
+            fontWeight: 600,
+          }}
+        >
+          Pominięta
+        </span>
+        <span className="text-xs muted-2" style={{ fontStyle: "italic" }}>
+          nie wlicza się do statystyk
+        </span>
+      </div>
+      <button
+        type="button"
+        onClick={onUnskip}
+        className="btn btn-sm btn-ghost"
+        style={{ fontSize: 11, padding: "2px 8px", height: 24 }}
+      >
+        Cofnij
+      </button>
     </div>
   );
 }
