@@ -44,10 +44,7 @@ export async function loader(args: LoaderFunctionArgs) {
 
   // Archived plans are hidden from the trainer UI — they're created automatically
   // on publish to preserve history but offer no actionable value here.
-  const conditions = [
-    eq(schema.plans.trainerId, user.id),
-    ne(schema.plans.status, "archived"),
-  ];
+  const conditions = [eq(schema.plans.trainerId, user.id), ne(schema.plans.status, "archived")];
   if (status !== "all") {
     conditions.push(eq(schema.plans.status, status));
   }
@@ -56,9 +53,7 @@ export async function loader(args: LoaderFunctionArgs) {
   const statusCounts = await db
     .select({ status: schema.plans.status, c: count() })
     .from(schema.plans)
-    .where(
-      and(eq(schema.plans.trainerId, user.id), ne(schema.plans.status, "archived")),
-    )
+    .where(and(eq(schema.plans.trainerId, user.id), ne(schema.plans.status, "archived")))
     .groupBy(schema.plans.status);
   const counts = {
     all: 0,
@@ -128,8 +123,7 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function PlanyList() {
-  const { items, status, counts, page, totalPages, total } =
-    useLoaderData<typeof loader>();
+  const { items, status, counts, page, totalPages, total } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [searchParams] = useSearchParams();
 
@@ -340,4 +334,3 @@ function StatusBadge({ status }: { status: "draft" | "active" | "archived" }) {
     </span>
   );
 }
-

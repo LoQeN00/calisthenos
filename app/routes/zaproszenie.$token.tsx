@@ -10,13 +10,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
-import {
-  buildSetCookie,
-  consumeInvite,
-  createSession,
-  hashPassword,
-  hashToken,
-} from "~/lib/auth";
+import { buildSetCookie, consumeInvite, createSession, hashPassword, hashToken } from "~/lib/auth";
 
 const AcceptSchema = z.object({
   displayName: z.string().min(1).max(80),

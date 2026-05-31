@@ -227,7 +227,7 @@ Te punkty trafiają do checklisty planu (FEATURE) i są pilnowane w implementacj
 |---|---|
 | `.claude/skills/kalisthenos-dev-flow/SKILL.md` | nowy — orkiestrator. |
 | `.claude/commands/feature.md`, `.claude/commands/fix.md` | nowe — cienkie wejścia. |
-| `.claude/settings.json` | nowy (współdzielony) — allowlist komend pętli: `npm test`, `npm run typecheck/lint/build/test:unit`. |
+| `.claude/settings.json` | nowy (współdzielony) — allowlist komend pętli (`npm test`, `npm run typecheck/lint/build/test:unit`) + auto-akceptacja MCP `context7` (`enabledMcpjsonServers`). |
 | `.gitignore` | edycja — odsłonięcie `.claude/skills/`, `.claude/commands/`, `.claude/settings.json`; `settings.local.json` dalej ignorowany. |
 | `.mcp.json` | nowy (współdzielony) — serwer MCP `context7` (hosted HTTP). |
 | `CLAUDE.md` | edycja — sekcja „Proces AI-developmentu" + odwrócenie konwencji (§13). |

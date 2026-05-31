@@ -36,4 +36,5 @@ coverage/
 
 # local data
 data/
+screenshots/
 *.log

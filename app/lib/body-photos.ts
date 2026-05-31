@@ -48,10 +48,7 @@ export async function listBodyPhotosForTrainee(
   }));
 }
 
-export async function countBodyPhotosForTrainee(
-  db: Db,
-  traineeId: string,
-): Promise<number> {
+export async function countBodyPhotosForTrainee(db: Db, traineeId: string): Promise<number> {
   const [row] = await db
     .select({ c: count() })
     .from(schema.bodyPhotos)
@@ -134,9 +131,7 @@ export async function deleteBodyPhoto(
   const storagePath = await db.transaction(async (tx) => {
     const rows = await tx
       .delete(schema.bodyPhotos)
-      .where(
-        and(eq(schema.bodyPhotos.id, photoId), eq(schema.bodyPhotos.traineeId, traineeId)),
-      )
+      .where(and(eq(schema.bodyPhotos.id, photoId), eq(schema.bodyPhotos.traineeId, traineeId)))
       .returning({ fileId: schema.bodyPhotos.fileId });
     const fileId = rows[0]?.fileId;
     if (!fileId) return null;

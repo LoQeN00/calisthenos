@@ -50,11 +50,7 @@ export async function action(args: ActionFunctionArgs) {
   }
 
   const { email, password } = parsed.data;
-  const rows = await db
-    .select()
-    .from(schema.users)
-    .where(eq(schema.users.email, email))
-    .limit(1);
+  const rows = await db.select().from(schema.users).where(eq(schema.users.email, email)).limit(1);
   const user = rows[0];
 
   // Constant-time path: when the user doesn't exist or has no password, verify

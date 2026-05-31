@@ -81,12 +81,7 @@ export function UserMenu({ displayName }: UserMenuProps) {
             }}
           />
           <Form method="post" action="/wyloguj">
-            <button
-              type="submit"
-              role="menuitem"
-              className="menu-item"
-              style={menuItemStyle}
-            >
+            <button type="submit" role="menuitem" className="menu-item" style={menuItemStyle}>
               <Icons.LogOut />
               <span>Wyloguj</span>
             </button>
@@ -103,9 +98,7 @@ function ThemeToggle({ onPick }: { onPick: () => void }) {
   // hydration, so this is in sync.
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof document === "undefined") return "light";
-    return document.documentElement.classList.contains("theme-dark")
-      ? "dark"
-      : "light";
+    return document.documentElement.classList.contains("theme-dark") ? "dark" : "light";
   });
 
   const apply = (next: "light" | "dark") => {

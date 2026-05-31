@@ -63,8 +63,7 @@ export function FileDropzone({
 
   const acceptAttr = kind === "video" ? VIDEO_ACCEPT : IMAGE_ACCEPT;
   const acceptedList = acceptAttr.split(",");
-  const formatLabel =
-    kind === "video" ? "MP4, MOV lub WebM" : "JPG, PNG lub WebP";
+  const formatLabel = kind === "video" ? "MP4, MOV lub WebM" : "JPG, PNG lub WebP";
 
   const accept = (picked: File | null) => {
     if (!picked) {
@@ -73,9 +72,7 @@ export function FileDropzone({
       return;
     }
     if (picked.type && !acceptedList.includes(picked.type)) {
-      setError(
-        `Nieobsługiwany format: ${picked.type}. Wymagane: ${formatLabel}.`,
-      );
+      setError(`Nieobsługiwany format: ${picked.type}. Wymagane: ${formatLabel}.`);
       if (inputRef.current) inputRef.current.value = "";
       setFile(null);
       return;
@@ -195,10 +192,7 @@ export function FileDropzone({
           </button>
         )}
         {error && (
-          <p
-            role="alert"
-            style={{ color: "var(--danger)", fontSize: 11, margin: "4px 0 0" }}
-          >
+          <p role="alert" style={{ color: "var(--danger)", fontSize: 11, margin: "4px 0 0" }}>
             {error}
           </p>
         )}
@@ -235,9 +229,7 @@ export function FileDropzone({
             gap: 8,
             padding: "24px 18px",
             borderRadius: 12,
-            border: dragOver
-              ? "2px dashed var(--accent)"
-              : "2px dashed var(--line-2)",
+            border: dragOver ? "2px dashed var(--accent)" : "2px dashed var(--line-2)",
             background: dragOver ? "var(--accent-soft)" : "var(--surface)",
             color: "var(--ink-2)",
             cursor: "pointer",
@@ -258,20 +250,14 @@ export function FileDropzone({
           <span style={{ fontSize: 14 }}>
             <strong>Kliknij aby wybrać</strong> lub upuść plik tutaj
           </span>
-          <span
-            className="mono"
-            style={{ fontSize: 11, color: "var(--muted)" }}
-          >
+          <span className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
             {hint ??
               `${formatLabel}${maxBytes ? ` · do ${Math.floor(maxBytes / 1_000_000)} MB` : ""}`}
           </span>
         </button>
       )}
       {error && (
-        <p
-          role="alert"
-          style={{ color: "var(--danger)", fontSize: 12, margin: "6px 0 0" }}
-        >
+        <p role="alert" style={{ color: "var(--danger)", fontSize: 12, margin: "6px 0 0" }}>
           {error}
         </p>
       )}
@@ -353,25 +339,13 @@ function FullFilled({
         >
           {file.name}
         </div>
-        <div
-          className="mono"
-          style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}
-        >
+        <div className="mono" style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
           {sizeMb} MB
-          {isSubmitting && (
-            <span style={{ color: "var(--ok)", marginLeft: 8 }}>
-              · wysyłanie…
-            </span>
-          )}
+          {isSubmitting && <span style={{ color: "var(--ok)", marginLeft: 8 }}>· wysyłanie…</span>}
         </div>
       </div>
       <div className="row" style={{ gap: 6 }}>
-        <button
-          type="button"
-          className="btn btn-sm"
-          onClick={onChange}
-          disabled={isSubmitting}
-        >
+        <button type="button" className="btn btn-sm" onClick={onChange} disabled={isSubmitting}>
           Zmień
         </button>
         <button

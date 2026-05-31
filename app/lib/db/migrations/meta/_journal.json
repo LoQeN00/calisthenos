@@ -43,6 +43,13 @@
       "when": 1779600000000,
       "tag": "0005_exercise_categories",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1780229155312,
+      "tag": "0006_awesome_prodigy",
+      "breakpoints": true
     }
   ]
 }

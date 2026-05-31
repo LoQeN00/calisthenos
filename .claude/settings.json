@@ -12,5 +12,6 @@
       "PowerShell(npm run lint)",
       "PowerShell(npm run build)"
     ]
-  }
+  },
+  "enabledMcpjsonServers": ["context7"]
 }

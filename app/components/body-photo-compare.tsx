@@ -112,10 +112,7 @@ function ViewPair({
 
   return (
     <div className="card" style={{ padding: 12 }}>
-      <div
-        className="row between"
-        style={{ marginBottom: 8, alignItems: "baseline" }}
-      >
+      <div className="row between" style={{ marginBottom: 8, alignItems: "baseline" }}>
         <div
           className="mono"
           style={{
@@ -127,14 +124,9 @@ function ViewPair({
         >
           {BODY_VIEW_LABELS[pair.view]}
         </div>
-        <div className="mono text-xs muted">
-          {pair.daysBetween} dni różnicy
-        </div>
+        <div className="mono text-xs muted">{pair.daysBetween} dni różnicy</div>
       </div>
-      <div
-        className="grid"
-        style={{ gridTemplateColumns: "1fr 1fr", gap: 8, alignItems: "start" }}
-      >
+      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 8, alignItems: "start" }}>
         <PhotoTile
           id={pair.first.id}
           url={pair.first.url}

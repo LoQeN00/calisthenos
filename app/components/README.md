@@ -19,6 +19,7 @@ domenowej — czysta prezentacja + drobne interakcje (modale, providery kontekst
 | `body-photo-compare.tsx` | `SideBySideSection({ pairs, onOpenPhoto })`, `ResolvedPair` | Porównanie "przed/po" zdjęć sylwetki wg widoku (front/side/back). |
 | `video-modal.tsx` | `VideoButton({ src, title, label?, size? })`, `VideoModal({ src, title, onClose })` | Przycisk + modal odtwarzania wideo. |
 | `stat-widgets.tsx` | `Heatmap`, `Sparkline`, `SegmentedBar`, `SegmentedBarLegend`, `BarSegment` | Wykresy do dashboardów statystyk (heatmapa GitHub-style, sparkline, pasek segmentowy). |
+| `consultation-form.tsx` | `ConsultationForm({ defaultValue?, defaultHeldOn? })`, `ConsultationFormDefaultValue`, `ConsultationFormItem` | Formularz konsultacji (data, tytuł, podsumowanie, dynamiczna lista punktów "do poprawy"). Nie renderuje `<Form>` — owija go trasa-rodzic. |
 
 Konwencje wizualne (kolory, typografia, ikonografia): [`../../design-system/README.md`](../../design-system/README.md).
 

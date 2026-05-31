@@ -25,10 +25,7 @@ export function Pagination({
   if (totalPages <= 1) {
     if (total != null && totalLabel) {
       return (
-        <div
-          className="text-xs muted"
-          style={{ textAlign: "center", marginTop: 18 }}
-        >
+        <div className="text-xs muted" style={{ textAlign: "center", marginTop: 18 }}>
           {total} {totalLabel}
         </div>
       );
@@ -123,10 +120,7 @@ export function Pagination({
       )}
 
       {total != null && totalLabel && (
-        <span
-          className="text-xs muted"
-          style={{ marginLeft: 12, fontFamily: "var(--font-mono)" }}
-        >
+        <span className="text-xs muted" style={{ marginLeft: 12, fontFamily: "var(--font-mono)" }}>
           {total} {totalLabel}
         </span>
       )}

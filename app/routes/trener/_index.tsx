@@ -14,9 +14,7 @@ const OSOBA_AKTYWNA: PlForms = {
 import { listClientsForTrainer } from "~/lib/workouts";
 
 function isoDaysAgo(n: number): string {
-  return new Date(Date.now() - n * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
+  return new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 export async function loader(args: LoaderFunctionArgs) {
@@ -40,15 +38,11 @@ export async function loader(args: LoaderFunctionArgs) {
   const [activePlansRow] = await db
     .select({ c: count() })
     .from(schema.plans)
-    .where(
-      and(eq(schema.plans.trainerId, user.id), eq(schema.plans.status, "active")),
-    );
+    .where(and(eq(schema.plans.trainerId, user.id), eq(schema.plans.status, "active")));
   const [draftsRow] = await db
     .select({ c: count() })
     .from(schema.plans)
-    .where(
-      and(eq(schema.plans.trainerId, user.id), eq(schema.plans.status, "draft")),
-    );
+    .where(and(eq(schema.plans.trainerId, user.id), eq(schema.plans.status, "draft")));
   const [weekSessionsRow] = await db
     .select({ c: count() })
     .from(schema.workoutLogs)
@@ -166,7 +160,11 @@ export default function TrenerPulpit() {
                   key={c.id}
                   to={`/trener/podopieczni/${c.id}`}
                   className="list-row"
-                  style={{ gridTemplateColumns: "auto 1fr auto auto", gap: 12, padding: "12px 16px" }}
+                  style={{
+                    gridTemplateColumns: "auto 1fr auto auto",
+                    gap: 12,
+                    padding: "12px 16px",
+                  }}
                 >
                   <span className="avatar sm">{initialsOf(c.displayName)}</span>
                   <div>
@@ -223,7 +221,9 @@ export default function TrenerPulpit() {
         <Link to="/trener/plany" className="muted text-xs">
           Plany ›
         </Link>
-        <span className="muted text-xs" style={{ margin: "0 10px" }}>·</span>
+        <span className="muted text-xs" style={{ margin: "0 10px" }}>
+          ·
+        </span>
         <Link to="/trener/biblioteka" className="muted text-xs">
           Biblioteka ćwiczeń ›
         </Link>
@@ -238,4 +238,3 @@ function initialsOf(name: string): string {
   if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
   return ((parts[0]?.[0] ?? "") + (parts[parts.length - 1]?.[0] ?? "")).toUpperCase();
 }
-

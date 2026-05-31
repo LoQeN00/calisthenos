@@ -10,9 +10,7 @@ import * as schema from "~/lib/db/schema";
 // ============================================================
 
 function isoDaysAgo(n: number): string {
-  return new Date(Date.now() - n * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
+  return new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 function isoDate(d: Date): string {
@@ -69,10 +67,7 @@ export async function getHeroStats(db: Db, traineeId: string): Promise<HeroStats
       schema.workoutSetLogs,
       eq(schema.workoutSetLogs.workoutExerciseLogId, schema.workoutExerciseLogs.id),
     )
-    .leftJoin(
-      schema.exercises,
-      eq(schema.exercises.id, schema.workoutExerciseLogs.exerciseId),
-    )
+    .leftJoin(schema.exercises, eq(schema.exercises.id, schema.workoutExerciseLogs.exerciseId))
     .where(eq(schema.workoutLogs.traineeId, traineeId));
 
   const totalSessions = Number(totalsRow?.sessions ?? 0);
@@ -100,8 +95,7 @@ export async function getHeroStats(db: Db, traineeId: string): Promise<HeroStats
       : Math.max(
           1,
           Math.floor(
-            (new Date(isoDate(new Date())).getTime() -
-              new Date(firstSessionOn).getTime()) /
+            (new Date(isoDate(new Date())).getTime() - new Date(firstSessionOn).getTime()) /
               (24 * 60 * 60 * 1000),
           ) + 1,
         );
@@ -125,8 +119,7 @@ export function computeStreak(weekStarts: string[]): number {
   const newestActivityMs = new Date(unique[0]!).getTime();
   if (newestActivityMs < currentMondayMs - week) return 0;
   let streak = 0;
-  let expectedMs =
-    newestActivityMs === currentMondayMs ? currentMondayMs : currentMondayMs - week;
+  let expectedMs = newestActivityMs === currentMondayMs ? currentMondayMs : currentMondayMs - week;
   for (const ws of unique) {
     const ms = new Date(ws).getTime();
     if (ms === expectedMs) {
@@ -314,8 +307,7 @@ export async function getHealthStats(db: Db, traineeId: string): Promise<HealthS
       : Math.max(
           0,
           Math.floor(
-            (new Date(today).getTime() - new Date(last).getTime()) /
-              (24 * 60 * 60 * 1000),
+            (new Date(today).getTime() - new Date(last).getTime()) / (24 * 60 * 60 * 1000),
           ),
         );
   const avgIntervalDays =
@@ -387,8 +379,7 @@ export async function getHealthStats(db: Db, traineeId: string): Promise<HealthS
   const historicalAvgRpe = round1(Number(histRpeRow?.avg ?? 0));
 
   const delta = recentAvgRpe - historicalAvgRpe;
-  const rpeTrend: HealthStats["rpeTrend"] =
-    delta > 0.3 ? "up" : delta < -0.3 ? "down" : "flat";
+  const rpeTrend: HealthStats["rpeTrend"] = delta > 0.3 ? "up" : delta < -0.3 ? "down" : "flat";
 
   const [redRow] = await db
     .select({
@@ -545,10 +536,7 @@ async function loadPerExerciseHistory(
       schema.workoutLogs,
       eq(schema.workoutLogs.id, schema.workoutExerciseLogs.workoutLogId),
     )
-    .innerJoin(
-      schema.exercises,
-      eq(schema.exercises.id, schema.workoutExerciseLogs.exerciseId),
-    )
+    .innerJoin(schema.exercises, eq(schema.exercises.id, schema.workoutExerciseLogs.exerciseId))
     .where(eq(schema.workoutLogs.traineeId, traineeId))
     .groupBy(
       schema.workoutExerciseLogs.exerciseId,
@@ -587,10 +575,7 @@ async function loadPerExerciseHistory(
   return byExercise;
 }
 
-export async function getExerciseProgress(
-  db: Db,
-  traineeId: string,
-): Promise<ExerciseProgress[]> {
+export async function getExerciseProgress(db: Db, traineeId: string): Promise<ExerciseProgress[]> {
   const byExercise = await loadPerExerciseHistory(db, traineeId);
   const result: ExerciseProgress[] = [];
 
@@ -666,10 +651,7 @@ export interface PlateauExercise {
   pr: number;
 }
 
-export async function getPlateauExercises(
-  db: Db,
-  traineeId: string,
-): Promise<PlateauExercise[]> {
+export async function getPlateauExercises(db: Db, traineeId: string): Promise<PlateauExercise[]> {
   const byExercise = await loadPerExerciseHistory(db, traineeId);
   const out: PlateauExercise[] = [];
 
@@ -773,10 +755,7 @@ export interface EasierExercise {
   priorDate: string;
 }
 
-export async function getEasierAtSameReps(
-  db: Db,
-  traineeId: string,
-): Promise<EasierExercise[]> {
+export async function getEasierAtSameReps(db: Db, traineeId: string): Promise<EasierExercise[]> {
   const byExercise = await loadPerExerciseHistory(db, traineeId);
   const out: EasierExercise[] = [];
 
@@ -829,10 +808,7 @@ export interface EffortBalance {
   verdict: "balanced" | "too-hard" | "too-easy" | "no-data";
 }
 
-export async function getEffortBalance(
-  db: Db,
-  traineeId: string,
-): Promise<EffortBalance> {
+export async function getEffortBalance(db: Db, traineeId: string): Promise<EffortBalance> {
   const thirtyDaysAgo = isoDaysAgo(30);
   const sessions = await db
     .select({
@@ -906,15 +882,9 @@ export async function getTagDistribution(
       schema.workoutLogs,
       eq(schema.workoutLogs.id, schema.workoutExerciseLogs.workoutLogId),
     )
-    .innerJoin(
-      schema.exercises,
-      eq(schema.exercises.id, schema.workoutExerciseLogs.exerciseId),
-    )
+    .innerJoin(schema.exercises, eq(schema.exercises.id, schema.workoutExerciseLogs.exerciseId))
     .where(
-      and(
-        eq(schema.workoutLogs.traineeId, traineeId),
-        gte(schema.workoutLogs.performedOn, cutoff),
-      ),
+      and(eq(schema.workoutLogs.traineeId, traineeId), gte(schema.workoutLogs.performedOn, cutoff)),
     );
 
   const counts = new Map<string, number>();
@@ -983,10 +953,7 @@ export async function getMonthSummary(db: Db, traineeId: string): Promise<MonthS
       schema.workoutLogs,
       eq(schema.workoutLogs.id, schema.workoutExerciseLogs.workoutLogId),
     )
-    .innerJoin(
-      schema.exercises,
-      eq(schema.exercises.id, schema.workoutExerciseLogs.exerciseId),
-    )
+    .innerJoin(schema.exercises, eq(schema.exercises.id, schema.workoutExerciseLogs.exerciseId))
     .where(
       and(
         eq(schema.workoutLogs.traineeId, traineeId),
@@ -1014,8 +981,18 @@ export async function getMonthSummary(db: Db, traineeId: string): Promise<MonthS
 }
 
 const MONTH_NAMES = [
-  "Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec",
-  "Lipiec", "Sierpień", "Wrzesień", "Październik", "Listopad", "Grudzień",
+  "Styczeń",
+  "Luty",
+  "Marzec",
+  "Kwiecień",
+  "Maj",
+  "Czerwiec",
+  "Lipiec",
+  "Sierpień",
+  "Wrzesień",
+  "Październik",
+  "Listopad",
+  "Grudzień",
 ];
 
 // ============================================================
@@ -1037,9 +1014,7 @@ export async function getActivePlanSessionUsage(
   const [plan] = await db
     .select({ id: schema.plans.id, name: schema.plans.name })
     .from(schema.plans)
-    .where(
-      and(eq(schema.plans.traineeId, traineeId), eq(schema.plans.status, "active")),
-    )
+    .where(and(eq(schema.plans.traineeId, traineeId), eq(schema.plans.status, "active")))
     .limit(1);
   if (!plan) return { planName: null, sessions: [] };
 
@@ -1099,10 +1074,7 @@ export interface CurrentPlanTotals {
   totalSessionsOnPlan: number;
 }
 
-export async function getCurrentPlanTotals(
-  db: Db,
-  traineeId: string,
-): Promise<CurrentPlanTotals> {
+export async function getCurrentPlanTotals(db: Db, traineeId: string): Promise<CurrentPlanTotals> {
   const [plan] = await db
     .select({
       id: schema.plans.id,
@@ -1110,9 +1082,7 @@ export async function getCurrentPlanTotals(
       publishedAt: schema.plans.publishedAt,
     })
     .from(schema.plans)
-    .where(
-      and(eq(schema.plans.traineeId, traineeId), eq(schema.plans.status, "active")),
-    )
+    .where(and(eq(schema.plans.traineeId, traineeId), eq(schema.plans.status, "active")))
     .limit(1);
   if (!plan) {
     return {
@@ -1141,15 +1111,9 @@ export async function getCurrentPlanTotals(
       schema.workoutSetLogs,
       eq(schema.workoutSetLogs.workoutExerciseLogId, schema.workoutExerciseLogs.id),
     )
-    .leftJoin(
-      schema.exercises,
-      eq(schema.exercises.id, schema.workoutExerciseLogs.exerciseId),
-    )
+    .leftJoin(schema.exercises, eq(schema.exercises.id, schema.workoutExerciseLogs.exerciseId))
     .where(
-      and(
-        eq(schema.workoutLogs.traineeId, traineeId),
-        eq(schema.workoutLogs.planId, plan.id),
-      ),
+      and(eq(schema.workoutLogs.traineeId, traineeId), eq(schema.workoutLogs.planId, plan.id)),
     );
 
   return {
@@ -1193,10 +1157,7 @@ export async function getVideoCoverage(
       eq(schema.workoutLogs.id, schema.workoutExerciseLogs.workoutLogId),
     )
     .where(
-      and(
-        eq(schema.workoutLogs.traineeId, traineeId),
-        gte(schema.workoutLogs.performedOn, cutoff),
-      ),
+      and(eq(schema.workoutLogs.traineeId, traineeId), gte(schema.workoutLogs.performedOn, cutoff)),
     );
   const total = Number(row?.total ?? 0);
   const withVideo = Number(row?.withVideo ?? 0);
@@ -1217,10 +1178,7 @@ export interface BodyPhotoCoverage {
   views: { front: boolean; side: boolean; back: boolean };
 }
 
-export async function getBodyPhotoCoverage(
-  db: Db,
-  traineeId: string,
-): Promise<BodyPhotoCoverage> {
+export async function getBodyPhotoCoverage(db: Db, traineeId: string): Promise<BodyPhotoCoverage> {
   const rows = await db
     .select({
       view: schema.bodyPhotos.view,
@@ -1328,16 +1286,9 @@ export async function detectNewPRsForLog(
       schema.workoutExerciseLogs,
       eq(schema.workoutExerciseLogs.id, schema.workoutSetLogs.workoutExerciseLogId),
     )
-    .innerJoin(
-      schema.exercises,
-      eq(schema.exercises.id, schema.workoutExerciseLogs.exerciseId),
-    )
+    .innerJoin(schema.exercises, eq(schema.exercises.id, schema.workoutExerciseLogs.exerciseId))
     .where(eq(schema.workoutExerciseLogs.workoutLogId, workoutLogId))
-    .groupBy(
-      schema.workoutExerciseLogs.exerciseId,
-      schema.exercises.name,
-      schema.exercises.unit,
-    );
+    .groupBy(schema.workoutExerciseLogs.exerciseId, schema.exercises.name, schema.exercises.unit);
 
   if (thisLog.length === 0) return [];
 

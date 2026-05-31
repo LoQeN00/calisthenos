@@ -21,14 +21,7 @@ export interface PhotoCardProps {
  * Thumbnail card for the gallery grid. Click opens the lightbox. The lightbox
  * owns download + delete actions so the card stays a clean preview.
  */
-export function PhotoCard({
-  id,
-  url,
-  takenOn,
-  view,
-  note,
-  onOpen,
-}: PhotoCardProps) {
+export function PhotoCard({ id, url, takenOn, view, note, onOpen }: PhotoCardProps) {
   return (
     <button
       type="button"
@@ -80,8 +73,7 @@ export function PhotoCard({
         style={{
           position: "absolute",
           inset: 0,
-          background:
-            "linear-gradient(to top, rgba(0,0,0,.75) 0%, transparent 38%)",
+          background: "linear-gradient(to top, rgba(0,0,0,.75) 0%, transparent 38%)",
           pointerEvents: "none",
         }}
       />

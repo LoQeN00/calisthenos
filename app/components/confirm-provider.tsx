@@ -87,20 +87,14 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             </div>
             <div className="modal-foot">
               {!pending.alertOnly && (
-                <button
-                  type="button"
-                  onClick={() => respond(false)}
-                  className="btn btn-ghost"
-                >
+                <button type="button" onClick={() => respond(false)} className="btn btn-ghost">
                   {pending.cancelText ?? "Anuluj"}
                 </button>
               )}
               <button
                 type="button"
                 onClick={() => respond(true)}
-                className={
-                  pending.destructive ? "btn btn-danger" : "btn btn-primary"
-                }
+                className={pending.destructive ? "btn btn-danger" : "btn btn-primary"}
                 ref={(el) => {
                   // Focus the confirm button when it mounts so Enter confirms.
                   el?.focus();

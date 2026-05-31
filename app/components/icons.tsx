@@ -133,9 +133,7 @@ export const Icons = {
       <path d="m13 7 4 4" />
     </>,
   ),
-  Trash: makeIcon(
-    <path d="M4 7h16M9 7V4h6v3M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" />,
-  ),
+  Trash: makeIcon(<path d="M4 7h16M9 7V4h6v3M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" />),
   X: makeIcon(<path d="M6 6l12 12M18 6 6 18" />),
   Trainer: makeIcon(<path d="M6 8h12l-1 6H7zM8 14v6M16 14v6M8 8V4M16 8V4" />),
   Trainee: makeIcon(
@@ -204,6 +202,12 @@ export const Icons = {
     <>
       <path d="M4 4h12l4 4v12a1 1 0 0 1-1 1H4z" />
       <path d="M16 4v4h4M8 13h8M8 17h5" />
+    </>,
+  ),
+  Consult: makeIcon(
+    <>
+      <path d="M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H9l-4 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />
+      <path d="M8 9.5h8M8 12.5h5" />
     </>,
   ),
   Camera: makeIcon(

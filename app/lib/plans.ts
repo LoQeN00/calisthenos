@@ -69,7 +69,10 @@ export async function loadPlanForTrainer(
     itemsByBlock.set(it.planBlockId, list);
   }
 
-  const blocksBySession = new Map<string, Array<{ block: schema.PlanBlock; items: schema.PlanItem[] }>>();
+  const blocksBySession = new Map<
+    string,
+    Array<{ block: schema.PlanBlock; items: schema.PlanItem[] }>
+  >();
   for (const b of blocks) {
     const list = blocksBySession.get(b.planSessionId) ?? [];
     list.push({ block: b, items: itemsByBlock.get(b.id) ?? [] });
@@ -284,7 +287,8 @@ export async function saveDraftPlan(
       .where(and(eq(schema.plans.id, planId), eq(schema.plans.trainerId, trainerId)))
       .limit(1);
     const plan = planRows[0];
-    if (!plan) throw new PlanRepoError("plan not found", "Plan nie istnieje albo nie należy do Ciebie.");
+    if (!plan)
+      throw new PlanRepoError("plan not found", "Plan nie istnieje albo nie należy do Ciebie.");
     if (plan.status !== "draft") {
       throw new PlanRepoError("not a draft", "Plan nie jest w trybie draft.");
     }
@@ -296,12 +300,7 @@ export async function saveDraftPlan(
       const validRows = await tx
         .select({ id: schema.exercises.id })
         .from(schema.exercises)
-        .where(
-          and(
-            eq(schema.exercises.trainerId, trainerId),
-            inArray(schema.exercises.id, ids),
-          ),
-        );
+        .where(and(eq(schema.exercises.trainerId, trainerId), inArray(schema.exercises.id, ids)));
       if (validRows.length !== ids.length) {
         throw new PlanRepoError(
           "exercise not in library",
@@ -311,10 +310,7 @@ export async function saveDraftPlan(
     }
 
     // 3) Update name.
-    await tx
-      .update(schema.plans)
-      .set({ name: input.name })
-      .where(eq(schema.plans.id, planId));
+    await tx.update(schema.plans).set({ name: input.name }).where(eq(schema.plans.id, planId));
 
     // 4) Wipe sessions (CASCADE → blocks → items).
     await tx.delete(schema.planSessions).where(eq(schema.planSessions.planId, planId));
@@ -374,7 +370,8 @@ export async function publishPlan(db: Db, planId: string, trainerId: string): Pr
       .for("update")
       .limit(1);
     const target = rows[0];
-    if (!target) throw new PlanRepoError("plan not found", "Plan nie istnieje albo nie należy do Ciebie.");
+    if (!target)
+      throw new PlanRepoError("plan not found", "Plan nie istnieje albo nie należy do Ciebie.");
     if (target.status !== "draft") {
       throw new PlanRepoError("not a draft", "Tylko draft można opublikować.");
     }
@@ -391,9 +388,7 @@ export async function publishPlan(db: Db, planId: string, trainerId: string): Pr
   });
 }
 
-export type DeletePlanResult =
-  | { kind: "deleted" }
-  | { kind: "archived"; logCount: number };
+export type DeletePlanResult = { kind: "deleted" } | { kind: "archived"; logCount: number };
 
 // Smart delete: hard-delete if no logs reference the plan; otherwise archive
 // to preserve historical sessions (workout_logs.plan_id is ON DELETE RESTRICT).
@@ -411,10 +406,7 @@ export async function deletePlan(
       .limit(1);
     const plan = planRows[0];
     if (!plan) {
-      throw new PlanRepoError(
-        "plan not found",
-        "Plan nie istnieje albo nie należy do Ciebie.",
-      );
+      throw new PlanRepoError("plan not found", "Plan nie istnieje albo nie należy do Ciebie.");
     }
 
     const logCountRows = await tx
@@ -439,11 +431,7 @@ export async function deletePlan(
       );
     }
 
-    await tx
-      .update(schema.plans)
-      .set({ status: "archived" })
-      .where(eq(schema.plans.id, planId));
+    await tx.update(schema.plans).set({ status: "archived" }).where(eq(schema.plans.id, planId));
     return { kind: "archived", logCount };
   });
 }
-

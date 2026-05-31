@@ -120,10 +120,7 @@ function SessionCard({ sessionView }: { sessionView: PlanSessionView }) {
           const refs = b.items;
           return (
             <div key={b.block.id} className="row" style={{ gap: 8, fontSize: 13 }}>
-              <span
-                className="mono muted"
-                style={{ fontSize: 11, width: 22, textAlign: "center" }}
-              >
+              <span className="mono muted" style={{ fontSize: 11, width: 22, textAlign: "center" }}>
                 {String.fromCharCode(65 + bi)}
               </span>
               {b.block.kind === "superset" && (
@@ -141,9 +138,7 @@ function SessionCard({ sessionView }: { sessionView: PlanSessionView }) {
                 />
               )}
               <span style={{ flex: 1, color: "var(--ink-2)" }}>
-                {refs
-                  .map((r) => r.exercise.name)
-                  .join(b.block.kind === "dropset" ? " → " : " + ")}
+                {refs.map((r) => r.exercise.name).join(b.block.kind === "dropset" ? " → " : " + ")}
               </span>
               <span className="mono muted" style={{ fontSize: 11 }}>
                 {b.block.kind === "dropset"

@@ -85,10 +85,7 @@ export async function loadActivePlanSummaryForTrainee(db: Db, traineeId: string)
       )
       .groupBy(schema.workoutLogs.planSessionId);
     countsBySession = new Map(
-      countRows.map((r) => [
-        r.planSessionId,
-        { count: Number(r.c), lastPerformedOn: r.last },
-      ]),
+      countRows.map((r) => [r.planSessionId, { count: Number(r.c), lastPerformedOn: r.last }]),
     );
   }
 
@@ -171,10 +168,7 @@ export async function loadActivePlanFullForTrainee(
             },
           })
           .from(schema.planItems)
-          .innerJoin(
-            schema.exercises,
-            eq(schema.exercises.id, schema.planItems.exerciseId),
-          )
+          .innerJoin(schema.exercises, eq(schema.exercises.id, schema.planItems.exerciseId))
           .where(inArray(schema.planItems.planBlockId, blockIds))
           .orderBy(schema.planItems.planBlockId, schema.planItems.ordinal);
 
@@ -234,11 +228,7 @@ export async function loadSessionForLogging(
   planId: string,
   sessionId: string,
 ): Promise<SessionForLogging | null> {
-  const planRows = await db
-    .select()
-    .from(schema.plans)
-    .where(eq(schema.plans.id, planId))
-    .limit(1);
+  const planRows = await db.select().from(schema.plans).where(eq(schema.plans.id, planId)).limit(1);
   const plan = planRows[0];
   if (!plan) return null;
 
@@ -289,9 +279,7 @@ export async function loadSessionForLogging(
         exerciseId: it.item.exerciseId,
         exerciseName: it.exerciseName,
         unit: it.item.unit,
-        expectedSets: isDropset
-          ? (block.sets ?? 1)
-          : (it.item.sets ?? 1),
+        expectedSets: isDropset ? (block.sets ?? 1) : (it.item.sets ?? 1),
         expectedReps: it.item.reps,
         note: it.item.note,
         isDropsetItem: isDropset,
@@ -318,7 +306,11 @@ export interface WorkoutLogListItem {
 }
 
 async function statsForLogs(db: Db, logIds: string[]) {
-  if (logIds.length === 0) return new Map<string, Omit<WorkoutLogListItem, "id" | "performedOn" | "sessionName" | "note">>();
+  if (logIds.length === 0)
+    return new Map<
+      string,
+      Omit<WorkoutLogListItem, "id" | "performedOn" | "sessionName" | "note">
+    >();
   const rows = await db
     .select({
       logId: schema.workoutExerciseLogs.workoutLogId,
@@ -360,7 +352,10 @@ export async function listLogsForTrainee(
     .limit(opts.limit ?? 200)
     .offset(opts.offset ?? 0);
 
-  const stats = await statsForLogs(db, baseRows.map((r) => r.id));
+  const stats = await statsForLogs(
+    db,
+    baseRows.map((r) => r.id),
+  );
   return baseRows.map((r) => ({
     id: r.id,
     performedOn: r.performedOn,
@@ -373,26 +368,15 @@ export async function listLogsForTrainee(
   }));
 }
 
-export async function countClientsForTrainer(
-  db: Db,
-  trainerId: string,
-): Promise<number> {
+export async function countClientsForTrainer(db: Db, trainerId: string): Promise<number> {
   const [row] = await db
     .select({ c: count() })
     .from(schema.users)
-    .where(
-      and(
-        eq(schema.users.trainerId, trainerId),
-        eq(schema.users.role, "trainee"),
-      ),
-    );
+    .where(and(eq(schema.users.trainerId, trainerId), eq(schema.users.role, "trainee")));
   return Number(row?.c ?? 0);
 }
 
-export async function countLogsForTrainee(
-  db: Db,
-  traineeId: string,
-): Promise<number> {
+export async function countLogsForTrainee(db: Db, traineeId: string): Promise<number> {
   const [row] = await db
     .select({ c: count() })
     .from(schema.workoutLogs)
@@ -485,11 +469,7 @@ export async function loadLogForViewer(
   // saveWorkoutLog upholds: one workout_exercise_log per plan entry, in
   // entry order. If the plan can't be loaded (deleted? RESTRICT should make
   // that impossible, but be defensive), fall back to 0 = "no expected info".
-  const planSession = await loadSessionForLogging(
-    db,
-    head.log.planId,
-    head.log.planSessionId,
-  );
+  const planSession = await loadSessionForLogging(db, head.log.planId, head.log.planSessionId);
   const entries = planSession?.entries ?? [];
 
   const exercises = exLogs.map((e, i) => {
@@ -542,12 +522,7 @@ export async function listClientsForTrainer(
       joinedOn: schema.users.joinedOn,
     })
     .from(schema.users)
-    .where(
-      and(
-        eq(schema.users.trainerId, trainerId),
-        eq(schema.users.role, "trainee"),
-      ),
-    )
+    .where(and(eq(schema.users.trainerId, trainerId), eq(schema.users.role, "trainee")))
     .orderBy(schema.users.displayName)
     .limit(opts.limit ?? 200)
     .offset(opts.offset ?? 0);
@@ -639,10 +614,7 @@ export interface SaveWorkoutLogInput {
 }
 
 /** Persist a workout log + nested exercise logs + set logs inside one transaction. */
-export async function saveWorkoutLog(
-  db: Db,
-  input: SaveWorkoutLogInput,
-): Promise<string> {
+export async function saveWorkoutLog(db: Db, input: SaveWorkoutLogInput): Promise<string> {
   return await db.transaction(async (tx) => {
     const [logRow] = await tx
       .insert(schema.workoutLogs)

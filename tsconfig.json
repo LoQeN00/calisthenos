@@ -20,6 +20,6 @@
     "paths": { "~/*": ["app/*"] },
     "types": ["node", "@react-router/node", "vite/client"]
   },
-  "include": ["app/**/*", "scripts/**/*", "*.config.ts"],
+  "include": ["app/**/*", "scripts/**/*", "tests/**/*", "*.config.ts"],
   "exclude": ["node_modules", "build", ".react-router", "prototype"]
 }

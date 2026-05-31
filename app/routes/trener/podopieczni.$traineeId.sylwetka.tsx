@@ -1,15 +1,9 @@
 import { and, eq } from "drizzle-orm";
 import { useMemo, useState } from "react";
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
-import {
-  SideBySideSection,
-  type ResolvedPair,
-} from "~/components/body-photo-compare";
+import { SideBySideSection, type ResolvedPair } from "~/components/body-photo-compare";
 import { PhotoCard } from "~/components/photo-card";
-import {
-  PhotoLightbox,
-  type LightboxPhoto,
-} from "~/components/photo-lightbox";
+import { PhotoLightbox, type LightboxPhoto } from "~/components/photo-lightbox";
 import { requireUser } from "~/lib/auth";
 import { listBodyPhotosForTrainee } from "~/lib/body-photos";
 import { db } from "~/lib/db/client";
@@ -189,10 +183,7 @@ function FilterTabs({
             className={isActive ? "btn btn-sm btn-dark" : "btn btn-sm"}
           >
             {tab.label}
-            <span
-              className="mono"
-              style={{ marginLeft: 8, fontSize: 10, opacity: 0.7 }}
-            >
+            <span className="mono" style={{ marginLeft: 8, fontSize: 10, opacity: 0.7 }}>
               {counts[tab.key] ?? 0}
             </span>
           </button>
@@ -269,9 +260,7 @@ function PhotoGrid({
 // Helpers (kept in sync with trainee route)
 // ============================================================
 
-function countByView(
-  photos: Array<{ view: BodyPhotoView }>,
-): Record<ViewFilter, number> {
+function countByView(photos: Array<{ view: BodyPhotoView }>): Record<ViewFilter, number> {
   const out: Record<ViewFilter, number> = {
     all: photos.length,
     front: 0,
@@ -285,8 +274,18 @@ function countByView(
 }
 
 const MONTHS_PL = [
-  "Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec",
-  "Lipiec", "Sierpień", "Wrzesień", "Październik", "Listopad", "Grudzień",
+  "Styczeń",
+  "Luty",
+  "Marzec",
+  "Kwiecień",
+  "Maj",
+  "Czerwiec",
+  "Lipiec",
+  "Sierpień",
+  "Wrzesień",
+  "Październik",
+  "Listopad",
+  "Grudzień",
 ];
 
 function groupByMonth<

@@ -3,12 +3,7 @@ import { mkdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import type {
-  FileReadResult,
-  FileStorage,
-  FileWriteResult,
-  ReadRange,
-} from "./interface";
+import type { FileReadResult, FileStorage, FileWriteResult, ReadRange } from "./interface";
 
 export class LocalVolumeStorage implements FileStorage {
   constructor(private readonly root: string) {}

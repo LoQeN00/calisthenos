@@ -10,11 +10,7 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
-import {
-  ConfirmSubmitButton,
-  useAlert,
-  useConfirm,
-} from "~/components/confirm-provider";
+import { ConfirmSubmitButton, useAlert, useConfirm } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
 import { useToast } from "~/components/toast-provider";
 import { requireUser } from "~/lib/auth";
@@ -48,11 +44,7 @@ import {
 // trainer saves or publishes from edit-active mode (see action below).
 // ============================================================
 
-export type PlanRouteMode =
-  | "view-active"
-  | "edit-active"
-  | "edit-draft"
-  | "view-archived";
+export type PlanRouteMode = "view-active" | "edit-active" | "edit-draft" | "view-archived";
 
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainer" });
@@ -92,12 +84,7 @@ export async function loader(args: LoaderFunctionArgs) {
       unit: schema.exercises.unit,
     })
     .from(schema.exercises)
-    .where(
-      and(
-        eq(schema.exercises.trainerId, user.id),
-        isNull(schema.exercises.archivedAt),
-      ),
-    )
+    .where(and(eq(schema.exercises.trainerId, user.id), isNull(schema.exercises.archivedAt)))
     .orderBy(schema.exercises.name);
 
   // Map the DB tree into the editor's `PlanForm` shape.
@@ -242,7 +229,11 @@ function newItem(defaultExerciseId: string, defaultUnit: "REPS" | "SEC"): ItemFo
   };
 }
 
-function newBlock(kind: BlockForm["kind"], defaultExerciseId: string, defaultUnit: "REPS" | "SEC"): BlockForm {
+function newBlock(
+  kind: BlockForm["kind"],
+  defaultExerciseId: string,
+  defaultUnit: "REPS" | "SEC",
+): BlockForm {
   if (kind === "dropset") {
     return {
       id: tempId(),
@@ -250,8 +241,24 @@ function newBlock(kind: BlockForm["kind"], defaultExerciseId: string, defaultUni
       sets: 3,
       restSeconds: 120,
       items: [
-        { id: tempId(), exerciseId: defaultExerciseId, reps: 5, unit: defaultUnit, sets: null, restSeconds: null, note: null },
-        { id: tempId(), exerciseId: defaultExerciseId, reps: 8, unit: defaultUnit, sets: null, restSeconds: null, note: null },
+        {
+          id: tempId(),
+          exerciseId: defaultExerciseId,
+          reps: 5,
+          unit: defaultUnit,
+          sets: null,
+          restSeconds: null,
+          note: null,
+        },
+        {
+          id: tempId(),
+          exerciseId: defaultExerciseId,
+          reps: 8,
+          unit: defaultUnit,
+          sets: null,
+          restSeconds: null,
+          note: null,
+        },
       ],
     };
   }
@@ -371,7 +378,10 @@ function PlanEditor() {
     }));
 
   const addSession = () =>
-    setState((p) => ({ ...p, sessions: [...p.sessions, newSession(`Sesja ${p.sessions.length + 1}`)] }));
+    setState((p) => ({
+      ...p,
+      sessions: [...p.sessions, newSession(`Sesja ${p.sessions.length + 1}`)],
+    }));
 
   const removeSession = (idx: number) =>
     setState((p) => ({ ...p, sessions: p.sessions.filter((_, i) => i !== idx) }));
@@ -436,9 +446,9 @@ function PlanEditor() {
             color: "var(--ink-2)",
           }}
         >
-          Edytujesz kopię aktywnego planu lokalnie. Draft (nowa wersja) powstanie
-          dopiero po kliknięciu „Zapisz draft" albo „Opublikuj". Wyjście bez
-          zapisu nie tworzy żadnych śladów w bazie.
+          Edytujesz kopię aktywnego planu lokalnie. Draft (nowa wersja) powstanie dopiero po
+          kliknięciu „Zapisz draft" albo „Opublikuj". Wyjście bez zapisu nie tworzy żadnych śladów w
+          bazie.
         </div>
       )}
 
@@ -542,8 +552,7 @@ function PlanEditor() {
               e.preventDefault();
               const ok = await confirm({
                 title: "Opublikować plan?",
-                message:
-                  "Aktywny plan podopiecznego (jeśli istnieje) zostanie zarchiwizowany.",
+                message: "Aktywny plan podopiecznego (jeśli istnieje) zostanie zarchiwizowany.",
                 confirmText: "Opublikuj",
               });
               if (ok) btn.form?.requestSubmit(btn);
@@ -615,10 +624,7 @@ function PlanView() {
           </div>
           <h1>{plan.name}</h1>
         </div>
-        <span
-          className={isArchived ? "badge archived" : "badge active"}
-          style={{ flexShrink: 0 }}
-        >
+        <span className={isArchived ? "badge archived" : "badge active"} style={{ flexShrink: 0 }}>
           <span className="badge-dot" />
           {isArchived ? "archiwum" : "aktywny"}
         </span>
@@ -668,10 +674,7 @@ function PlanView() {
         }}
       >
         {!isArchived && (
-          <Link
-            to={`/trener/plany/${plan.id}?edit=1`}
-            className="btn btn-primary"
-          >
+          <Link to={`/trener/plany/${plan.id}?edit=1`} className="btn btn-primary">
             <Icons.Edit /> Edytuj plan
           </Link>
         )}
@@ -718,10 +721,7 @@ function ViewSessionCard({
         padding: 16,
       }}
     >
-      <div
-        className="row"
-        style={{ gap: 10, alignItems: "center", marginBottom: 12 }}
-      >
+      <div className="row" style={{ gap: 10, alignItems: "center", marginBottom: 12 }}>
         <span
           className="mono"
           style={{
@@ -747,12 +747,7 @@ function ViewSessionCard({
       ) : (
         <div className="col" style={{ gap: 10, paddingLeft: 34 }}>
           {session.blocks.map((b, bi) => (
-            <ViewBlock
-              key={b.id ?? bi}
-              block={b}
-              index={bi}
-              exerciseById={exerciseById}
-            />
+            <ViewBlock key={b.id ?? bi} block={b} index={bi} exerciseById={exerciseById} />
           ))}
         </div>
       )}
@@ -781,10 +776,7 @@ function ViewBlock({
       }}
     >
       <div className="row" style={{ gap: 8, alignItems: "center", marginBottom: 6 }}>
-        <span
-          className="mono muted"
-          style={{ fontSize: 11, width: 18, textAlign: "center" }}
-        >
+        <span className="mono muted" style={{ fontSize: 11, width: 18, textAlign: "center" }}>
           {String.fromCharCode(65 + index)}
         </span>
         {isSuperset && <Icons.Link style={{ color: "var(--muted)", fontSize: 12 }} />}
@@ -799,7 +791,10 @@ function ViewBlock({
             }}
           />
         )}
-        <span className="text-xs muted" style={{ textTransform: "uppercase", letterSpacing: ".06em" }}>
+        <span
+          className="text-xs muted"
+          style={{ textTransform: "uppercase", letterSpacing: ".06em" }}
+        >
           {block.kind}
         </span>
         {isDropset && (
@@ -1076,10 +1071,7 @@ function SessionSummary({
     );
   }
   return (
-    <div
-      className="col"
-      style={{ gap: 4, paddingLeft: 38, paddingTop: 8 }}
-    >
+    <div className="col" style={{ gap: 4, paddingLeft: 38, paddingTop: 8 }}>
       {session.blocks.map((b, bi) => {
         const first = b.items[0];
         const names = b.items
@@ -1095,10 +1087,7 @@ function SessionSummary({
             className="row"
             style={{ gap: 8, fontSize: 12.5, alignItems: "baseline" }}
           >
-            <span
-              className="mono muted"
-              style={{ fontSize: 11, width: 16, textAlign: "center" }}
-            >
+            <span className="mono muted" style={{ fontSize: 11, width: 16, textAlign: "center" }}>
               {String.fromCharCode(65 + bi)}
             </span>
             {b.kind === "superset" && (
@@ -1125,7 +1114,6 @@ function SessionSummary({
     </div>
   );
 }
-
 
 // ============================================================
 // BlockEditor
@@ -1366,9 +1354,7 @@ function BlockEditor({
               style={{ ...inputStyle, width: 80, marginLeft: 6 }}
             />
           </label>
-          <div style={{ fontSize: 11, color: "var(--muted)" }}>
-            ({block.items.length} dropów)
-          </div>
+          <div style={{ fontSize: 11, color: "var(--muted)" }}>({block.items.length} dropów)</div>
         </div>
       )}
 
@@ -1598,4 +1584,3 @@ const addButton: React.CSSProperties = {
   color: "var(--ink)",
   cursor: "pointer",
 };
-

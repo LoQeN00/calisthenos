@@ -74,6 +74,7 @@ Każdy wpis linkuje do `README.md` danego katalogu — tam jest opis plików.
     - [`docs/superpowers/plans/`](docs/superpowers/plans/README.md)
     - [`docs/superpowers/specs/`](docs/superpowers/specs/README.md)
 - [`prototype/`](prototype/README.md) — oryginalny prototyp React+Babel (tylko referencja)
+- [`tests/`](tests/README.md) — testy integracyjne `*.itest.ts` (testcontainers, uruchamia właściciel)
 
 ### Konfiguracja w root (bez README — pliki samoopisowe)
 `package.json`, `tsconfig.json`, `vite.config.ts`, `react-router.config.ts`,
@@ -138,6 +139,10 @@ Każda zmiana idzie powtarzalnym procesem zakodowanym jako skill
 Gdy zmiana dotyka **UI/UX** (nowy/zmieniony widok, komponent, layout,
 stylowanie), implementację warstwy wizualnej prowadzi skill
 `frontend-design:frontend-design` (zgodnie z [`design-system/README.md`](design-system/README.md)).
+
+Do iteracji nad warstwą wizualną dostępna jest pętla zrzutów ekranu
+`npm run shots` (skrypt `scripts/shots.ts`) — renderuje realne trasy na
+viewportach desktop+mobile do `screenshots/`; wymaga działającego stacku.
 
 Wszędzie, gdzie to możliwe, korzystamy z **MCP `context7`** po aktualną
 dokumentację i best practices używanych bibliotek (React Router v7, Drizzle, Zod,

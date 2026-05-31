@@ -1,13 +1,9 @@
 import { and, count, eq } from "drizzle-orm";
-import {
-  NavLink,
-  Outlet,
-  useLoaderData,
-  type LoaderFunctionArgs,
-} from "react-router";
+import { NavLink, Outlet, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { UserMenu } from "~/components/user-menu";
 import { requireUser } from "~/lib/auth";
+import { countOpenItemsForTrainee } from "~/lib/consultations";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 
@@ -27,9 +23,7 @@ export async function loader(args: LoaderFunctionArgs) {
   const activePlan = await db
     .select({ id: schema.plans.id })
     .from(schema.plans)
-    .where(
-      and(eq(schema.plans.traineeId, user.id), eq(schema.plans.status, "active")),
-    )
+    .where(and(eq(schema.plans.traineeId, user.id), eq(schema.plans.status, "active")))
     .limit(1);
   let sessionsCount = 0;
   if (activePlan[0]) {
@@ -40,22 +34,56 @@ export async function loader(args: LoaderFunctionArgs) {
     sessionsCount = Number(row?.c ?? 0);
   }
 
+  const openItems = await countOpenItemsForTrainee(db, user.id);
+
   return {
     user,
     tails: {
       sessions: sessionsCount,
       history: Number(logCountRow?.c ?? 0),
       photos: Number(photoCountRow?.c ?? 0),
+      consultations: openItems,
     },
   };
 }
 
 const NAV_ITEMS = [
   { to: "/podopieczny", label: "Mój plan", end: true, icon: "Dashboard" as const, tailKey: null },
-  { to: "/podopieczny/sesje", label: "Sesje", end: false, icon: "Plans" as const, tailKey: "sessions" as const },
-  { to: "/podopieczny/historia", label: "Historia", end: false, icon: "History" as const, tailKey: "history" as const },
-  { to: "/podopieczny/statystyki", label: "Statystyki", end: false, icon: "Chart" as const, tailKey: null },
-  { to: "/podopieczny/sylwetka", label: "Sylwetka", end: false, icon: "Camera" as const, tailKey: "photos" as const },
+  {
+    to: "/podopieczny/sesje",
+    label: "Sesje",
+    end: false,
+    icon: "Plans" as const,
+    tailKey: "sessions" as const,
+  },
+  {
+    to: "/podopieczny/historia",
+    label: "Historia",
+    end: false,
+    icon: "History" as const,
+    tailKey: "history" as const,
+  },
+  {
+    to: "/podopieczny/statystyki",
+    label: "Statystyki",
+    end: false,
+    icon: "Chart" as const,
+    tailKey: null,
+  },
+  {
+    to: "/podopieczny/sylwetka",
+    label: "Sylwetka",
+    end: false,
+    icon: "Camera" as const,
+    tailKey: "photos" as const,
+  },
+  {
+    to: "/podopieczny/konsultacje",
+    label: "Konsultacje",
+    end: false,
+    icon: "Consult" as const,
+    tailKey: "consultations" as const,
+  },
 ];
 
 export default function PodopiecznyLayout() {
@@ -100,4 +128,3 @@ export default function PodopiecznyLayout() {
     </div>
   );
 }
-

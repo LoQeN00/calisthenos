@@ -51,8 +51,7 @@ function initialsOf(name: string): string {
 }
 
 export default function TrenerWorkoutLogDetail() {
-  const { log, trainee, exercises, totalExpectedSets } =
-    useLoaderData<typeof loader>();
+  const { log, trainee, exercises, totalExpectedSets } = useLoaderData<typeof loader>();
   const totalSets = exercises.reduce((a, e) => a + e.sets.length, 0);
   const skippedSets = Math.max(0, totalExpectedSets - totalSets);
   const allDiff = exercises.flatMap((e) => e.sets.map((s) => s.log.difficulty));
@@ -86,7 +85,10 @@ export default function TrenerWorkoutLogDetail() {
             {fmtDate(log.performedOn)} · {daysAgo(log.performedOn)}
           </div>
           <h1 style={{ fontSize: 24 }}>{log.sessionName}</h1>
-          <div className="row" style={{ gap: 14, marginTop: 6, color: "var(--muted)", fontSize: 13.5 }}>
+          <div
+            className="row"
+            style={{ gap: 14, marginTop: 6, color: "var(--muted)", fontSize: 13.5 }}
+          >
             <span>
               <span className="mono" style={{ color: "var(--ink)", fontWeight: 600 }}>
                 {exercises.length}
@@ -171,21 +173,15 @@ export default function TrenerWorkoutLogDetail() {
           const totalReps = ex.sets.reduce((a, s) => a + s.log.reps, 0);
           const avgReps = setCount === 0 ? 0 : totalReps / setCount;
           const exAvgDiff =
-            setCount === 0
-              ? 0
-              : ex.sets.reduce((a, s) => a + s.log.difficulty, 0) / setCount;
+            setCount === 0 ? 0 : ex.sets.reduce((a, s) => a + s.log.difficulty, 0) / setCount;
           const skippedHere = Math.max(0, ex.expectedSets - setCount);
 
           // Render a row per planned ordinal, looking up the logged set with
           // matching ordinal. Missing ordinals = skipped. Falls back to
           // whatever was logged if plan info is unavailable.
-          const setsByOrdinal = new Map(
-            ex.sets.map((s) => [s.log.ordinal, s]),
-          );
+          const setsByOrdinal = new Map(ex.sets.map((s) => [s.log.ordinal, s]));
           const lastLoggedOrdinal =
-            ex.sets.length > 0
-              ? Math.max(...ex.sets.map((s) => s.log.ordinal))
-              : -1;
+            ex.sets.length > 0 ? Math.max(...ex.sets.map((s) => s.log.ordinal)) : -1;
           const rowCount = Math.max(ex.expectedSets, lastLoggedOrdinal + 1);
           const rows = Array.from({ length: rowCount }, (_, ordinal) => ({
             ordinal,
@@ -351,9 +347,7 @@ export default function TrenerWorkoutLogDetail() {
                           #{ordinal + 1}
                         </span>
                         <span className="mono">
-                          <span style={{ fontWeight: 600, fontSize: 15 }}>
-                            {logged.log.reps}
-                          </span>{" "}
+                          <span style={{ fontWeight: 600, fontSize: 15 }}>{logged.log.reps}</span>{" "}
                           <span className="muted text-xs">
                             {ex.exercise.unit === "SEC" ? "sek" : "rep"}
                           </span>
@@ -368,22 +362,20 @@ export default function TrenerWorkoutLogDetail() {
                           {logged.log.difficulty}/10
                         </span>
                         <div style={{ display: "flex", gap: 2 }}>
-                          {Array.from({ length: 10 }, (_, n) => `cell-${n}`).map(
-                            (cellKey, n) => (
-                              <div
-                                key={cellKey}
-                                style={{
-                                  flex: 1,
-                                  height: 6,
-                                  borderRadius: 2,
-                                  background:
-                                    n < logged.log.difficulty
-                                      ? tone(logged.log.difficulty)
-                                      : "var(--surface-2)",
-                                }}
-                              />
-                            ),
-                          )}
+                          {Array.from({ length: 10 }, (_, n) => `cell-${n}`).map((cellKey, n) => (
+                            <div
+                              key={cellKey}
+                              style={{
+                                flex: 1,
+                                height: 6,
+                                borderRadius: 2,
+                                background:
+                                  n < logged.log.difficulty
+                                    ? tone(logged.log.difficulty)
+                                    : "var(--surface-2)",
+                              }}
+                            />
+                          ))}
                         </div>
                         <span>
                           {logged.videoUrl ? (
@@ -401,7 +393,6 @@ export default function TrenerWorkoutLogDetail() {
                     ),
                   )}
                 </div>
-
               </div>
             </div>
           );

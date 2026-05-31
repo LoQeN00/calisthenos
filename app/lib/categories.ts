@@ -55,11 +55,7 @@ export async function addCategory(
   }
 }
 
-export async function deleteCategory(
-  db: Db,
-  trainerId: string,
-  categoryId: string,
-): Promise<void> {
+export async function deleteCategory(db: Db, trainerId: string, categoryId: string): Promise<void> {
   await db
     .delete(schema.exerciseCategories)
     .where(

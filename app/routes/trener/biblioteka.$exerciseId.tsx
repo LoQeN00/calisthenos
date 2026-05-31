@@ -40,9 +40,7 @@ export async function loader(args: LoaderFunctionArgs) {
     .select({ exercise: schema.exercises, demoFile: schema.files })
     .from(schema.exercises)
     .leftJoin(schema.files, eq(schema.files.id, schema.exercises.demoFileId))
-    .where(
-      and(eq(schema.exercises.id, exerciseId), eq(schema.exercises.trainerId, user.id)),
-    )
+    .where(and(eq(schema.exercises.id, exerciseId), eq(schema.exercises.trainerId, user.id)))
     .limit(1);
 
   const row = rows[0];

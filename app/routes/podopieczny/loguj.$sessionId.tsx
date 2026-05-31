@@ -13,11 +13,7 @@ import { FileDropzone } from "~/components/file-dropzone";
 import { Icons } from "~/components/icons";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
-import {
-  UploadCleanupQueue,
-  UploadError,
-  uploadFile,
-} from "~/lib/file-uploads";
+import { UploadCleanupQueue, UploadError, uploadFile } from "~/lib/file-uploads";
 import { pluralizePl, todayISO, type PlForms } from "~/lib/format";
 import { detectNewPRsForLog } from "~/lib/stats";
 import {
@@ -112,10 +108,14 @@ export async function action(args: ActionFunctionArgs) {
         const reps = Number(repsRaw);
         const difficulty = Number(diffRaw);
         if (!Number.isFinite(reps) || reps < 1 || reps > 1000) {
-          return { error: `Ćwiczenie ${entry.exerciseName}, seria #${sIdx + 1}: liczba powtórzeń poza zakresem (1-1000).` };
+          return {
+            error: `Ćwiczenie ${entry.exerciseName}, seria #${sIdx + 1}: liczba powtórzeń poza zakresem (1-1000).`,
+          };
         }
         if (!Number.isFinite(difficulty) || difficulty < 1 || difficulty > 10) {
-          return { error: `Ćwiczenie ${entry.exerciseName}, seria #${sIdx + 1}: trudność musi być 1-10.` };
+          return {
+            error: `Ćwiczenie ${entry.exerciseName}, seria #${sIdx + 1}: trudność musi być 1-10.`,
+          };
         }
 
         let videoFileId: string | null = null;
@@ -210,9 +210,7 @@ export default function LogForm() {
   const updateSet = (eIdx: number, sIdx: number, patch: Partial<SetState>) => {
     setSetStates((prev) =>
       prev.map((sets, i) =>
-        i === eIdx
-          ? sets.map((s, j) => (j === sIdx ? { ...s, ...patch } : s))
-          : sets,
+        i === eIdx ? sets.map((s, j) => (j === sIdx ? { ...s, ...patch } : s)) : sets,
       ),
     );
   };
@@ -223,11 +221,7 @@ export default function LogForm() {
     setSetStates((prev) =>
       prev.map((sets, i) =>
         i === eIdx
-          ? sets.map((s, j) =>
-              j === sIdx
-                ? { reps: "", difficulty: "", skipped: true }
-                : s,
-            )
+          ? sets.map((s, j) => (j === sIdx ? { reps: "", difficulty: "", skipped: true } : s))
           : sets,
       ),
     );
@@ -237,11 +231,7 @@ export default function LogForm() {
     setSetStates((prev) =>
       prev.map((sets, i) =>
         i === eIdx
-          ? sets.map((s, j) =>
-              j === sIdx
-                ? { reps: "", difficulty: "", skipped: false }
-                : s,
-            )
+          ? sets.map((s, j) => (j === sIdx ? { reps: "", difficulty: "", skipped: false } : s))
           : sets,
       ),
     );
@@ -296,8 +286,8 @@ export default function LogForm() {
           </div>
           <h1>{session.name}</h1>
           <div className="sub">
-            Zarejestruj wykonane serie. Pominięte serie nie wliczają się do
-            statystyk — kliknij „Pomiń" obok serii, której nie zrobiłeś.
+            Zarejestruj wykonane serie. Pominięte serie nie wliczają się do statystyk — kliknij
+            „Pomiń" obok serii, której nie zrobiłeś.
           </div>
         </div>
       </div>
@@ -358,19 +348,11 @@ export default function LogForm() {
         )}
 
         {entries.length > 0 && (
-          <ProgressBar
-            filled={stats.filled}
-            skipped={stats.skipped}
-            total={stats.total}
-          />
+          <ProgressBar filled={stats.filled} skipped={stats.skipped} total={stats.total} />
         )}
 
         <div className="row" style={{ gap: 8, marginTop: 6 }}>
-          <button
-            type="submit"
-            className="btn btn-primary btn-lg"
-            disabled={entries.length === 0}
-          >
+          <button type="submit" className="btn btn-primary btn-lg" disabled={entries.length === 0}>
             <Icons.Check /> Zapisz sesję
           </button>
           <Link to="/podopieczny" className="btn btn-ghost btn-lg">
@@ -416,8 +398,7 @@ function ProgressBar({
         <span style={{ fontSize: 13, fontWeight: 500 }}>
           {allFilled ? (
             <>
-              <Icons.Check style={{ color: "var(--ok)" }} /> Wszystkie serie
-              wypełnione
+              <Icons.Check style={{ color: "var(--ok)" }} /> Wszystkie serie wypełnione
             </>
           ) : allAccounted ? (
             <>
@@ -441,9 +422,8 @@ function ProgressBar({
             </>
           ) : (
             <>
-              <span className="mono">{filled}</span> z{" "}
-              <span className="mono">{total}</span> {pluralizePl(total, SERIA)}{" "}
-              wypełnion{filled === 1 ? "a" : "ych"}
+              <span className="mono">{filled}</span> z <span className="mono">{total}</span>{" "}
+              {pluralizePl(total, SERIA)} wypełnion{filled === 1 ? "a" : "ych"}
               {skipped > 0 && (
                 <>
                   {" · "}
@@ -533,22 +513,22 @@ function EntryCard({
         }}
       >
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div
-            className="row"
-            style={{ gap: 8, alignItems: "baseline", flexWrap: "wrap" }}
-          >
+          <div className="row" style={{ gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
             <span className="mono text-xs muted">
               Ćwiczenie {eIdx + 1}/{totalEntries}
             </span>
             {entry.isDropsetItem && <span className="badge">dropset</span>}
           </div>
-          <div style={{ fontSize: 15, fontWeight: 600, marginTop: 2 }}>
-            {entry.exerciseName}
-          </div>
+          <div style={{ fontSize: 15, fontWeight: 600, marginTop: 2 }}>{entry.exerciseName}</div>
           <div className="text-xs muted" style={{ marginTop: 3 }}>
-            Cel: <strong className="mono" style={{ color: "var(--ink)" }}>{entry.expectedSets}</strong>{" "}
+            Cel:{" "}
+            <strong className="mono" style={{ color: "var(--ink)" }}>
+              {entry.expectedSets}
+            </strong>{" "}
             seria(e) ×{" "}
-            <strong className="mono" style={{ color: "var(--ink)" }}>{entry.expectedReps}</strong>{" "}
+            <strong className="mono" style={{ color: "var(--ink)" }}>
+              {entry.expectedReps}
+            </strong>{" "}
             {entry.unit === "SEC" ? "sek." : "powt."}
           </div>
           {entry.note != null && entry.note.length > 0 && (
@@ -653,10 +633,7 @@ function SetRow({
         gap: 8,
       }}
     >
-      <div
-        className="row between"
-        style={{ alignItems: "center", marginBottom: -2 }}
-      >
+      <div className="row between" style={{ alignItems: "center", marginBottom: -2 }}>
         <span className="mono text-xs muted">Seria #{sIdx + 1}</span>
         <button
           type="button"
@@ -791,4 +768,3 @@ function SkippedSetRow({
     </div>
   );
 }
-

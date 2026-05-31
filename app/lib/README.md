@@ -23,6 +23,9 @@ i akcjach. **Zasada tenant-scope:** funkcje przyjmują wymagany `trainerId` lub
 | `wrapped.ts` | Miesięczne podsumowania "Wrapped": dostępne miesiące, `getMonthlyWrapped`, archetypy, porównanie m/m, `parseYM`/`formatYM`. |
 | `body-photos.ts` | Zdjęcia sylwetki: list/count/`addBodyPhoto`/`deleteBodyPhoto`, `BodyPhotoError`. Sprzątanie blobów po transakcji. |
 | `trainees.ts` | Usuwanie podopiecznego (kaskada + ręczne sprzątanie blobów): `deleteTraineeFully`, `assertTraineeOwnedBy`, `TraineeDeleteError`. |
+| `consultation-types.ts` | Schematy Zod walidacji formularza konsultacji: `ConsultationFormSchema`, `ActionItemFormSchema`, `ConsultationItemStatusSchema` + typy. |
+| `consultations.ts` | Repozytorium konsultacji: `listConsultationsForTrainee`, `getConsultationDetail`, `createConsultation`, `updateConsultation`, `deleteConsultation`, `setActionItemStatus`, `countOpenItemsForTrainee`, `ConsultationError`. Tenant-scope przez `trainerId`/`traineeId`. |
+| `consultation-form.server.ts` | Parser FormData → obiekt formularza: `parseConsultationFormData`. Punkty jako równoległe pola `itemBody[]`/`itemStatus[]`. Tylko server-side. |
 
 ## Podkatalogi
 

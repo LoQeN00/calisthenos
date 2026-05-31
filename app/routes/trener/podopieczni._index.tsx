@@ -18,10 +18,7 @@ import { getEnv } from "~/lib/env";
 import { daysAgo, fmtDate, pluralizePl, type PlForms } from "~/lib/format";
 
 const OSOBA: PlForms = { one: "osoba", few: "osoby", many: "osób" };
-import {
-  countClientsForTrainer,
-  listClientsForTrainer,
-} from "~/lib/workouts";
+import { countClientsForTrainer, listClientsForTrainer } from "~/lib/workouts";
 
 const InviteSchema = z.object({
   displayName: z.string().trim().min(1, "Podaj imię i nazwisko.").max(80),
@@ -84,8 +81,7 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function TrenerPodopieczniList() {
-  const { clients, page, totalPages, total, deletedName } =
-    useLoaderData<typeof loader>();
+  const { clients, page, totalPages, total, deletedName } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [showInviteModal, setShowInviteModal] = useState(false);
 
@@ -111,11 +107,7 @@ export default function TrenerPodopieczniList() {
               : `${total} ${pluralizePl(total, OSOBA)}.`}
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowInviteModal(true)}
-          className="btn btn-primary"
-        >
+        <button type="button" onClick={() => setShowInviteModal(true)} className="btn btn-primary">
           <Icons.Plus /> Zaproś podopiecznego
         </button>
       </div>
@@ -304,10 +296,7 @@ function InviteCreatedCard({
       <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 12 }}>
         Skopiuj i wyślij podopiecznemu. Po przyjęciu zaproszenia konto pojawi się na liście poniżej.
       </div>
-      <div
-        className="row"
-        style={{ gap: 8, alignItems: "stretch", flexWrap: "wrap" }}
-      >
+      <div className="row" style={{ gap: 8, alignItems: "stretch", flexWrap: "wrap" }}>
         <div
           className="mono"
           style={{
@@ -338,4 +327,3 @@ function initialsOf(name: string): string {
   if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
   return ((parts[0]?.[0] ?? "") + (parts[parts.length - 1]?.[0] ?? "")).toUpperCase();
 }
-

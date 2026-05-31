@@ -1,10 +1,5 @@
 import { useEffect, useRef } from "react";
-import {
-  Link,
-  useLoaderData,
-  useSearchParams,
-  type LoaderFunctionArgs,
-} from "react-router";
+import { Link, useLoaderData, useSearchParams, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { useToast } from "~/components/toast-provider";
 import { requireUser } from "~/lib/auth";
@@ -165,9 +160,7 @@ function ExerciseLogCard({ exercise: ex, index }: { exercise: ExWithSigned; inde
 
   const setsByOrdinal = new Map(ex.sets.map((s) => [s.log.ordinal, s]));
   const lastLoggedOrdinal =
-    ex.sets.length > 0
-      ? Math.max(...ex.sets.map((s) => s.log.ordinal))
-      : -1;
+    ex.sets.length > 0 ? Math.max(...ex.sets.map((s) => s.log.ordinal)) : -1;
   const rowCount = Math.max(ex.expectedSets, lastLoggedOrdinal + 1);
   const rows = Array.from({ length: rowCount }, (_, ordinal) => ({
     ordinal,

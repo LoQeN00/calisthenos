@@ -1,10 +1,5 @@
 import { and, count, eq, isNull } from "drizzle-orm";
-import {
-  NavLink,
-  Outlet,
-  useLoaderData,
-  type LoaderFunctionArgs,
-} from "react-router";
+import { NavLink, Outlet, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { UserMenu } from "~/components/user-menu";
 import { requireUser } from "~/lib/auth";
@@ -21,12 +16,7 @@ export async function loader(args: LoaderFunctionArgs) {
   const [exerciseCountRow] = await db
     .select({ c: count() })
     .from(schema.exercises)
-    .where(
-      and(
-        eq(schema.exercises.trainerId, user.id),
-        isNull(schema.exercises.archivedAt),
-      ),
-    );
+    .where(and(eq(schema.exercises.trainerId, user.id), isNull(schema.exercises.archivedAt)));
   const [planCountRow] = await db
     .select({ c: count() })
     .from(schema.plans)
@@ -44,9 +34,27 @@ export async function loader(args: LoaderFunctionArgs) {
 
 const NAV_ITEMS = [
   { to: "/trener", label: "Pulpit", end: true, icon: "Dashboard" as const, tailKey: null },
-  { to: "/trener/podopieczni", label: "Podopieczni", end: false, icon: "Users" as const, tailKey: "trainees" as const },
-  { to: "/trener/biblioteka", label: "Biblioteka ćwiczeń", end: false, icon: "Library" as const, tailKey: "exercises" as const },
-  { to: "/trener/plany", label: "Plany", end: false, icon: "Plans" as const, tailKey: "plans" as const },
+  {
+    to: "/trener/podopieczni",
+    label: "Podopieczni",
+    end: false,
+    icon: "Users" as const,
+    tailKey: "trainees" as const,
+  },
+  {
+    to: "/trener/biblioteka",
+    label: "Biblioteka ćwiczeń",
+    end: false,
+    icon: "Library" as const,
+    tailKey: "exercises" as const,
+  },
+  {
+    to: "/trener/plany",
+    label: "Plany",
+    end: false,
+    icon: "Plans" as const,
+    tailKey: "plans" as const,
+  },
 ];
 
 export default function TrenerLayout() {
@@ -91,4 +99,3 @@ export default function TrenerLayout() {
     </div>
   );
 }
-

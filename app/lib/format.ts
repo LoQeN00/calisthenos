@@ -1,6 +1,16 @@
 const MONTH_SHORT_PL = [
-  "sty", "lut", "mar", "kwi", "maj", "cze",
-  "lip", "sie", "wrz", "paź", "lis", "gru",
+  "sty",
+  "lut",
+  "mar",
+  "kwi",
+  "maj",
+  "cze",
+  "lip",
+  "sie",
+  "wrz",
+  "paź",
+  "lis",
+  "gru",
 ];
 
 function parseDate(iso: string): Date {

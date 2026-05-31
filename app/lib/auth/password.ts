@@ -17,10 +17,7 @@ export const ARGON2_OPTS = {
 let dummyHashCache: Promise<string> | null = null;
 export function getDummyPasswordHash(): Promise<string> {
   if (!dummyHashCache) {
-    dummyHashCache = hash(
-      "this-is-not-a-real-password-just-a-timing-padding-value",
-      ARGON2_OPTS,
-    );
+    dummyHashCache = hash("this-is-not-a-real-password-just-a-timing-padding-value", ARGON2_OPTS);
   }
   return dummyHashCache;
 }

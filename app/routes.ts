@@ -21,13 +21,22 @@ export default [
         "podopieczni/:traineeId/log/:logId",
         "routes/trener/podopieczni.$traineeId.log.$logId.tsx",
       ),
-      route(
-        "podopieczni/:traineeId/sylwetka",
-        "routes/trener/podopieczni.$traineeId.sylwetka.tsx",
-      ),
+      route("podopieczni/:traineeId/sylwetka", "routes/trener/podopieczni.$traineeId.sylwetka.tsx"),
       route(
         "podopieczni/:traineeId/statystyki",
         "routes/trener/podopieczni.$traineeId.statystyki.tsx",
+      ),
+      route(
+        "podopieczni/:traineeId/konsultacje",
+        "routes/trener/podopieczni.$traineeId.konsultacje._index.tsx",
+      ),
+      route(
+        "podopieczni/:traineeId/konsultacje/nowa",
+        "routes/trener/podopieczni.$traineeId.konsultacje.nowa.tsx",
+      ),
+      route(
+        "podopieczni/:traineeId/konsultacje/:konsultacjaId",
+        "routes/trener/podopieczni.$traineeId.konsultacje.$konsultacjaId.tsx",
       ),
     ]),
   ]),
@@ -41,6 +50,8 @@ export default [
       route("historia/:logId", "routes/podopieczny/historia.$logId.tsx"),
       route("statystyki", "routes/podopieczny/statystyki.tsx"),
       route("sylwetka", "routes/podopieczny/sylwetka.tsx"),
+      route("konsultacje", "routes/podopieczny/konsultacje._index.tsx"),
+      route("konsultacje/:konsultacjaId", "routes/podopieczny/konsultacje.$konsultacjaId.tsx"),
     ]),
     // Wrapped lives OUTSIDE the sidenav layout so it can render full-screen.
     route("wrapped/:ym", "routes/podopieczny/wrapped.$ym.tsx"),

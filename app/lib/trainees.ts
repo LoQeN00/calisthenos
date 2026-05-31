@@ -69,9 +69,7 @@ export async function deleteTraineeFully(
     // 2) Drop the trainee's body photos first — body_photos.file_id is RESTRICT,
     //    so the file rows can't be removed while a body_photo still references
     //    them.
-    await tx
-      .delete(schema.bodyPhotos)
-      .where(eq(schema.bodyPhotos.traineeId, traineeId));
+    await tx.delete(schema.bodyPhotos).where(eq(schema.bodyPhotos.traineeId, traineeId));
 
     // 3) Delete every file the trainee uploaded. Capture storagePaths for the
     //    post-commit blob cleanup. workout_set_logs.video_file_id is SET NULL,

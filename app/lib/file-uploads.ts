@@ -90,7 +90,10 @@ function pathFor(kind: UploadKind, fileId: string, mime: string): string {
 }
 
 export class UploadError extends Error {
-  constructor(message: string, public readonly userMessage: string) {
+  constructor(
+    message: string,
+    public readonly userMessage: string,
+  ) {
     super(message);
   }
 }
@@ -160,9 +163,7 @@ export async function uploadFile(
     // chowned to `node` at container start. Surface a clean error instead of
     // a 500 so the trainee sees an actionable message.
     const code =
-      typeof err === "object" && err !== null
-        ? (err as { code?: string }).code
-        : undefined;
+      typeof err === "object" && err !== null ? (err as { code?: string }).code : undefined;
     if (code === "EACCES" || code === "EPERM") {
       throw new UploadError(
         `${code} writing to ${storagePath} (DATA_DIR not writable by runtime user)`,

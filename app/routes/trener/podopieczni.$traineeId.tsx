@@ -98,9 +98,7 @@ export async function action(args: ActionFunctionArgs) {
   if (intent === "delete-trainee") {
     try {
       const { displayName } = await deleteTraineeFully(db, user.id, traineeId);
-      throw redirect(
-        `/trener/podopieczni?usuniety=${encodeURIComponent(displayName)}`,
-      );
+      throw redirect(`/trener/podopieczni?usuniety=${encodeURIComponent(displayName)}`);
     } catch (e) {
       if (e instanceof Response) throw e;
       if (e instanceof TraineeDeleteError) return { error: e.userMessage };
@@ -126,15 +124,8 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function TrenerPodopiecznyDetail() {
-  const {
-    trainee,
-    activePlan,
-    draftPlan,
-    logs,
-    logsPage,
-    totalLogPages,
-    totalLogs,
-  } = useLoaderData<typeof loader>();
+  const { trainee, activePlan, draftPlan, logs, logsPage, totalLogPages, totalLogs } =
+    useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
 
   return (
@@ -157,8 +148,7 @@ export default function TrenerPodopiecznyDetail() {
               <span style={{ color: "var(--ink-2)" }} className="mono">
                 {daysAgo(logs[0].performedOn)}
               </span>{" "}
-              · łącznie <span className="mono">{totalLogs}</span>{" "}
-              {pluralizePl(totalLogs, SESJA)}
+              · łącznie <span className="mono">{totalLogs}</span> {pluralizePl(totalLogs, SESJA)}
             </div>
           )}
         </div>
@@ -169,11 +159,11 @@ export default function TrenerPodopiecznyDetail() {
           <Link to={`/trener/podopieczni/${trainee.id}/sylwetka`} className="btn">
             <Icons.Camera /> Sylwetka
           </Link>
+          <Link to={`/trener/podopieczni/${trainee.id}/konsultacje`} className="btn">
+            <Icons.Consult /> Konsultacje
+          </Link>
           {draftPlan == null && (
-            <Link
-              to={`/trener/plany/nowy?traineeId=${trainee.id}`}
-              className="btn btn-primary"
-            >
+            <Link to={`/trener/plany/nowy?traineeId=${trainee.id}`} className="btn btn-primary">
               <Icons.Plus /> Nowy plan
             </Link>
           )}
@@ -283,11 +273,16 @@ export default function TrenerPodopiecznyDetail() {
       )}
 
       {activePlan == null && draftPlan == null && (
-        <div className="card" style={{ marginBottom: 14, borderStyle: "dashed", borderColor: "var(--line-2)" }}>
+        <div
+          className="card"
+          style={{ marginBottom: 14, borderStyle: "dashed", borderColor: "var(--line-2)" }}
+        >
           <div className="row between" style={{ alignItems: "center" }}>
             <div>
               <h3 style={{ fontSize: 16, marginBottom: 4 }}>Brak planu</h3>
-              <div className="text-sm muted">Ten podopieczny nie ma jeszcze przypisanego planu treningowego.</div>
+              <div className="text-sm muted">
+                Ten podopieczny nie ma jeszcze przypisanego planu treningowego.
+              </div>
             </div>
             <Link to={`/trener/plany/nowy?traineeId=${trainee.id}`} className="btn btn-primary">
               <Icons.Plus /> Nowy plan
@@ -361,17 +356,14 @@ export default function TrenerPodopiecznyDetail() {
             borderStyle: "dashed",
           }}
         >
-          <div
-            className="row between"
-            style={{ gap: 12, alignItems: "center", flexWrap: "wrap" }}
-          >
+          <div className="row between" style={{ gap: 12, alignItems: "center", flexWrap: "wrap" }}>
             <div style={{ flex: 1, minWidth: 220 }}>
               <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>
                 Usuń podopiecznego
               </div>
               <div className="text-xs muted">
-                Konto, wszystkie plany, historia treningów, zdjęcia sylwetki
-                i nagrania video zostaną <strong>nieodwracalnie skasowane</strong>.
+                Konto, wszystkie plany, historia treningów, zdjęcia sylwetki i nagrania video
+                zostaną <strong>nieodwracalnie skasowane</strong>.
               </div>
             </div>
             <Form method="post" style={{ flexShrink: 0 }}>
@@ -439,4 +431,3 @@ function DifficultyBadge({ avg }: { avg: number }) {
     </span>
   );
 }
-

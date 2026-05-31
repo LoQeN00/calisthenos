@@ -31,6 +31,7 @@ export const fileKind = pgEnum("file_kind", ["exercise_demo", "set_video", "body
 export const planStatus = pgEnum("plan_status", ["draft", "active", "archived"]);
 export const blockKind = pgEnum("block_kind", ["single", "superset", "dropset"]);
 export const bodyPhotoView = pgEnum("body_photo_view", ["front", "side", "back"]);
+export const consultationItemStatus = pgEnum("consultation_item_status", ["open", "resolved"]);
 
 // ---------------- Users ----------------
 
@@ -169,10 +170,7 @@ export const exerciseCategories = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
-    trainerNameUniq: uniqueIndex("exercise_categories_trainer_name_uniq").on(
-      t.trainerId,
-      t.name,
-    ),
+    trainerNameUniq: uniqueIndex("exercise_categories_trainer_name_uniq").on(t.trainerId, t.name),
     trainerIdx: index("exercise_categories_trainer_idx").on(t.trainerId),
   }),
 );
@@ -367,6 +365,57 @@ export const bodyPhotos = pgTable(
   }),
 );
 
+// ---------------- Consultations ----------------
+
+export const consultations = pgTable(
+  "consultations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Denormalized for tenant-scoped queries (jak workout_logs).
+    trainerId: uuid("trainer_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    traineeId: uuid("trainee_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    heldOn: date("held_on").notNull(),
+    periodFrom: date("period_from"),
+    periodTo: date("period_to"),
+    title: text("title").notNull(),
+    summary: text("summary").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    traineeDateIdx: index("consultations_trainee_date_idx").on(t.traineeId, t.heldOn),
+    trainerCreatedIdx: index("consultations_trainer_created_idx").on(t.trainerId, t.createdAt),
+    periodCheck: check(
+      "consultations_period_check",
+      sql`(${t.periodFrom} IS NULL AND ${t.periodTo} IS NULL) OR
+          (${t.periodFrom} IS NOT NULL AND ${t.periodTo} IS NOT NULL AND ${t.periodFrom} <= ${t.periodTo})`,
+    ),
+  }),
+);
+
+export const consultationActionItems = pgTable(
+  "consultation_action_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    consultationId: uuid("consultation_id")
+      .notNull()
+      .references(() => consultations.id, { onDelete: "cascade" }),
+    ordinal: integer("ordinal").notNull(),
+    body: text("body").notNull(),
+    status: consultationItemStatus("status").notNull().default("open"),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  },
+  (t) => ({
+    uniq: uniqueIndex("consultation_action_items_consultation_ordinal_uniq").on(
+      t.consultationId,
+      t.ordinal,
+    ),
+  }),
+);
+
 // ---------------- Types ----------------
 
 export type User = typeof users.$inferSelect;
@@ -398,3 +447,8 @@ export type NewWorkoutSetLog = typeof workoutSetLogs.$inferInsert;
 export type BodyPhoto = typeof bodyPhotos.$inferSelect;
 export type NewBodyPhoto = typeof bodyPhotos.$inferInsert;
 export type BodyPhotoView = (typeof bodyPhotoView.enumValues)[number];
+export type Consultation = typeof consultations.$inferSelect;
+export type NewConsultation = typeof consultations.$inferInsert;
+export type ConsultationActionItem = typeof consultationActionItems.$inferSelect;
+export type NewConsultationActionItem = typeof consultationActionItems.$inferInsert;
+export type ConsultationItemStatus = (typeof consultationItemStatus.enumValues)[number];

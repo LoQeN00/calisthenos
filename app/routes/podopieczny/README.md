@@ -6,7 +6,7 @@ instalowalne jako PWA. Mapowanie URL w [`../../routes.ts`](../../routes.ts).
 
 | Plik | URL | Eksporty | Co robi (loader / action) |
 |---|---|---|---|
-| `_layout.tsx` | `/podopieczny` (layout) | loader, default | Wymaga roli podopiecznego; liczy logi/zdjęcia/sesje do nawigacji. Topbar + sidenav + `<Outlet/>`. |
+| `_layout.tsx` | `/podopieczny` (layout) | loader, default | Wymaga roli podopiecznego; liczy logi/zdjęcia/sesje do nawigacji; liczy otwarte punkty konsultacji (badge „Konsultacje"). Topbar + sidenav + `<Outlet/>`. |
 | `_index.tsx` | `/podopieczny` | loader, default | Pulpit "Mój plan": podsumowanie aktywnego planu, 5 ostatnich logów, liczniki, baner Wrapped. |
 | `sesje._index.tsx` | `/podopieczny/sesje` | loader, default | Lista sesji z aktywnego planu (pełne drzewo bloków/ćwiczeń). |
 | `sesje.$sessionId.tsx` | `/podopieczny/sesje/:sessionId` | loader, default | Szczegóły sesji + demo ćwiczeń (podpisane URL-e). |
@@ -16,10 +16,12 @@ instalowalne jako PWA. Mapowanie URL w [`../../routes.ts`](../../routes.ts).
 | `statystyki.tsx` | `/podopieczny/statystyki` | loader, default | Dashboard statystyk własnych (hero, PR-y, heatmapa, sparkline'y, effort balance, dostępne miesiące Wrapped). |
 | `sylwetka.tsx` | `/podopieczny/sylwetka` | loader, action, default | Galeria zdjęć sylwetki + paginacja (60); akcje `add` (upload) / `delete`. |
 | `wrapped.$ym.tsx` | `/podopieczny/wrapped/:ym` | loader, default | Pełnoekranowe miesięczne podsumowanie (styl Spotify Wrapped); 404 gdy brak danych; zapamiętuje obejrzenie w localStorage. |
+| `konsultacje._index.tsx` | `/podopieczny/konsultacje` | loader, default | Lista konsultacji własnych (do 200, read-only): data, tytuł, liczniki punktów otwartych/zamkniętych. |
+| `konsultacje.$konsultacjaId.tsx` | `/podopieczny/konsultacje/:konsultacjaId` | loader, default | Szczegóły konsultacji (read-only): tytuł, daty, podsumowanie, lista punktów „do poprawy" ze statusami. |
 
 Główne moduły wołane stąd: `lib/auth` (`requireUser`), `lib/workouts`,
 `lib/wrapped`, `lib/stats`, `lib/body-photos`, `lib/files`, `lib/file-uploads`,
-`lib/format`, `components/pagination`, `components/file-dropzone`,
+`lib/format`, `lib/consultations`, `components/pagination`, `components/file-dropzone`,
 `components/photo-*`.
 
 ---

@@ -5,7 +5,12 @@ export default defineConfig({
   test: {
     environment: "happy-dom",
     globals: false,
-    include: ["app/**/*.test.ts", "app/**/*.test.tsx", "tests/**/*.itest.ts"],
+    include: [
+      "app/**/*.test.ts",
+      "app/**/*.test.tsx",
+      "scripts/**/*.test.ts",
+      "tests/**/*.itest.ts",
+    ],
     setupFiles: [],
     pool: "forks",
     poolOptions: { forks: { singleFork: true } },

@@ -48,6 +48,14 @@ npm run dev
 
 That's it. HMR is live; saves to `app/**/*.tsx` reload automatically.
 
+### Screenshot-loop (dev/AI)
+
+Wizualna pętla zwrotna do iteracji nad UI. Wymaga działającego Postgresa i dev
+servera. Jednorazowo pobierz przeglądarkę Playwright: `npx playwright install chromium`.
+`npm run shots` zrzuca cały manifest tras; `npm run shots -- /trener/biblioteka`
+zrzuca pojedynczą trasę na desktop+mobile. PNG-i lądują w `screenshots/`
+(gitignore). Logowanie używa `SEED_TRAINER_EMAIL` / `SEED_TRAINER_PASSWORD` z `.env`.
+
 ### Stop / reset
 
 ```bash
@@ -121,6 +129,7 @@ npm test              # vitest unit tests (watch)
 npm run test:unit     # vitest run, excludes *.itest.ts
 npm run test:itest    # integration tests (*.itest.ts) — needs Docker/Postgres (testcontainers)
 npm run e2e           # playwright E2E — needs the app running
+npm run shots         # screenshot-loop: zrzuty realnych tras (desktop+mobile) do screenshots/
 npm run db:generate   # diff schema.ts → produce next migration .sql
 npm run db:migrate    # apply pending migrations
 npm run db:seed       # bootstrap default trainer from SEED_TRAINER_* envs (only if users table empty)

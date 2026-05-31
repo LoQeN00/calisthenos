@@ -1,8 +1,4 @@
-import {
-  redirect,
-  type ActionFunctionArgs,
-  type LoaderFunctionArgs,
-} from "react-router";
+import { redirect, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
 import { db } from "~/lib/db/client";
 import { clearSessionCookie, destroySession, parseSessionId } from "~/lib/auth";
 

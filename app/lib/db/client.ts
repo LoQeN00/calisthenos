@@ -1,8 +1,5 @@
 import { drizzle } from "drizzle-orm/postgres-js";
-import type {
-  PostgresJsDatabase,
-  PostgresJsQueryResultHKT,
-} from "drizzle-orm/postgres-js";
+import type { PostgresJsDatabase, PostgresJsQueryResultHKT } from "drizzle-orm/postgres-js";
 import type { PgTransaction } from "drizzle-orm/pg-core";
 import type { ExtractTablesWithRelations } from "drizzle-orm/relations";
 import postgres from "postgres";

@@ -48,11 +48,7 @@ export function CopyButton({
   };
 
   const cls =
-    variant === "primary"
-      ? "btn btn-primary"
-      : variant === "dark"
-        ? "btn btn-dark"
-        : "btn";
+    variant === "primary" ? "btn btn-primary" : variant === "dark" ? "btn btn-dark" : "btn";
 
   return (
     <button

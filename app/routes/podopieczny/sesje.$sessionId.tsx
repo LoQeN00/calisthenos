@@ -21,8 +21,7 @@ export async function loader(args: LoaderFunctionArgs) {
     ...b,
     items: b.items.map((it) => ({
       ...it,
-      demoUrl:
-        it.exercise.demoFileId != null ? signFileUrl(it.exercise.demoFileId, user.id) : null,
+      demoUrl: it.exercise.demoFileId != null ? signFileUrl(it.exercise.demoFileId, user.id) : null,
     })),
   }));
 
@@ -376,4 +375,3 @@ function Stat({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-

@@ -38,10 +38,7 @@ export async function loader(args: LoaderFunctionArgs) {
   const categories = await listCategoriesForTrainer(db, user.id);
   const categoryNames = new Set(categories.map((c) => c.name));
 
-  const conditions = [
-    eq(schema.exercises.trainerId, user.id),
-    isNull(schema.exercises.archivedAt),
-  ];
+  const conditions = [eq(schema.exercises.trainerId, user.id), isNull(schema.exercises.archivedAt)];
   if (q.length > 0) {
     conditions.push(ilike(schema.exercises.name, `%${q}%`));
   }
@@ -121,8 +118,7 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function BibliotekaList() {
-  const { items, q, tag, categories, page, totalPages, total } =
-    useLoaderData<typeof loader>();
+  const { items, q, tag, categories, page, totalPages, total } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [searchParams] = useSearchParams();
   const submit = useSubmit();
@@ -152,9 +148,7 @@ export default function BibliotekaList() {
           </div>
           <h1>Biblioteka ćwiczeń</h1>
           <div className="sub">
-            {total === 0
-              ? "Brak ćwiczeń."
-              : `${total} ${pluralizePl(total, POZYCJA)}.`}
+            {total === 0 ? "Brak ćwiczeń." : `${total} ${pluralizePl(total, POZYCJA)}.`}
           </div>
         </div>
         <Link to="/trener/biblioteka/nowe" className="btn btn-primary">
@@ -189,7 +183,12 @@ export default function BibliotekaList() {
       </Form>
 
       <div className="row wrap" style={{ gap: 6, marginBottom: 8 }}>
-        <FilterChip label="Wszystkie" active={tag === "all"} value="all" searchParams={searchParams} />
+        <FilterChip
+          label="Wszystkie"
+          active={tag === "all"}
+          value="all"
+          searchParams={searchParams}
+        />
         {categories.map((c) => (
           <FilterChip
             key={c.id}
@@ -316,9 +315,7 @@ export default function BibliotekaList() {
               </div>
               <div className="row between" style={{ alignItems: "flex-start", gap: 8 }}>
                 <h3 style={{ margin: 0 }}>{ex.name}</h3>
-                <span className={`badge${ex.unit === "REPS" ? " active" : ""}`}>
-                  {ex.unit}
-                </span>
+                <span className={`badge${ex.unit === "REPS" ? " active" : ""}`}>{ex.unit}</span>
               </div>
               {ex.description.length > 0 && (
                 <div
@@ -383,4 +380,3 @@ function FilterChip({
     </Link>
   );
 }
-

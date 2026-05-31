@@ -13,13 +13,14 @@
     "lint": "biome lint .",
     "format": "biome format --write .",
     "test": "vitest",
-    "test:unit": "vitest run --exclude '**/*.itest.ts'",
-    "test:itest": "vitest run --testTimeout=60000 '**/*.itest.ts'",
+    "test:unit": "vitest run app",
+    "test:itest": "vitest run --testTimeout=60000 tests",
     "e2e": "playwright test",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "tsx --env-file-if-exists=.env scripts/seed.ts",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "shots": "tsx --env-file-if-exists=.env scripts/shots.ts"
   },
   "dependencies": {
     "@react-router/node": "^7.1.0",

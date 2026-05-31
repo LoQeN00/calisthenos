@@ -19,6 +19,9 @@ który wymusza rolę i liczy odznaki nawigacji. Desktop-first. Mapowanie URL w
 | `podopieczni.$traineeId.log.$logId.tsx` | `…/log/:logId` | loader, default | Szczegóły wpisu treningowego z podpisanymi URL-ami wideo per-seria. |
 | `podopieczni.$traineeId.sylwetka.tsx` | `…/sylwetka` | loader, default | Galeria zdjęć sylwetki + pary "przed/po"; podpisane URL-e. |
 | `podopieczni.$traineeId.statystyki.tsx` | `…/statystyki` | loader, default | Dashboard statystyk (heatmapa, sparkline'y, PR-y, plateau, coverage…) — równoległe zapytania do `lib/stats.ts`. |
+| `podopieczni.$traineeId.konsultacje._index.tsx` | `…/konsultacje` | loader, default | Lista konsultacji podopiecznego (do 200): data, tytuł, okres, liczniki punktów otwartych/zamkniętych; przycisk "Nowa konsultacja". |
+| `podopieczni.$traineeId.konsultacje.nowa.tsx` | `…/konsultacje/nowa` | loader, action, default | Formularz nowej konsultacji; po sukcesie redirect do listy. |
+| `podopieczni.$traineeId.konsultacje.$konsultacjaId.tsx` | `…/konsultacje/:konsultacjaId` | loader, action, default | Szczegóły konsultacji: tryb view (lista punktów z przełącznikiem statusu, usuwanie) i tryb edit (`?edit=1`). Akcje: `delete`, `toggle-item`, `update`. |
 
 Główne moduły wołane stąd: `lib/auth` (`requireUser`), `lib/plans`, `lib/workouts`,
 `lib/categories`, `lib/trainees`, `lib/stats`, `lib/body-photos`, `lib/files`,

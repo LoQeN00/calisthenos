@@ -1,10 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  Link,
-  useLoaderData,
-  useNavigate,
-  type LoaderFunctionArgs,
-} from "react-router";
+import { Link, useLoaderData, useNavigate, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
@@ -61,8 +56,7 @@ export default function WrappedPage() {
       style={{
         position: "fixed",
         inset: 0,
-        background:
-          "radial-gradient(ellipse at top, #1b2030 0%, var(--ink) 60%)",
+        background: "radial-gradient(ellipse at top, #1b2030 0%, var(--ink) 60%)",
         color: "var(--bg)",
         display: "flex",
         flexDirection: "column",
@@ -235,9 +229,7 @@ function CardDeck({
       </button>
 
       {/* Bottom CTA on last card: share */}
-      {isLast && (
-        <ShareBar summary={summary} firstName={firstName} />
-      )}
+      {isLast && <ShareBar summary={summary} firstName={firstName} />}
     </>
   );
 }
@@ -338,7 +330,13 @@ function RenderCard({ card }: { card: Card }) {
     case "intro":
       return <IntroCard firstName={card.firstName} label={card.label} sessions={card.sessions} />;
     case "volume":
-      return <VolumeCard totalReps={card.totalReps} totalSeconds={card.totalSeconds} totalSets={card.totalSets} />;
+      return (
+        <VolumeCard
+          totalReps={card.totalReps}
+          totalSeconds={card.totalSeconds}
+          totalSets={card.totalSets}
+        />
+      );
     case "top":
       return <TopExerciseCard top={card.top} />;
     case "top-empty":
@@ -479,8 +477,8 @@ function TopExerciseCard({
       </div>
       <div style={SUB}>
         W <strong>{top.sessionsInvolved}</strong>{" "}
-        {pl(top.sessionsInvolved, "sesji", "sesjach", "sesjach")} ({top.pctOfSessions}%
-        wszystkich). Jednostka: <span className="mono">{top.unit}</span>.
+        {pl(top.sessionsInvolved, "sesji", "sesjach", "sesjach")} ({top.pctOfSessions}% wszystkich).
+        Jednostka: <span className="mono">{top.unit}</span>.
       </div>
     </div>
   );
@@ -491,9 +489,7 @@ function TopEmptyCard() {
     <div>
       <div style={EYEBROW}>Twoje numer jeden</div>
       <div style={HEAD}>Bez wyraźnego faworyta</div>
-      <div style={SUB}>
-        Rozłożyłeś wysiłek równo. Trener byłby z Ciebie dumny.
-      </div>
+      <div style={SUB}>Rozłożyłeś wysiłek równo. Trener byłby z Ciebie dumny.</div>
     </div>
   );
 }
@@ -504,9 +500,7 @@ function PRsCard({ prs }: { prs: MonthlyPR[] }) {
       <div>
         <div style={EYEBROW}>Rekordy</div>
         <div style={HEAD}>Tym razem bez PR.</div>
-        <div style={SUB}>
-          Nie każdy miesiąc musi pobić rekord. Konsystencja to też wynik.
-        </div>
+        <div style={SUB}>Nie każdy miesiąc musi pobić rekord. Konsystencja to też wynik.</div>
       </div>
     );
   }
@@ -525,14 +519,10 @@ function PRsCard({ prs }: { prs: MonthlyPR[] }) {
       >
         {prs.length}
       </div>
-      <div style={HEAD}>
-        {pl(prs.length, "nowy rekord", "nowe rekordy", "nowych rekordów")}.
-      </div>
+      <div style={HEAD}>{pl(prs.length, "nowy rekord", "nowe rekordy", "nowych rekordów")}.</div>
       <div style={{ ...SUB, marginTop: 20 }}>
-        Najmocniej:{" "}
-        <strong style={{ color: "var(--accent)" }}>{top.exerciseName}</strong> —{" "}
-        <span className="mono">{top.reps}</span>{" "}
-        {top.unit === "SEC" ? "sek." : "powt."}
+        Najmocniej: <strong style={{ color: "var(--accent)" }}>{top.exerciseName}</strong> —{" "}
+        <span className="mono">{top.reps}</span> {top.unit === "SEC" ? "sek." : "powt."}
         {top.previousBest > 0 && (
           <>
             {" "}
@@ -586,8 +576,7 @@ function HeaviestCard({
       </div>
       <div style={SUB}>
         <strong>{day.totalReps.toLocaleString("pl-PL")}</strong> powt. /{" "}
-        <strong>{day.setCount}</strong>{" "}
-        {pl(day.setCount, "seria", "serie", "serii")} · śr. RPE{" "}
+        <strong>{day.setCount}</strong> {pl(day.setCount, "seria", "serie", "serii")} · śr. RPE{" "}
         <strong>{day.avgRpe}</strong>/10
       </div>
     </div>
@@ -626,9 +615,7 @@ function VsPrevCard({ vs }: { vs: WrappedSummary["vsPrevious"] }) {
       <div>
         <div style={EYEBROW}>Porównanie</div>
         <div style={HEAD}>Twój pierwszy miesiąc.</div>
-        <div style={SUB}>
-          Następny wrapped pokaże, czy idziesz w górę. Dasz radę.
-        </div>
+        <div style={SUB}>Następny wrapped pokaże, czy idziesz w górę. Dasz radę.</div>
       </div>
     );
   }
@@ -736,9 +723,7 @@ function ClosingCard({ label }: { label: string }) {
       <div style={EYEBROW}>To był</div>
       <div style={{ ...HUGE, color: "var(--accent)" }}>{label.split(" ")[0]}</div>
       <div style={HEAD}>Do zobaczenia w następnym miesiącu.</div>
-      <div style={SUB}>
-        Twoja historia rośnie z każdym treningiem. Trzymaj rytm.
-      </div>
+      <div style={SUB}>Twoja historia rośnie z każdym treningiem. Trzymaj rytm.</div>
     </div>
   );
 }
@@ -809,12 +794,7 @@ function ShareBar({
         flexShrink: 0,
       }}
     >
-      <button
-        type="button"
-        onClick={onShare}
-        className="btn btn-primary"
-        style={{ minWidth: 160 }}
-      >
+      <button type="button" onClick={onShare} className="btn btn-primary" style={{ minWidth: 160 }}>
         <Icons.Upload /> {copied ? "Skopiowano!" : "Udostępnij"}
       </button>
       <Link
@@ -833,14 +813,10 @@ function ShareBar({
 }
 
 function buildShareText(s: WrappedSummary, firstName: string): string {
-  const parts = [
-    `${firstName} · ${s.label} w kalisthenos:`,
-    `${s.sessions} sesji`,
-  ];
+  const parts = [`${firstName} · ${s.label} w kalisthenos:`, `${s.sessions} sesji`];
   if (s.totalReps > 0) parts.push(`${s.totalReps.toLocaleString("pl-PL")} powt.`);
   if (s.totalSeconds > 0) parts.push(`${s.totalSeconds.toLocaleString("pl-PL")} sek.`);
-  if (s.prs.length > 0)
-    parts.push(`${s.prs.length} nowych rekordów`);
+  if (s.prs.length > 0) parts.push(`${s.prs.length} nowych rekordów`);
   parts.push(`Typ: ${s.archetype.label} ${s.archetype.emoji}`);
   return parts.join(" · ");
 }

@@ -165,20 +165,16 @@ export default function TrenerStatystyki() {
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 14, fontWeight: 500 }}>{s.exerciseName}</div>
                         <div className="text-xs muted" style={{ marginTop: 2 }}>
-                          {s.points.length} wykonań · PR{" "}
-                          <span className="mono">{s.pr}</span>
+                          {s.points.length} wykonań · PR <span className="mono">{s.pr}</span>
                         </div>
                       </div>
-                      <span className={`badge${s.unit === "REPS" ? " active" : ""}`}>
-                        {s.unit}
-                      </span>
+                      <span className={`badge${s.unit === "REPS" ? " active" : ""}`}>{s.unit}</span>
                     </div>
                     <Sparkline values={s.points.map((p) => p.avgReps)} width={232} height={36} />
                     <div className="row between" style={{ marginTop: 4, fontSize: 11 }}>
                       <span className="mono muted">{fmtDate(s.points[0]!.performedOn)}</span>
                       <span className="mono">
-                        {s.points[0]!.avgReps} →{" "}
-                        {s.points[s.points.length - 1]!.avgReps}
+                        {s.points[0]!.avgReps} → {s.points[s.points.length - 1]!.avgReps}
                       </span>
                       <span className="mono muted">
                         {fmtDate(s.points[s.points.length - 1]!.performedOn)}
@@ -196,11 +192,7 @@ export default function TrenerStatystyki() {
             untagged={tagDist.untagged}
             total={tagDist.totalExerciseLogs}
           />
-          <CoverageSection
-            video={videoCov}
-            photos={photoCov}
-            trainee={trainee}
-          />
+          <CoverageSection video={videoCov} photos={photoCov} trainee={trainee} />
 
           {prs.length > 0 && (
             <Section title="Rekordy osobiste" icon={<Icons.Trophy />}>
@@ -224,10 +216,7 @@ function Section({
 }) {
   return (
     <section style={{ marginBottom: 26 }}>
-      <div
-        className="row between"
-        style={{ alignItems: "baseline", marginBottom: 12 }}
-      >
+      <div className="row between" style={{ alignItems: "baseline", marginBottom: 12 }}>
         <h2 style={{ fontSize: 17 }}>{title}</h2>
         {icon != null && <span style={{ color: "var(--muted)" }}>{icon}</span>}
       </div>
@@ -264,10 +253,7 @@ function HealthTiles({ health }: { health: HealthStats }) {
         ? "var(--warn)"
         : "var(--ink)";
 
-  const adTone =
-    health.allDonePct < 70 && health.hasAnyLog30d
-      ? "var(--warn)"
-      : "var(--ink)";
+  const adTone = health.allDonePct < 70 && health.hasAnyLog30d ? "var(--warn)" : "var(--ink)";
 
   return (
     <div
@@ -333,9 +319,7 @@ function trendArrow(trend: HealthStats["rpeTrend"]): string {
 }
 
 function isoFromDaysAgo(n: number): string {
-  return new Date(Date.now() - n * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
+  return new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 function Tile({
@@ -449,10 +433,7 @@ function MiniCard({
           {label}
         </div>
       </div>
-      <div
-        className="mono"
-        style={{ fontSize: 22, fontWeight: 600, color: tone, marginTop: 4 }}
-      >
+      <div className="mono" style={{ fontSize: 22, fontWeight: 600, color: tone, marginTop: 4 }}>
         {value}
       </div>
     </div>
@@ -499,10 +480,7 @@ function ExerciseProgressTable({ progress }: { progress: ExerciseProgress[] }) {
             </div>
             <div className="mono" style={{ fontSize: 14, fontWeight: 600 }}>
               {p.pr}
-              <span
-                className="muted"
-                style={{ fontSize: 10, fontWeight: 400, marginLeft: 3 }}
-              >
+              <span className="muted" style={{ fontSize: 10, fontWeight: 400, marginLeft: 3 }}>
                 {p.unit === "SEC" ? "s" : "rep"}
               </span>
             </div>
@@ -510,10 +488,7 @@ function ExerciseProgressTable({ progress }: { progress: ExerciseProgress[] }) {
             <div className="mono text-sm">
               {p.recentAvgReps}
               {p.deltaPct != null && (
-                <span
-                  className="text-xs muted"
-                  style={{ marginLeft: 6, fontWeight: 400 }}
-                >
+                <span className="text-xs muted" style={{ marginLeft: 6, fontWeight: 400 }}>
                   {p.deltaPct > 0 ? "+" : ""}
                   {p.deltaPct}%
                 </span>
@@ -578,8 +553,7 @@ function PlateauSection({
     <Section title="Plateau — uważne oko" icon={<Icons.Sparkle />}>
       <div className="card" style={{ padding: 14 }}>
         <div className="text-xs muted" style={{ marginBottom: 10 }}>
-          Powtórzenia stoją w miejscu, a RPE nie spada — kandydaci do regresji lub
-          zmiany wariantu.
+          Powtórzenia stoją w miejscu, a RPE nie spada — kandydaci do regresji lub zmiany wariantu.
         </div>
         <div className="col" style={{ gap: 8 }}>
           {plateau.map((p) => (
@@ -599,8 +573,8 @@ function PlateauSection({
               <div style={{ flex: 1, minWidth: 200 }}>
                 <div style={{ fontSize: 14, fontWeight: 500 }}>{p.exerciseName}</div>
                 <div className="text-xs muted" style={{ marginTop: 2 }}>
-                  {p.sessionsConsidered} sesji obserwacji · PR{" "}
-                  <span className="mono">{p.pr}</span> · {p.unit}
+                  {p.sessionsConsidered} sesji obserwacji · PR <span className="mono">{p.pr}</span>{" "}
+                  · {p.unit}
                 </div>
               </div>
               <div className="row" style={{ gap: 12 }}>
@@ -612,10 +586,7 @@ function PlateauSection({
                 </div>
                 <div style={{ textAlign: "right" }}>
                   <div className="mono muted text-xs">śr. RPE</div>
-                  <div
-                    className="mono"
-                    style={{ fontWeight: 600, color: "var(--warn)" }}
-                  >
+                  <div className="mono" style={{ fontWeight: 600, color: "var(--warn)" }}>
                     {p.recentAvgRpe}
                   </div>
                 </div>
@@ -645,10 +616,7 @@ function PlanSection({
       title={`Aktywny plan${totals.planName ? ` — ${totals.planName}` : ""}`}
       icon={<Icons.Plans />}
     >
-      <div
-        className="grid"
-        style={{ gridTemplateColumns: "1.2fr 1fr", gap: 14 }}
-      >
+      <div className="grid" style={{ gridTemplateColumns: "1.2fr 1fr", gap: 14 }}>
         <div className="card" style={{ padding: 14 }}>
           <div
             className="mono"
@@ -667,11 +635,7 @@ function PlanSection({
           ) : (
             <div className="col" style={{ gap: 6 }}>
               {usage.sessions.map((s) => (
-                <div
-                  key={s.sessionId}
-                  className="row"
-                  style={{ gap: 10, alignItems: "center" }}
-                >
+                <div key={s.sessionId} className="row" style={{ gap: 10, alignItems: "center" }}>
                   <span
                     className="mono muted"
                     style={{ fontSize: 11, width: 24, textAlign: "right" }}
@@ -689,10 +653,7 @@ function PlanSection({
                   >
                     ×{s.doneCount}
                   </span>
-                  <span
-                    className="mono text-xs muted"
-                    style={{ minWidth: 80, textAlign: "right" }}
-                  >
+                  <span className="mono text-xs muted" style={{ minWidth: 80, textAlign: "right" }}>
                     {s.lastPerformedOn ? daysAgo(s.lastPerformedOn) : "—"}
                   </span>
                 </div>
@@ -798,10 +759,7 @@ function CoverageSection({
 }) {
   return (
     <Section title="Coverage" icon={<Icons.Camera />}>
-      <div
-        className="grid"
-        style={{ gridTemplateColumns: "1fr 1fr", gap: 14 }}
-      >
+      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         <div className="card" style={{ padding: 14 }}>
           <div
             className="mono"
@@ -825,10 +783,7 @@ function CoverageSection({
           </div>
         </div>
         <div className="card" style={{ padding: 14 }}>
-          <div
-            className="row between"
-            style={{ alignItems: "flex-start", marginBottom: 6 }}
-          >
+          <div className="row between" style={{ alignItems: "flex-start", marginBottom: 6 }}>
             <div
               className="mono"
               style={{
@@ -849,9 +804,7 @@ function CoverageSection({
             </Link>
           </div>
           <div className="mono" style={{ fontSize: 22, fontWeight: 600 }}>
-            {photos.daysSinceLast == null
-              ? "—"
-              : daysAgo(isoFromDaysAgo(photos.daysSinceLast))}
+            {photos.daysSinceLast == null ? "—" : daysAgo(isoFromDaysAgo(photos.daysSinceLast))}
           </div>
           <div className="text-xs muted" style={{ marginTop: 4 }}>
             ostatnie zdjęcie · {photos.totalPhotos} łącznie
@@ -914,10 +867,7 @@ function PRMiniList({
           </div>
           <div className="mono" style={{ fontSize: 14, fontWeight: 600 }}>
             {pr.pr}
-            <span
-              className="muted"
-              style={{ fontSize: 10, fontWeight: 400, marginLeft: 3 }}
-            >
+            <span className="muted" style={{ fontSize: 10, fontWeight: 400, marginLeft: 3 }}>
               {pr.unit === "SEC" ? "s" : "rep"}
             </span>
           </div>
@@ -939,10 +889,7 @@ function PRMiniList({
         </div>
       ))}
       {prs.length > top.length && (
-        <div
-          className="text-xs muted"
-          style={{ padding: "10px 14px", textAlign: "center" }}
-        >
+        <div className="text-xs muted" style={{ padding: "10px 14px", textAlign: "center" }}>
           + {prs.length - top.length} ćwiczeń z rekordami…
         </div>
       )}

@@ -8,8 +8,18 @@ import * as schema from "~/lib/db/schema";
 // ============================================================
 
 const MONTH_NAMES = [
-  "Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec",
-  "Lipiec", "Sierpień", "Wrzesień", "Październik", "Listopad", "Grudzień",
+  "Styczeń",
+  "Luty",
+  "Marzec",
+  "Kwiecień",
+  "Maj",
+  "Czerwiec",
+  "Lipiec",
+  "Sierpień",
+  "Wrzesień",
+  "Październik",
+  "Listopad",
+  "Grudzień",
 ];
 
 export function monthLabel(year: number, month: number): string {
@@ -223,10 +233,7 @@ async function loadMonthCore(
       schema.workoutSetLogs,
       eq(schema.workoutSetLogs.workoutExerciseLogId, schema.workoutExerciseLogs.id),
     )
-    .leftJoin(
-      schema.exercises,
-      eq(schema.exercises.id, schema.workoutExerciseLogs.exerciseId),
-    )
+    .leftJoin(schema.exercises, eq(schema.exercises.id, schema.workoutExerciseLogs.exerciseId))
     .where(
       and(
         eq(schema.workoutLogs.traineeId, traineeId),
@@ -269,10 +276,7 @@ async function loadTopExercise(
       schema.workoutLogs,
       eq(schema.workoutLogs.id, schema.workoutExerciseLogs.workoutLogId),
     )
-    .innerJoin(
-      schema.exercises,
-      eq(schema.exercises.id, schema.workoutExerciseLogs.exerciseId),
-    )
+    .innerJoin(schema.exercises, eq(schema.exercises.id, schema.workoutExerciseLogs.exerciseId))
     .where(
       and(
         eq(schema.workoutLogs.traineeId, traineeId),
@@ -330,10 +334,7 @@ async function loadMonthlyPRs(
       schema.workoutLogs,
       eq(schema.workoutLogs.id, schema.workoutExerciseLogs.workoutLogId),
     )
-    .innerJoin(
-      schema.exercises,
-      eq(schema.exercises.id, schema.workoutExerciseLogs.exerciseId),
-    )
+    .innerJoin(schema.exercises, eq(schema.exercises.id, schema.workoutExerciseLogs.exerciseId))
     .where(
       and(
         eq(schema.workoutLogs.traineeId, traineeId),
@@ -390,10 +391,7 @@ async function loadMonthlyPRs(
     }
   }
   // Order by improvement (delta), then by reps desc.
-  prs.sort(
-    (a, b) =>
-      b.reps - b.previousBest - (a.reps - a.previousBest) || b.reps - a.reps,
-  );
+  prs.sort((a, b) => b.reps - b.previousBest - (a.reps - a.previousBest) || b.reps - a.reps);
   return { prs, newExercises };
 }
 
@@ -433,11 +431,7 @@ async function loadHeaviestDay(
         sql`${schema.workoutLogs.performedOn} < ${nextStart}`,
       ),
     )
-    .groupBy(
-      schema.workoutLogs.id,
-      schema.workoutLogs.performedOn,
-      schema.workoutLogs.sessionName,
-    )
+    .groupBy(schema.workoutLogs.id, schema.workoutLogs.performedOn, schema.workoutLogs.sessionName)
     .orderBy(sql`COALESCE(SUM(${schema.workoutSetLogs.reps}), 0) DESC`)
     .limit(1);
 
@@ -630,9 +624,7 @@ export async function getMonthlyWrapped(
       ? null
       : Math.round(((core.totalReps - prevCore.totalReps) / prevCore.totalReps) * 100);
   const rpeDelta =
-    prevCore.avgRpe === 0
-      ? null
-      : Math.round((core.avgRpe - prevCore.avgRpe) * 10) / 10;
+    prevCore.avgRpe === 0 ? null : Math.round((core.avgRpe - prevCore.avgRpe) * 10) / 10;
   const vsPrevious: VsPrevious = {
     hasPrevious: prevCore.sessions > 0,
     sessionsThis: core.sessions,

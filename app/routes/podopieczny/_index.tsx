@@ -6,10 +6,7 @@ import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import { daysAgo, fmtDate, fmtDateShort } from "~/lib/format";
-import {
-  listLogsForTrainee,
-  loadActivePlanSummaryForTrainee,
-} from "~/lib/workouts";
+import { listLogsForTrainee, loadActivePlanSummaryForTrainee } from "~/lib/workouts";
 import { getLatestAvailableWrapped } from "~/lib/wrapped";
 
 // ============================================================
@@ -21,9 +18,7 @@ import { getLatestAvailableWrapped } from "~/lib/wrapped";
 function WrappedBanner({
   wrapped,
 }: {
-  wrapped: NonNullable<
-    ReturnType<typeof useLoaderData<typeof loader>>["latestWrapped"]
-  >;
+  wrapped: NonNullable<ReturnType<typeof useLoaderData<typeof loader>>["latestWrapped"]>;
 }) {
   const [show, setShow] = useState(false);
 
@@ -97,14 +92,11 @@ function WrappedBanner({
           Twój {wrapped.label} jest gotowy.
         </div>
         <div style={{ fontSize: 13, opacity: 0.7 }}>
-          {wrapped.sessions} {wrapped.sessions === 1 ? "sesja" : "sesji"} do
-          obejrzenia w klimacie Spotify Wrapped.
+          {wrapped.sessions} {wrapped.sessions === 1 ? "sesja" : "sesji"} do obejrzenia w klimacie
+          Spotify Wrapped.
         </div>
       </div>
-      <div
-        className="row"
-        style={{ gap: 8, position: "relative", flexShrink: 0 }}
-      >
+      <div className="row" style={{ gap: 8, position: "relative", flexShrink: 0 }}>
         <button
           type="button"
           onClick={dismiss}
@@ -126,9 +118,7 @@ function WrappedBanner({
 }
 
 function isoDaysAgo(n: number): string {
-  return new Date(Date.now() - n * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
+  return new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 export async function loader(args: LoaderFunctionArgs) {
@@ -168,8 +158,7 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export default function TraineeDashboard() {
-  const { user, planSummary, recent, stats, latestWrapped } =
-    useLoaderData<typeof loader>();
+  const { user, planSummary, recent, stats, latestWrapped } = useLoaderData<typeof loader>();
 
   const firstName = user.displayName.split(" ")[0] ?? user.displayName;
   const lastSessionLabel = recent[0]?.performedOn ? daysAgo(recent[0].performedOn) : null;
@@ -221,11 +210,7 @@ export default function TraineeDashboard() {
             <div className="k">w tym tygodniu</div>
           </div>
           <span className="vdiv" style={{ height: 36 }} />
-          <Link
-            to="/podopieczny/historia"
-            className="stat"
-            style={{ textDecoration: "none" }}
-          >
+          <Link to="/podopieczny/historia" className="stat" style={{ textDecoration: "none" }}>
             <div className="v">{stats.totalSessions}</div>
             <div className="k">łącznie sesji</div>
           </Link>
@@ -334,7 +319,11 @@ export default function TraineeDashboard() {
                 <div
                   key={s.session.id}
                   className="list-row"
-                  style={{ gridTemplateColumns: "32px 1fr auto auto", gap: 12, padding: "12px 16px" }}
+                  style={{
+                    gridTemplateColumns: "32px 1fr auto auto",
+                    gap: 12,
+                    padding: "12px 16px",
+                  }}
                 >
                   <div className="mono text-xs muted" style={{ textAlign: "center" }}>
                     {String(idx + 1).padStart(2, "0")}

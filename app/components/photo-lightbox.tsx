@@ -203,16 +203,10 @@ function LightboxBody({
           >
             {BODY_VIEW_LABELS[photo.view]}
           </span>
-          <span
-            className="mono"
-            style={{ fontSize: 13, fontWeight: 500 }}
-          >
+          <span className="mono" style={{ fontSize: 13, fontWeight: 500 }}>
             {fmtDate(photo.takenOn)}
           </span>
-          <span
-            className="mono"
-            style={{ fontSize: 11, opacity: 0.55, marginLeft: 4 }}
-          >
+          <span className="mono" style={{ fontSize: 11, opacity: 0.55, marginLeft: 4 }}>
             {idx + 1} / {total}
           </span>
         </div>
@@ -268,12 +262,8 @@ function LightboxBody({
             borderRadius: 6,
           }}
         />
-        {hasPrev && (
-          <NavButton side="left" onClick={goPrev} />
-        )}
-        {hasNext && (
-          <NavButton side="right" onClick={goNext} />
-        )}
+        {hasPrev && <NavButton side="left" onClick={goPrev} />}
+        {hasNext && <NavButton side="right" onClick={goNext} />}
       </div>
 
       {/* Bottom: note + (optional) delete */}

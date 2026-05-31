@@ -83,7 +83,20 @@ function computeMonthLabels(
   days: HeatmapDay[],
   weekColWidth: number,
 ): Array<{ label: string; x: number }> {
-  const MONTHS = ["sty", "lut", "mar", "kwi", "maj", "cze", "lip", "sie", "wrz", "paź", "lis", "gru"];
+  const MONTHS = [
+    "sty",
+    "lut",
+    "mar",
+    "kwi",
+    "maj",
+    "cze",
+    "lip",
+    "sie",
+    "wrz",
+    "paź",
+    "lis",
+    "gru",
+  ];
   const labels: Array<{ label: string; x: number }> = [];
   let lastMonth = -1;
   for (let i = 0; i < days.length; i += 7) {
@@ -120,10 +133,7 @@ export function Sparkline({
 }: SparklineProps) {
   if (values.length < 2) {
     return (
-      <span
-        className="muted text-xs"
-        style={{ fontStyle: "italic" }}
-      >
+      <span className="muted text-xs" style={{ fontStyle: "italic" }}>
         za mało danych
       </span>
     );
@@ -139,7 +149,9 @@ export function Sparkline({
     return { x, y };
   });
 
-  const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+  const linePath = points
+    .map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`)
+    .join(" ");
   const areaPath = `${linePath} L${width.toFixed(1)},${height} L0,${height} Z`;
   const last = points[points.length - 1]!;
 
@@ -161,9 +173,7 @@ export function Sparkline({
         strokeLinejoin="round"
         strokeLinecap="round"
       />
-      {showLastDot && (
-        <circle cx={last.x} cy={last.y} r={2.5} fill={stroke} />
-      )}
+      {showLastDot && <circle cx={last.x} cy={last.y} r={2.5} fill={stroke} />}
     </svg>
   );
 }
@@ -228,18 +238,11 @@ export function SegmentedBar({
 export function SegmentedBarLegend({ segments }: { segments: BarSegment[] }) {
   const total = segments.reduce((a, s) => a + s.value, 0);
   return (
-    <div
-      className="row wrap"
-      style={{ gap: 12, fontSize: 11, marginTop: 8 }}
-    >
+    <div className="row wrap" style={{ gap: 12, fontSize: 11, marginTop: 8 }}>
       {segments.map((s) => {
         const pct = total === 0 ? 0 : Math.round((s.value / total) * 100);
         return (
-          <div
-            key={s.label}
-            className="row"
-            style={{ gap: 6, alignItems: "center" }}
-          >
+          <div key={s.label} className="row" style={{ gap: 6, alignItems: "center" }}>
             <span
               style={{
                 display: "inline-block",

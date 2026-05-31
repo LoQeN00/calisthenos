@@ -178,13 +178,8 @@ function WrappedSection({
             >
               Wrapped
             </div>
-            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>
-              {m.label}
-            </div>
-            <div
-              className="text-xs"
-              style={{ opacity: idx === 0 ? 0.7 : undefined }}
-            >
+            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>{m.label}</div>
+            <div className="text-xs" style={{ opacity: idx === 0 ? 0.7 : undefined }}>
               {m.sessions} {m.sessions === 1 ? "sesja" : "sesji"}
             </div>
           </Link>
@@ -252,9 +247,7 @@ function HeroCard({ hero }: { hero: ReturnType<typeof useLoaderData<typeof loade
         <HeroStat
           label="Dzień podróży"
           value={hero.journeyDayNumber === 0 ? "—" : `#${hero.journeyDayNumber}`}
-          suffix={
-            hero.firstSessionOn ? `od ${fmtDate(hero.firstSessionOn)}` : "od pierwszej sesji"
-          }
+          suffix={hero.firstSessionOn ? `od ${fmtDate(hero.firstSessionOn)}` : "od pierwszej sesji"}
         />
         <HeroStat
           label="Łączne powtórzenia"
@@ -373,10 +366,7 @@ function Section({
 }) {
   return (
     <section style={{ marginBottom: 26 }}>
-      <div
-        className="row between"
-        style={{ alignItems: "baseline", marginBottom: 12 }}
-      >
+      <div className="row between" style={{ alignItems: "baseline", marginBottom: 12 }}>
         <h2 style={{ fontSize: 17 }}>{title}</h2>
         {icon != null && <span style={{ color: "var(--muted)" }}>{icon}</span>}
       </div>
@@ -396,14 +386,8 @@ function MonthCard({
 }) {
   return (
     <Section title={`Ten miesiąc — ${month.monthLabel}`} icon={<Icons.Calendar />}>
-      <div
-        className="card"
-        style={{ padding: 18, display: "grid", gap: 12 }}
-      >
-        <div
-          className="row wrap"
-          style={{ gap: 24, alignItems: "flex-end" }}
-        >
+      <div className="card" style={{ padding: 18, display: "grid", gap: 12 }}>
+        <div className="row wrap" style={{ gap: 24, alignItems: "flex-end" }}>
           <Stat label="Sesji" value={String(month.sessions)} />
           <Stat
             label={`Pobite ${pluralizePl(month.prsThisMonth, PR_FORMS)}`}
@@ -575,17 +559,14 @@ function SparklineSection({
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 500 }}>{s.exerciseName}</div>
                 <div className="text-xs muted" style={{ marginTop: 2 }}>
-                  {s.points.length} {pluralizePl(s.points.length, SESJA)} ·{" "}
-                  PR <span className="mono">{s.pr}</span>
+                  {s.points.length} {pluralizePl(s.points.length, SESJA)} · PR{" "}
+                  <span className="mono">{s.pr}</span>
                 </div>
               </div>
               <span className={`badge${s.unit === "REPS" ? " active" : ""}`}>{s.unit}</span>
             </div>
             <Sparkline values={s.points.map((p) => p.avgReps)} width={232} height={36} />
-            <div
-              className="row between"
-              style={{ marginTop: 4, fontSize: 11 }}
-            >
+            <div className="row between" style={{ marginTop: 4, fontSize: 11 }}>
               <span className="mono muted">{fmtDate(s.points[0]!.performedOn)}</span>
               <span className="mono">
                 {s.points[0]!.avgReps} → {s.points[s.points.length - 1]!.avgReps}
@@ -634,8 +615,8 @@ function EasierSection({
               <div style={{ flex: 1, minWidth: 200 }}>
                 <div style={{ fontSize: 14, fontWeight: 500 }}>{e.exerciseName}</div>
                 <div className="text-xs muted" style={{ marginTop: 2 }}>
-                  {e.reps} {e.unit === "SEC" ? "sek." : "powt."} ·{" "}
-                  {fmtDate(e.priorDate)} → {fmtDate(e.recentDate)}
+                  {e.reps} {e.unit === "SEC" ? "sek." : "powt."} · {fmtDate(e.priorDate)} →{" "}
+                  {fmtDate(e.recentDate)}
                 </div>
               </div>
               <div className="mono" style={{ fontSize: 13, fontWeight: 600 }}>
@@ -690,10 +671,7 @@ function PRSection({
               </div>
               <div className="mono" style={{ fontSize: 15, fontWeight: 600 }}>
                 {pr.pr}
-                <span
-                  className="muted"
-                  style={{ fontSize: 11, fontWeight: 400, marginLeft: 3 }}
-                >
+                <span className="muted" style={{ fontSize: 11, fontWeight: 400, marginLeft: 3 }}>
                   {pr.unit === "SEC" ? "s" : "rep"}
                 </span>
               </div>

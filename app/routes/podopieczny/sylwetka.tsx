@@ -7,19 +7,13 @@ import {
   type LoaderFunctionArgs,
 } from "react-router";
 import { z } from "zod";
-import {
-  SideBySideSection,
-  type ResolvedPair,
-} from "~/components/body-photo-compare";
+import { SideBySideSection, type ResolvedPair } from "~/components/body-photo-compare";
 import { FileDropzone } from "~/components/file-dropzone";
 import { Icons } from "~/components/icons";
 import { Modal } from "~/components/modal";
 import { Pagination, parsePage } from "~/components/pagination";
 import { PhotoCard } from "~/components/photo-card";
-import {
-  PhotoLightbox,
-  type LightboxPhoto,
-} from "~/components/photo-lightbox";
+import { PhotoLightbox, type LightboxPhoto } from "~/components/photo-lightbox";
 import { requireUser } from "~/lib/auth";
 import {
   addBodyPhoto,
@@ -142,8 +136,7 @@ export async function action(args: ActionFunctionArgs) {
 type ViewFilter = "all" | BodyPhotoView;
 
 export default function TraineeBodyGallery() {
-  const { photos, page, totalPages, total, resolvedPairs } =
-    useLoaderData<typeof loader>();
+  const { photos, page, totalPages, total, resolvedPairs } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [showAddModal, setShowAddModal] = useState(false);
   const [filter, setFilter] = useState<ViewFilter>("all");
@@ -197,11 +190,7 @@ export default function TraineeBodyGallery() {
           <h1>Sylwetka</h1>
           <div className="sub">Wrzucaj cotygodniowe zdjęcia. Trener je widzi.</div>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowAddModal(true)}
-          className="btn btn-primary"
-        >
+        <button type="button" onClick={() => setShowAddModal(true)} className="btn btn-primary">
           <Icons.Plus /> Dodaj zdjęcie
         </button>
       </div>
@@ -260,11 +249,7 @@ export default function TraineeBodyGallery() {
             )}
           </div>
           <div className="modal-foot">
-            <button
-              type="button"
-              onClick={() => setShowAddModal(false)}
-              className="btn btn-ghost"
-            >
+            <button type="button" onClick={() => setShowAddModal(false)} className="btn btn-ghost">
               Anuluj
             </button>
             <button type="submit" className="btn btn-primary">
@@ -281,10 +266,7 @@ export default function TraineeBodyGallery() {
         </div>
       ) : (
         <>
-          <SideBySideSection
-            pairs={resolvedPairs}
-            onOpenPhoto={setLightboxId}
-          />
+          <SideBySideSection pairs={resolvedPairs} onOpenPhoto={setLightboxId} />
 
           <FilterTabs filter={filter} setFilter={setFilter} counts={counts} />
 
@@ -432,9 +414,7 @@ function PhotoGrid({
 // Helpers
 // ============================================================
 
-function countByView(
-  photos: Array<{ view: BodyPhotoView }>,
-): Record<ViewFilter, number> {
+function countByView(photos: Array<{ view: BodyPhotoView }>): Record<ViewFilter, number> {
   const out: Record<ViewFilter, number> = {
     all: photos.length,
     front: 0,
@@ -448,8 +428,18 @@ function countByView(
 }
 
 const MONTHS_PL = [
-  "Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec",
-  "Lipiec", "Sierpień", "Wrzesień", "Październik", "Listopad", "Grudzień",
+  "Styczeń",
+  "Luty",
+  "Marzec",
+  "Kwiecień",
+  "Maj",
+  "Czerwiec",
+  "Lipiec",
+  "Sierpień",
+  "Wrzesień",
+  "Październik",
+  "Listopad",
+  "Grudzień",
 ];
 
 function groupByMonth<
