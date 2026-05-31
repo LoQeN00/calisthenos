@@ -16,8 +16,14 @@ dist/
 # IDE
 .vscode/
 .idea/
-.claude/
 *.swp
+
+# Claude Code — ignoruj lokalne, wersjonuj współdzielone
+.claude/*
+!.claude/skills/
+!.claude/commands/
+!.claude/settings.json
+.claude/settings.local.json
 
 # OS
 .DS_Store

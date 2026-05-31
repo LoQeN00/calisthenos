@@ -1,0 +1,21 @@
+# docs/ — dokumentacja, plany i logi
+
+Materiały projektowe: specyfikacja, plany implementacji, notatki o zmianach oraz
+surowe logi z buildów/deployów (do diagnostyki).
+
+## Pliki w tym katalogu
+
+| Plik | Rola |
+|---|---|
+| `statistics-plan.md` | Pełny katalog propozycji statystyk (trener o podopiecznym i podopieczny o sobie) z oceną wartości. Bazuje na obecnym schemacie. |
+| `mvp-statistics.md` | Zawężenie powyższego do MVP — proste agregacje SQL bez nowych tabel i wykresów. |
+| `error.md` | Zrzut logu błędu runtime (m.in. `EACCES mkdir '/data/body'` — uprawnienia wolumenu). Kontekst diagnostyczny. |
+
+## Podkatalogi
+
+| Katalog | Zawartość |
+|---|---|
+| [`superpowers/`](superpowers/README.md) | Spec produktu, plany faz, notatki zmian, logi build/deploy z Railway. |
+
+---
+Konwencja i zasady aktualizacji dokumentacji: [`../CLAUDE.md`](../CLAUDE.md).

@@ -117,6 +117,10 @@ npm run start         # serve production build (used by Docker/Railway)
 npm run typecheck     # tsc --noEmit
 npm run lint          # biome lint
 npm run format        # biome format --write
+npm test              # vitest unit tests (watch)
+npm run test:unit     # vitest run, excludes *.itest.ts
+npm run test:itest    # integration tests (*.itest.ts) — needs Docker/Postgres (testcontainers)
+npm run e2e           # playwright E2E — needs the app running
 npm run db:generate   # diff schema.ts → produce next migration .sql
 npm run db:migrate    # apply pending migrations
 npm run db:seed       # bootstrap default trainer from SEED_TRAINER_* envs (only if users table empty)
