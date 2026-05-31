@@ -142,6 +142,7 @@ export const exercises = pgTable(
     unit: exerciseUnit("unit").notNull(),
     description: text("description").notNull().default(""),
     tags: text("tags").array().notNull().default(sql`'{}'::text[]`),
+    tracksRpe: boolean("tracks_rpe").notNull().default(true),
     demoFileId: uuid("demo_file_id").references(() => files.id, { onDelete: "set null" }),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -327,14 +328,14 @@ export const workoutSetLogs = pgTable(
       .references(() => workoutExerciseLogs.id, { onDelete: "cascade" }),
     ordinal: integer("ordinal").notNull(),
     reps: integer("reps").notNull(),
-    difficulty: integer("difficulty").notNull(),
+    difficulty: integer("difficulty"),
     videoFileId: uuid("video_file_id").references(() => files.id, { onDelete: "set null" }),
   },
   (t) => ({
     uniq: uniqueIndex("workout_set_logs_exlog_ordinal_uniq").on(t.workoutExerciseLogId, t.ordinal),
     difficultyCheck: check(
       "workout_set_logs_difficulty_check",
-      sql`${t.difficulty} BETWEEN 1 AND 10`,
+      sql`${t.difficulty} IS NULL OR ${t.difficulty} BETWEEN 1 AND 10`,
     ),
   }),
 );

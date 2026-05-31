@@ -71,6 +71,13 @@ const NAV_ITEMS = [
     tailKey: null,
   },
   {
+    to: "/podopieczny/progresja",
+    label: "Progresja",
+    end: false,
+    icon: "Trend" as const,
+    tailKey: null,
+  },
+  {
     to: "/podopieczny/sylwetka",
     label: "Sylwetka",
     end: false,

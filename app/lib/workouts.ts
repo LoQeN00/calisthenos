@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, exists, ilike, inArray, not, or, sql } from "drizzle-orm";
 import type { Db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 
@@ -25,6 +25,8 @@ export interface LoggingEntry {
   note: string | null;
   /** Whether this entry belongs to a dropset block (UI affordance only). */
   isDropsetItem: boolean;
+  /** Czy ćwiczenie zbiera ocenę trudności (RPE) per seria. */
+  tracksRpe: boolean;
 }
 
 export interface SessionForLogging {
@@ -256,6 +258,7 @@ export async function loadSessionForLogging(
       item: schema.planItems,
       exerciseName: schema.exercises.name,
       exerciseUnit: schema.exercises.unit,
+      exerciseTracksRpe: schema.exercises.tracksRpe,
     })
     .from(schema.planItems)
     .innerJoin(schema.exercises, eq(schema.exercises.id, schema.planItems.exerciseId))
@@ -283,6 +286,7 @@ export async function loadSessionForLogging(
         expectedReps: it.item.reps,
         note: it.item.note,
         isDropsetItem: isDropset,
+        tracksRpe: it.exerciseTracksRpe,
       });
     }
   }
@@ -302,85 +306,167 @@ export interface WorkoutLogListItem {
   exerciseCount: number;
   setCount: number;
   hasVideo: boolean;
-  avgDifficulty: number;
+  avgDifficulty: number | null;
 }
 
-async function statsForLogs(db: Db, logIds: string[]) {
-  if (logIds.length === 0)
-    return new Map<
-      string,
-      Omit<WorkoutLogListItem, "id" | "performedOn" | "sessionName" | "note">
-    >();
-  const rows = await db
-    .select({
-      logId: schema.workoutExerciseLogs.workoutLogId,
-      exerciseCount: sql<number>`COUNT(DISTINCT ${schema.workoutExerciseLogs.id})::int`,
-      setCount: sql<number>`COUNT(${schema.workoutSetLogs.id})::int`,
-      avgDifficulty: sql<number>`COALESCE(AVG(${schema.workoutSetLogs.difficulty}), 0)::float`,
-      hasVideo: sql<boolean>`bool_or(${schema.workoutSetLogs.videoFileId} IS NOT NULL)`,
-    })
-    .from(schema.workoutExerciseLogs)
-    .leftJoin(
-      schema.workoutSetLogs,
-      eq(schema.workoutSetLogs.workoutExerciseLogId, schema.workoutExerciseLogs.id),
-    )
-    .where(inArray(schema.workoutExerciseLogs.workoutLogId, logIds))
-    .groupBy(schema.workoutExerciseLogs.workoutLogId);
-  return new Map(
-    rows.map((r) => [
-      r.logId,
-      {
-        exerciseCount: Number(r.exerciseCount),
-        setCount: Number(r.setCount),
-        hasVideo: Boolean(r.hasVideo),
-        avgDifficulty: Math.round(Number(r.avgDifficulty) * 10) / 10,
-      },
-    ]),
-  );
+export type LogSort = "date_desc" | "date_asc" | "hardest" | "easiest" | "sets_desc";
+
+export interface LogListOpts {
+  limit?: number;
+  offset?: number;
+  sort?: LogSort; // domyślnie "date_desc"
+  q?: string; // search po nazwie sesji
+  video?: "all" | "with" | "without"; // domyślnie "all"
 }
 
 export async function listLogsForTrainee(
   db: Db,
   traineeId: string,
-  opts: { limit?: number; offset?: number } = {},
+  opts: LogListOpts = {},
 ): Promise<WorkoutLogListItem[]> {
-  const baseRows = await db
-    .select()
+  const statsSub = db.$with("log_stats").as(
+    db
+      .select({
+        logId: schema.workoutExerciseLogs.workoutLogId,
+        exerciseCount: sql<number>`COUNT(DISTINCT ${schema.workoutExerciseLogs.id})::int`.as(
+          "exercise_count",
+        ),
+        setCount: sql<number>`COUNT(${schema.workoutSetLogs.id})::int`.as("set_count"),
+        avgDifficulty: sql<number | null>`AVG(${schema.workoutSetLogs.difficulty})::float`.as(
+          "avg_difficulty",
+        ),
+        hasVideo: sql<boolean>`bool_or(${schema.workoutSetLogs.videoFileId} IS NOT NULL)`.as(
+          "has_video",
+        ),
+      })
+      .from(schema.workoutExerciseLogs)
+      .leftJoin(
+        schema.workoutSetLogs,
+        eq(schema.workoutSetLogs.workoutExerciseLogId, schema.workoutExerciseLogs.id),
+      )
+      .groupBy(schema.workoutExerciseLogs.workoutLogId),
+  );
+
+  const conditions = [eq(schema.workoutLogs.traineeId, traineeId)];
+  if (opts.q && opts.q.length > 0) {
+    conditions.push(ilike(schema.workoutLogs.sessionName, `%${opts.q}%`));
+  }
+  if (opts.video === "with") conditions.push(sql`COALESCE(${statsSub.hasVideo}, false) = true`);
+  if (opts.video === "without") conditions.push(sql`COALESCE(${statsSub.hasVideo}, false) = false`);
+
+  const orderBy =
+    opts.sort === "date_asc"
+      ? [asc(schema.workoutLogs.performedOn), asc(schema.workoutLogs.createdAt)]
+      : opts.sort === "hardest"
+        ? [sql`${statsSub.avgDifficulty} DESC NULLS LAST`, desc(schema.workoutLogs.performedOn)]
+        : opts.sort === "easiest"
+          ? [sql`${statsSub.avgDifficulty} ASC NULLS LAST`, desc(schema.workoutLogs.performedOn)]
+          : opts.sort === "sets_desc"
+            ? [sql`COALESCE(${statsSub.setCount}, 0) DESC`, desc(schema.workoutLogs.performedOn)]
+            : [desc(schema.workoutLogs.performedOn), desc(schema.workoutLogs.createdAt)];
+
+  const rows = await db
+    .with(statsSub)
+    .select({
+      log: schema.workoutLogs,
+      exerciseCount: sql<number>`COALESCE(${statsSub.exerciseCount}, 0)::int`,
+      setCount: sql<number>`COALESCE(${statsSub.setCount}, 0)::int`,
+      avgDifficulty: sql<number | null>`${statsSub.avgDifficulty}`,
+      hasVideo: sql<boolean>`COALESCE(${statsSub.hasVideo}, false)`,
+    })
     .from(schema.workoutLogs)
-    .where(eq(schema.workoutLogs.traineeId, traineeId))
-    .orderBy(desc(schema.workoutLogs.performedOn), desc(schema.workoutLogs.createdAt))
+    .leftJoin(statsSub, eq(statsSub.logId, schema.workoutLogs.id))
+    .where(and(...conditions))
+    .orderBy(...orderBy)
     .limit(opts.limit ?? 200)
     .offset(opts.offset ?? 0);
 
-  const stats = await statsForLogs(
-    db,
-    baseRows.map((r) => r.id),
-  );
-  return baseRows.map((r) => ({
-    id: r.id,
-    performedOn: r.performedOn,
-    sessionName: r.sessionName,
-    note: r.note,
-    exerciseCount: stats.get(r.id)?.exerciseCount ?? 0,
-    setCount: stats.get(r.id)?.setCount ?? 0,
-    hasVideo: stats.get(r.id)?.hasVideo ?? false,
-    avgDifficulty: stats.get(r.id)?.avgDifficulty ?? 0,
+  return rows.map((r) => ({
+    id: r.log.id,
+    performedOn: r.log.performedOn,
+    sessionName: r.log.sessionName,
+    note: r.log.note,
+    exerciseCount: Number(r.exerciseCount),
+    setCount: Number(r.setCount),
+    hasVideo: Boolean(r.hasVideo),
+    avgDifficulty: r.avgDifficulty == null ? null : Math.round(Number(r.avgDifficulty) * 10) / 10,
   }));
 }
 
-export async function countClientsForTrainer(db: Db, trainerId: string): Promise<number> {
-  const [row] = await db
-    .select({ c: count() })
-    .from(schema.users)
-    .where(and(eq(schema.users.trainerId, trainerId), eq(schema.users.role, "trainee")));
+export async function countClientsForTrainer(
+  db: Db,
+  trainerId: string,
+  opts: { q?: string; plan?: "all" | "with" | "without" } = {},
+): Promise<number> {
+  const conds = [eq(schema.users.trainerId, trainerId), eq(schema.users.role, "trainee")];
+  if (opts.q && opts.q.length > 0) {
+    conds.push(
+      or(
+        ilike(schema.users.displayName, `%${opts.q}%`),
+        ilike(schema.users.email, `%${opts.q}%`),
+      )!,
+    );
+  }
+  const activePlanSub = db
+    .select({ x: sql`1` })
+    .from(schema.plans)
+    .where(
+      and(
+        eq(schema.plans.traineeId, schema.users.id),
+        eq(schema.plans.trainerId, trainerId),
+        eq(schema.plans.status, "active"),
+      ),
+    );
+  if (opts.plan === "with") conds.push(exists(activePlanSub));
+  if (opts.plan === "without") conds.push(not(exists(activePlanSub)));
+  const [row] = await db.select({ c: count() }).from(schema.users).where(and(...conds));
   return Number(row?.c ?? 0);
 }
 
-export async function countLogsForTrainee(db: Db, traineeId: string): Promise<number> {
+export async function countLogsForTrainee(
+  db: Db,
+  traineeId: string,
+  opts: { q?: string; video?: "all" | "with" | "without" } = {},
+): Promise<number> {
+  if (opts.video === "with" || opts.video === "without") {
+    const statsSub = db.$with("log_stats").as(
+      db
+        .select({
+          logId: schema.workoutExerciseLogs.workoutLogId,
+          hasVideo: sql<boolean>`bool_or(${schema.workoutSetLogs.videoFileId} IS NOT NULL)`.as(
+            "has_video",
+          ),
+        })
+        .from(schema.workoutExerciseLogs)
+        .leftJoin(
+          schema.workoutSetLogs,
+          eq(schema.workoutSetLogs.workoutExerciseLogId, schema.workoutExerciseLogs.id),
+        )
+        .groupBy(schema.workoutExerciseLogs.workoutLogId),
+    );
+    const conds = [eq(schema.workoutLogs.traineeId, traineeId)];
+    if (opts.q && opts.q.length > 0)
+      conds.push(ilike(schema.workoutLogs.sessionName, `%${opts.q}%`));
+    conds.push(
+      opts.video === "with"
+        ? sql`COALESCE(${statsSub.hasVideo}, false) = true`
+        : sql`COALESCE(${statsSub.hasVideo}, false) = false`,
+    );
+    const [row] = await db
+      .with(statsSub)
+      .select({ c: count() })
+      .from(schema.workoutLogs)
+      .leftJoin(statsSub, eq(statsSub.logId, schema.workoutLogs.id))
+      .where(and(...conds));
+    return Number(row?.c ?? 0);
+  }
+
+  const conds = [eq(schema.workoutLogs.traineeId, traineeId)];
+  if (opts.q && opts.q.length > 0) conds.push(ilike(schema.workoutLogs.sessionName, `%${opts.q}%`));
   const [row] = await db
     .select({ c: count() })
     .from(schema.workoutLogs)
-    .where(eq(schema.workoutLogs.traineeId, traineeId));
+    .where(and(...conds));
   return Number(row?.c ?? 0);
 }
 
@@ -510,37 +596,87 @@ export interface ClientStats {
   activePlanId: string | null;
 }
 
+export type ClientSort = "name_asc" | "name_desc" | "last_session" | "most_sessions" | "newest";
+
+export interface ClientListOpts {
+  limit?: number;
+  offset?: number;
+  sort?: ClientSort;
+  q?: string;
+  plan?: "all" | "with" | "without";
+}
+
 export async function listClientsForTrainer(
   db: Db,
   trainerId: string,
-  opts: { limit?: number; offset?: number } = {},
+  opts: ClientListOpts = {},
 ): Promise<ClientStats[]> {
+  const statsSub = db.$with("client_stats").as(
+    db
+      .select({
+        traineeId: schema.workoutLogs.traineeId,
+        sessionCount: count().as("session_count"),
+        lastSession: sql<string | null>`MAX(${schema.workoutLogs.performedOn})`.as("last_session"),
+      })
+      .from(schema.workoutLogs)
+      .groupBy(schema.workoutLogs.traineeId),
+  );
+
+  const conditions = [eq(schema.users.trainerId, trainerId), eq(schema.users.role, "trainee")];
+  if (opts.q && opts.q.length > 0) {
+    conditions.push(
+      or(
+        ilike(schema.users.displayName, `%${opts.q}%`),
+        ilike(schema.users.email, `%${opts.q}%`),
+      )!,
+    );
+  }
+
+  // Correlated EXISTS on an active plan for this trainee under this trainer.
+  const activePlanSub = db
+    .select({ x: sql`1` })
+    .from(schema.plans)
+    .where(
+      and(
+        eq(schema.plans.traineeId, schema.users.id),
+        eq(schema.plans.trainerId, trainerId),
+        eq(schema.plans.status, "active"),
+      ),
+    );
+  if (opts.plan === "with") conditions.push(exists(activePlanSub));
+  if (opts.plan === "without") conditions.push(not(exists(activePlanSub)));
+
+  const orderBy =
+    opts.sort === "name_desc"
+      ? [desc(schema.users.displayName)]
+      : opts.sort === "last_session"
+        ? [sql`${statsSub.lastSession} DESC NULLS LAST`, asc(schema.users.displayName)]
+        : opts.sort === "most_sessions"
+          ? [sql`COALESCE(${statsSub.sessionCount}, 0) DESC`, asc(schema.users.displayName)]
+          : opts.sort === "newest"
+            ? [sql`${schema.users.joinedOn} DESC NULLS LAST`, asc(schema.users.displayName)]
+            : [asc(schema.users.displayName)];
+
   const clients = await db
+    .with(statsSub)
     .select({
       id: schema.users.id,
       displayName: schema.users.displayName,
       joinedOn: schema.users.joinedOn,
+      totalSessions: sql<number>`COALESCE(${statsSub.sessionCount}, 0)::int`,
+      lastSession: sql<string | null>`${statsSub.lastSession}`,
     })
     .from(schema.users)
-    .where(and(eq(schema.users.trainerId, trainerId), eq(schema.users.role, "trainee")))
-    .orderBy(schema.users.displayName)
+    .leftJoin(statsSub, eq(statsSub.traineeId, schema.users.id))
+    .where(and(...conditions))
+    .orderBy(...orderBy)
     .limit(opts.limit ?? 200)
     .offset(opts.offset ?? 0);
 
   if (clients.length === 0) return [];
   const ids = clients.map((c) => c.id);
 
-  const counts = await db
-    .select({
-      traineeId: schema.workoutLogs.traineeId,
-      c: count(),
-      last: sql<string | null>`MAX(${schema.workoutLogs.performedOn})`,
-    })
-    .from(schema.workoutLogs)
-    .where(inArray(schema.workoutLogs.traineeId, ids))
-    .groupBy(schema.workoutLogs.traineeId);
-  const statsByTrainee = new Map(counts.map((r) => [r.traineeId, r]));
-
+  // Active plan names for the page.
   const activePlans = await db
     .select({
       traineeId: schema.plans.traineeId,
@@ -561,8 +697,8 @@ export async function listClientsForTrainer(
     id: c.id,
     displayName: c.displayName,
     joinedOn: c.joinedOn,
-    totalSessions: Number(statsByTrainee.get(c.id)?.c ?? 0),
-    lastSession: statsByTrainee.get(c.id)?.last ?? null,
+    totalSessions: Number(c.totalSessions),
+    lastSession: c.lastSession ?? null,
     activePlanName: planByTrainee.get(c.id)?.name ?? null,
     activePlanId: planByTrainee.get(c.id)?.planId ?? null,
   }));
@@ -592,7 +728,7 @@ export interface SaveSetInput {
    */
   ordinal: number;
   reps: number;
-  difficulty: number;
+  difficulty: number | null;
   videoFileId: string | null;
 }
 

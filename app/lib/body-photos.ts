@@ -1,4 +1,4 @@
-import { and, count, desc, eq } from "drizzle-orm";
+import { and, asc, count, desc, eq } from "drizzle-orm";
 import type { Db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import {
@@ -19,12 +19,16 @@ export interface BodyPhotoRow {
   createdAt: Date;
 }
 
-/** List a trainee's body photos, newest first. */
+/** List a trainee's body photos, newest first by default. */
 export async function listBodyPhotosForTrainee(
   db: Db,
   traineeId: string,
-  opts: { limit?: number; offset?: number } = {},
+  opts: { limit?: number; offset?: number; sort?: "newest" | "oldest" } = {},
 ): Promise<BodyPhotoRow[]> {
+  const order =
+    opts.sort === "oldest"
+      ? [asc(schema.bodyPhotos.takenOn), asc(schema.bodyPhotos.createdAt)]
+      : [desc(schema.bodyPhotos.takenOn), desc(schema.bodyPhotos.createdAt)];
   const rows = await db
     .select({
       photo: schema.bodyPhotos,
@@ -33,7 +37,7 @@ export async function listBodyPhotosForTrainee(
     .from(schema.bodyPhotos)
     .innerJoin(schema.files, eq(schema.files.id, schema.bodyPhotos.fileId))
     .where(eq(schema.bodyPhotos.traineeId, traineeId))
-    .orderBy(desc(schema.bodyPhotos.takenOn), desc(schema.bodyPhotos.createdAt))
+    .orderBy(...order)
     .limit(opts.limit ?? 100)
     .offset(opts.offset ?? 0);
 

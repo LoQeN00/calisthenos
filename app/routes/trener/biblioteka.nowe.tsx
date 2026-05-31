@@ -20,6 +20,7 @@ const ExerciseSchema = z.object({
   name: z.string().trim().min(1, "Nazwa jest wymagana.").max(120),
   unit: z.enum(["REPS", "SEC"]),
   description: z.string().max(2000).default(""),
+  tracksRpe: z.boolean(),
 });
 
 export async function loader(args: LoaderFunctionArgs) {
@@ -35,6 +36,7 @@ export async function action(args: ActionFunctionArgs) {
     name: fd.get("name"),
     unit: fd.get("unit"),
     description: fd.get("description") ?? "",
+    tracksRpe: fd.get("tracksRpe") === "on",
   });
   if (!parsed.success) {
     return {
@@ -71,6 +73,7 @@ export async function action(args: ActionFunctionArgs) {
         name: parsed.data.name,
         unit: parsed.data.unit,
         description: parsed.data.description,
+        tracksRpe: parsed.data.tracksRpe,
         tags,
         demoFileId,
       });
@@ -140,6 +143,19 @@ export default function NoweCwiczenie() {
             className="textarea"
           />
         </div>
+
+        <label className="field" style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
+          <input type="checkbox" name="tracksRpe" defaultChecked style={{ marginTop: 3 }} />
+          <span>
+            <span style={{ display: "block", fontWeight: 500 }}>
+              Zbieraj ocenę trudności (RPE 1–10) przy logowaniu
+            </span>
+            <span className="text-xs muted">
+              Wyłącz dla ćwiczeń, w których ocena wysiłku nie ma sensu — podopieczny nie zobaczy
+              wtedy skali trudności.
+            </span>
+          </span>
+        </label>
 
         <CategoryPicker categories={categories} selected={[]} />
 

@@ -1,20 +1,17 @@
-import { and, arrayContains, count, eq, ilike, isNull } from "drizzle-orm";
-import { useEffect, useRef } from "react";
+import { and, arrayContains, asc, count, desc, eq, ilike, isNull } from "drizzle-orm";
 import {
+  type ActionFunctionArgs,
   Form,
   Link,
+  type LoaderFunctionArgs,
   useActionData,
   useLoaderData,
-  useSearchParams,
-  useSubmit,
-  type ActionFunctionArgs,
-  type LoaderFunctionArgs,
 } from "react-router";
 import { ConfirmSubmitButton } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
+import { ListControls } from "~/components/list-controls";
 import { Pagination, parsePage } from "~/components/pagination";
 import { requireUser } from "~/lib/auth";
-import { pluralizePl, type PlForms } from "~/lib/format";
 import {
   CategoryError,
   addCategory,
@@ -24,6 +21,8 @@ import {
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import { signFileUrl } from "~/lib/files";
+import { type PlForms, pluralizePl } from "~/lib/format";
+import { type ListControlsSpec, parseListControls } from "~/lib/list-params";
 
 const PAGE_SIZE = 24;
 const POZYCJA: PlForms = { one: "pozycja", few: "pozycje", many: "pozycji" };
@@ -31,20 +30,67 @@ const POZYCJA: PlForms = { one: "pozycja", few: "pozycje", many: "pozycji" };
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainer" });
   const url = new URL(args.request.url);
-  const q = (url.searchParams.get("q") ?? "").trim();
-  const tag = url.searchParams.get("tag") ?? "all";
   const page = parsePage(url.searchParams);
 
   const categories = await listCategoriesForTrainer(db, user.id);
   const categoryNames = new Set(categories.map((c) => c.name));
 
+  const spec: ListControlsSpec = {
+    sortOptions: [
+      { key: "name_asc", label: "Nazwa A–Z" },
+      { key: "name_desc", label: "Nazwa Z–A" },
+      { key: "newest", label: "Najnowsze" },
+      { key: "oldest", label: "Najstarsze" },
+    ],
+    defaultSort: "name_asc",
+    filterGroups: [
+      {
+        param: "tag",
+        label: "Kategoria",
+        options: [
+          { value: "all", label: "Wszystkie" },
+          ...categories.map((c) => ({ value: c.name, label: c.name })),
+        ],
+        defaultValue: "all",
+      },
+      {
+        param: "unit",
+        label: "Jednostka",
+        options: [
+          { value: "all", label: "Wszystkie" },
+          { value: "REPS", label: "Powtórzenia" },
+          { value: "SEC", label: "Czas" },
+        ],
+        defaultValue: "all",
+      },
+    ],
+    searchable: true,
+  };
+
+  const controls = parseListControls(url.searchParams, spec);
+
+  const filterTag = controls.filters.tag ?? "all";
+  const filterUnit = controls.filters.unit ?? "all";
+
   const conditions = [eq(schema.exercises.trainerId, user.id), isNull(schema.exercises.archivedAt)];
-  if (q.length > 0) {
-    conditions.push(ilike(schema.exercises.name, `%${q}%`));
+  if (controls.q.length > 0) {
+    conditions.push(ilike(schema.exercises.name, `%${controls.q}%`));
   }
-  if (tag !== "all" && categoryNames.has(tag)) {
-    conditions.push(arrayContains(schema.exercises.tags, [tag]));
+  if (filterTag !== "all" && categoryNames.has(filterTag)) {
+    conditions.push(arrayContains(schema.exercises.tags, [filterTag]));
   }
+  if (filterUnit === "REPS" || filterUnit === "SEC") {
+    conditions.push(eq(schema.exercises.unit, filterUnit));
+  }
+
+  const orderBy =
+    controls.sort === "name_desc"
+      ? [desc(schema.exercises.name)]
+      : controls.sort === "newest"
+        ? [desc(schema.exercises.createdAt)]
+        : controls.sort === "oldest"
+          ? [asc(schema.exercises.createdAt)]
+          : [asc(schema.exercises.name)];
 
   const [totalRow] = await db
     .select({ c: count() })
@@ -60,7 +106,7 @@ export async function loader(args: LoaderFunctionArgs) {
     .from(schema.exercises)
     .leftJoin(schema.files, eq(schema.files.id, schema.exercises.demoFileId))
     .where(and(...conditions))
-    .orderBy(schema.exercises.name)
+    .orderBy(...orderBy)
     .limit(PAGE_SIZE)
     .offset(offset);
 
@@ -81,8 +127,8 @@ export async function loader(args: LoaderFunctionArgs) {
 
   return {
     items,
-    q,
-    tag,
+    spec,
+    controls,
     categories,
     page: safePage,
     totalPages,
@@ -118,26 +164,9 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function BibliotekaList() {
-  const { items, q, tag, categories, page, totalPages, total } = useLoaderData<typeof loader>();
+  const { items, spec, controls, categories, page, totalPages, total } =
+    useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
-  const [searchParams] = useSearchParams();
-  const submit = useSubmit();
-  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Auto-submit the search form 300ms after the user stops typing.
-  // Replaces the history entry so the back button still does something useful.
-  const scheduleAutoSubmit = (form: HTMLFormElement) => {
-    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-    searchTimeoutRef.current = setTimeout(() => {
-      submit(form, { method: "get", replace: true });
-    }, 300);
-  };
-  useEffect(
-    () => () => {
-      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-    },
-    [],
-  );
 
   return (
     <div>
@@ -156,49 +185,7 @@ export default function BibliotekaList() {
         </Link>
       </div>
 
-      <Form
-        method="get"
-        className="row"
-        style={{ gap: 8, marginBottom: 14 }}
-        onChange={(e) => scheduleAutoSubmit(e.currentTarget)}
-      >
-        <div className="input-search" style={{ flex: 1 }}>
-          <Icons.Search />
-          <input
-            name="q"
-            defaultValue={q}
-            placeholder="Szukaj po nazwie…"
-            className="input"
-            type="search"
-            autoComplete="off"
-          />
-        </div>
-        {tag !== "all" && <input type="hidden" name="tag" value={tag} />}
-        {/* No-JS fallback: form still posts on Enter / button click. */}
-        <noscript>
-          <button type="submit" className="btn">
-            Szukaj
-          </button>
-        </noscript>
-      </Form>
-
-      <div className="row wrap" style={{ gap: 6, marginBottom: 8 }}>
-        <FilterChip
-          label="Wszystkie"
-          active={tag === "all"}
-          value="all"
-          searchParams={searchParams}
-        />
-        {categories.map((c) => (
-          <FilterChip
-            key={c.id}
-            label={c.name}
-            active={tag === c.name}
-            value={c.name}
-            searchParams={searchParams}
-          />
-        ))}
-      </div>
+      <ListControls spec={spec} state={controls} searchPlaceholder="Szukaj po nazwie…" />
 
       <details
         className="card"
@@ -353,30 +340,5 @@ export default function BibliotekaList() {
         totalLabel={pluralizePl(total, POZYCJA)}
       />
     </div>
-  );
-}
-
-function FilterChip({
-  label,
-  active,
-  value,
-  searchParams,
-}: {
-  label: string;
-  active: boolean;
-  value: string;
-  searchParams: URLSearchParams;
-}) {
-  const newParams = new URLSearchParams(searchParams);
-  if (value === "all") newParams.delete("tag");
-  else newParams.set("tag", value);
-  const qs = newParams.toString();
-  return (
-    <Link
-      to={qs.length > 0 ? `?${qs}` : "."}
-      className={active ? "btn btn-sm btn-dark" : "btn btn-sm"}
-    >
-      {label}
-    </Link>
   );
 }

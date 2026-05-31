@@ -576,8 +576,13 @@ function HeaviestCard({
       </div>
       <div style={SUB}>
         <strong>{day.totalReps.toLocaleString("pl-PL")}</strong> powt. /{" "}
-        <strong>{day.setCount}</strong> {pl(day.setCount, "seria", "serie", "serii")} · śr. RPE{" "}
-        <strong>{day.avgRpe}</strong>/10
+        <strong>{day.setCount}</strong> {pl(day.setCount, "seria", "serie", "serii")}
+        {day.avgRpe != null && (
+          <>
+            {" "}
+            · śr. RPE <strong>{day.avgRpe}</strong>/10
+          </>
+        )}
       </div>
     </div>
   );
@@ -654,18 +659,16 @@ function VsPrevCard({ vs }: { vs: WrappedSummary["vsPrevious"] }) {
           }
         />
       </div>
-      {vs.rpeDelta != null && vs.rpeDelta !== 0 && (
+      {vs.avgRpeThis != null && vs.rpeDelta != null && vs.rpeDelta !== 0 && (
         <div style={{ ...SUB, marginTop: 8 }}>
           Średnie RPE:{" "}
           <strong>
             {vs.avgRpeThis}/10
-            {vs.rpeDelta !== 0 && (
-              <span style={{ color: vs.rpeDelta > 0 ? "var(--danger)" : "var(--ok)" }}>
-                {" "}
-                ({vs.rpeDelta > 0 ? "+" : ""}
-                {vs.rpeDelta})
-              </span>
-            )}
+            <span style={{ color: vs.rpeDelta > 0 ? "var(--danger)" : "var(--ok)" }}>
+              {" "}
+              ({vs.rpeDelta > 0 ? "+" : ""}
+              {vs.rpeDelta})
+            </span>
           </strong>
         </div>
       )}

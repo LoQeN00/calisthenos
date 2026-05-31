@@ -10,15 +10,17 @@ import {
 import { z } from "zod";
 import { CopyButton } from "~/components/copy-button";
 import { Icons } from "~/components/icons";
+import { ListControls } from "~/components/list-controls";
 import { Modal } from "~/components/modal";
 import { Pagination, parsePage } from "~/components/pagination";
 import { createInvite, requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import { getEnv } from "~/lib/env";
 import { daysAgo, fmtDate, pluralizePl, type PlForms } from "~/lib/format";
+import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
+import { countClientsForTrainer, listClientsForTrainer, type ClientSort } from "~/lib/workouts";
 
 const OSOBA: PlForms = { one: "osoba", few: "osoby", many: "osób" };
-import { countClientsForTrainer, listClientsForTrainer } from "~/lib/workouts";
 
 const InviteSchema = z.object({
   displayName: z.string().trim().min(1, "Podaj imię i nazwisko.").max(80),
@@ -34,13 +36,40 @@ const InviteSchema = z.object({
 
 const PAGE_SIZE = 30;
 
+const spec: ListControlsSpec = {
+  sortOptions: [
+    { key: "name_asc", label: "Nazwisko A–Z" },
+    { key: "name_desc", label: "Nazwisko Z–A" },
+    { key: "last_session", label: "Ostatnia sesja" },
+    { key: "most_sessions", label: "Najwięcej sesji" },
+    { key: "newest", label: "Najnowszy podopieczny" },
+  ],
+  defaultSort: "name_asc",
+  filterGroups: [
+    {
+      param: "plan",
+      label: "Plan",
+      options: [
+        { value: "all", label: "Wszyscy" },
+        { value: "with", label: "Z aktywnym planem" },
+        { value: "without", label: "Bez planu" },
+      ],
+      defaultValue: "all",
+    },
+  ],
+  searchable: true,
+};
+
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainer" });
   const url = new URL(args.request.url);
   const page = parsePage(url.searchParams);
   const deletedName = url.searchParams.get("usuniety");
 
-  const total = await countClientsForTrainer(db, user.id);
+  const controls = parseListControls(url.searchParams, spec);
+  const plan = (controls.filters.plan ?? "all") as "all" | "with" | "without";
+
+  const total = await countClientsForTrainer(db, user.id, { q: controls.q, plan });
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const offset = (safePage - 1) * PAGE_SIZE;
@@ -48,8 +77,11 @@ export async function loader(args: LoaderFunctionArgs) {
   const clients = await listClientsForTrainer(db, user.id, {
     limit: PAGE_SIZE,
     offset,
+    sort: controls.sort as ClientSort,
+    q: controls.q,
+    plan,
   });
-  return { clients, page: safePage, totalPages, total, deletedName };
+  return { clients, spec, controls, page: safePage, totalPages, total, deletedName };
 }
 
 export async function action(args: ActionFunctionArgs) {
@@ -81,7 +113,8 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function TrenerPodopieczniList() {
-  const { clients, page, totalPages, total, deletedName } = useLoaderData<typeof loader>();
+  const { clients, spec, controls, page, totalPages, total, deletedName } =
+    useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [showInviteModal, setShowInviteModal] = useState(false);
 
@@ -188,6 +221,12 @@ export default function TrenerPodopieczniList() {
           </div>
         </Form>
       </Modal>
+
+      <ListControls
+        spec={spec}
+        state={controls}
+        searchPlaceholder="Szukaj po nazwisku lub emailu…"
+      />
 
       {total === 0 ? null : (
         <div className="list">

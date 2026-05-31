@@ -69,7 +69,7 @@ export async function action(args: ActionFunctionArgs) {
       sets: Array<{
         ordinal: number;
         reps: number;
-        difficulty: number;
+        difficulty: number | null;
         videoFileId: string | null;
       }>;
     }> = [];
@@ -81,7 +81,7 @@ export async function action(args: ActionFunctionArgs) {
       const sets: Array<{
         ordinal: number;
         reps: number;
-        difficulty: number;
+        difficulty: number | null;
         videoFileId: string | null;
       }> = [];
       for (let sIdx = 0; sIdx < entry.expectedSets; sIdx++) {
@@ -92,30 +92,40 @@ export async function action(args: ActionFunctionArgs) {
         const hasDiff = diffRaw != null && diffRaw !== "";
         const hasVideo = videoBlob instanceof File && videoBlob.size > 0;
 
-        if (!hasReps && !hasDiff && !hasVideo) {
-          // Row left blank.
+        const tracksRpe = entry.tracksRpe;
+
+        // Pusty wiersz: dla ćwiczeń z RPE „pusty” = brak reps/diff/wideo;
+        // dla ćwiczeń bez RPE „pusty” = brak reps/wideo (trudności i tak nie ma).
+        const isBlank = tracksRpe ? !hasReps && !hasDiff && !hasVideo : !hasReps && !hasVideo;
+        if (isBlank) {
           allSetsFilled = false;
           continue;
         }
 
-        // Partial row — both reps and difficulty must be present together.
-        if (!hasReps || !hasDiff) {
+        // Wiersz częściowy: reps zawsze wymagane; trudność tylko gdy tracksRpe.
+        if (!hasReps || (tracksRpe && !hasDiff)) {
           return {
-            error: `Ćwiczenie ${entry.exerciseName}, seria #${sIdx + 1}: uzupełnij liczbę powtórzeń i trudność (1-10).`,
+            error: tracksRpe
+              ? `Ćwiczenie ${entry.exerciseName}, seria #${sIdx + 1}: uzupełnij liczbę powtórzeń i trudność (1-10).`
+              : `Ćwiczenie ${entry.exerciseName}, seria #${sIdx + 1}: uzupełnij liczbę powtórzeń.`,
           };
         }
 
         const reps = Number(repsRaw);
-        const difficulty = Number(diffRaw);
         if (!Number.isFinite(reps) || reps < 1 || reps > 1000) {
           return {
             error: `Ćwiczenie ${entry.exerciseName}, seria #${sIdx + 1}: liczba powtórzeń poza zakresem (1-1000).`,
           };
         }
-        if (!Number.isFinite(difficulty) || difficulty < 1 || difficulty > 10) {
-          return {
-            error: `Ćwiczenie ${entry.exerciseName}, seria #${sIdx + 1}: trudność musi być 1-10.`,
-          };
+
+        let difficulty: number | null = null;
+        if (tracksRpe) {
+          difficulty = Number(diffRaw);
+          if (!Number.isFinite(difficulty) || difficulty < 1 || difficulty > 10) {
+            return {
+              error: `Ćwiczenie ${entry.exerciseName}, seria #${sIdx + 1}: trudność musi być 1-10.`,
+            };
+          }
         }
 
         let videoFileId: string | null = null;
@@ -262,15 +272,16 @@ export default function LogForm() {
     let total = 0;
     let filled = 0;
     let skipped = 0;
-    for (const sets of setStates) {
+    setStates.forEach((sets, eIdx) => {
+      const tracksRpe = entries[eIdx]?.tracksRpe ?? true;
       for (const s of sets) {
         total++;
         if (s.skipped) skipped++;
-        else if (s.reps.trim() !== "" && s.difficulty !== "") filled++;
+        else if (s.reps.trim() !== "" && (!tracksRpe || s.difficulty !== "")) filled++;
       }
-    }
+    });
     return { total, filled, skipped };
-  }, [setStates]);
+  }, [setStates, entries]);
 
   return (
     <div>
@@ -575,6 +586,7 @@ function EntryCard({
               sIdx={sIdx}
               unit={entry.unit}
               expectedReps={entry.expectedReps}
+              tracksRpe={entry.tracksRpe}
               set={set}
               onChange={(patch) => onUpdateSet(sIdx, patch)}
               onSkip={() => onSkipSet(sIdx)}
@@ -597,6 +609,7 @@ function SetRow({
   sIdx,
   unit,
   expectedReps,
+  tracksRpe,
   set,
   onChange,
   onSkip,
@@ -605,6 +618,7 @@ function SetRow({
   sIdx: number;
   unit: "REPS" | "SEC";
   expectedReps: number;
+  tracksRpe: boolean;
   set: SetState;
   onChange: (patch: Partial<SetState>) => void;
   onSkip: () => void;
@@ -688,28 +702,34 @@ function SetRow({
           maxBytes={250_000_000}
         />
       </div>
-      <div>
-        <div className="uppercase-label" style={{ fontSize: 10, marginBottom: 4 }}>
-          Trudność 1–10
+      {tracksRpe ? (
+        <div>
+          <div className="uppercase-label" style={{ fontSize: 10, marginBottom: 4 }}>
+            Trudność 1–10
+          </div>
+          <div className="diff-radio">
+            {Array.from({ length: 10 }, (_, i) => i + 1).map((v) => (
+              <div key={v}>
+                <input
+                  id={`${diffName}-${v}`}
+                  name={diffName}
+                  type="radio"
+                  value={v}
+                  checked={set.difficulty === String(v)}
+                  onChange={() => onDifficultyChange(String(v))}
+                />
+                <label htmlFor={`${diffName}-${v}`} data-tier={tierFor(v)}>
+                  {v}
+                </label>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="diff-radio">
-          {Array.from({ length: 10 }, (_, i) => i + 1).map((v) => (
-            <div key={v}>
-              <input
-                id={`${diffName}-${v}`}
-                name={diffName}
-                type="radio"
-                value={v}
-                checked={set.difficulty === String(v)}
-                onChange={() => onDifficultyChange(String(v))}
-              />
-              <label htmlFor={`${diffName}-${v}`} data-tier={tierFor(v)}>
-                {v}
-              </label>
-            </div>
-          ))}
+      ) : (
+        <div className="text-xs muted" style={{ fontStyle: "italic" }}>
+          To ćwiczenie nie zbiera oceny trudności.
         </div>
-      </div>
+      )}
     </div>
   );
 }

@@ -7,7 +7,7 @@ Klient ORM, schemat (źródło prawdy modelu danych) i migracje.
 | Plik | Rola |
 |---|---|
 | `client.ts` | Konfiguracja Drizzle nad `postgres-js` (leniwy singleton, pula 10 połączeń, logowanie w dev). Eksportuje `db` i typ `Db` (instancja lub transakcja). |
-| `schema.ts` | **Źródło prawdy schematu.** Tabele: `users`, `sessions`, `invites`, `files`, `exercises`, `exerciseCategories`, `plans`, `planSessions`, `planBlocks`, `planItems`, `workoutLogs`, `workoutExerciseLogs`, `workoutSetLogs`, `bodyPhotos`. Enumy (`userRole`, `exerciseUnit`, `fileKind`, `planStatus`, `blockKind`, `bodyPhotoView`), CHECK-i (rola, status, kind, trudność 1–10), indeksy oraz typy wynikowe (`User`, `Plan`, `WorkoutLog`, … + warianty `New*`). `trainerId` na tabelach domenowych = izolacja tenantów. |
+| `schema.ts` | **Źródło prawdy schematu.** Tabele: `users`, `sessions`, `invites`, `files`, `exercises`, `exerciseCategories`, `plans`, `planSessions`, `planBlocks`, `planItems`, `workoutLogs`, `workoutExerciseLogs`, `workoutSetLogs`, `bodyPhotos`. Enumy (`userRole`, `exerciseUnit`, `fileKind`, `planStatus`, `blockKind`, `bodyPhotoView`), CHECK-i (rola, status, kind, trudność 1–10 lub NULL), indeksy oraz typy wynikowe (`User`, `Plan`, `WorkoutLog`, … + warianty `New*`). `trainerId` na tabelach domenowych = izolacja tenantów. `exercises.tracks_rpe` (boolean, domyślnie `true`) steruje zbieraniem oceny RPE per seria; `workoutSetLogs.difficulty` jest nullowalne (brak oceny gdy `tracks_rpe = false`). |
 
 ## Podkatalogi
 

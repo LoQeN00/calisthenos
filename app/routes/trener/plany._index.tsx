@@ -1,30 +1,22 @@
-import { and, count, eq, ne, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, ne, or, sql } from "drizzle-orm";
 import {
+  type ActionFunctionArgs,
   Form,
   Link,
+  type LoaderFunctionArgs,
   useActionData,
   useLoaderData,
-  useSearchParams,
-  type ActionFunctionArgs,
-  type LoaderFunctionArgs,
 } from "react-router";
 import { ConfirmSubmitButton } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
+import { ListControls } from "~/components/list-controls";
 import { Pagination, parsePage } from "~/components/pagination";
 import { requireUser } from "~/lib/auth";
-import { pluralizePl, type PlForms } from "~/lib/format";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
-import { fmtDate } from "~/lib/format";
-import { deletePlan, PlanRepoError } from "~/lib/plans";
-
-const STATUS_TABS = ["all", "active", "draft"] as const;
-type StatusTab = (typeof STATUS_TABS)[number];
-
-function parseStatus(raw: string | null): StatusTab {
-  if (raw == null) return "all";
-  return (STATUS_TABS as readonly string[]).includes(raw) ? (raw as StatusTab) : "all";
-}
+import { type PlForms, fmtDate, pluralizePl } from "~/lib/format";
+import { type ListControlsSpec, parseListControls } from "~/lib/list-params";
+import { PlanRepoError, deletePlan } from "~/lib/plans";
 
 const PAGE_SIZE = 20;
 const PLAN: PlForms = { one: "plan", few: "plany", many: "planów" };
@@ -32,34 +24,17 @@ const PLAN: PlForms = { one: "plan", few: "plany", many: "planów" };
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainer" });
   const url = new URL(args.request.url);
-  const status = parseStatus(url.searchParams.get("status"));
   const page = parsePage(url.searchParams);
 
-  const sessionCountSub = db.$with("session_counts").as(
-    db
-      .select({ planId: schema.planSessions.planId, c: count().as("c") })
-      .from(schema.planSessions)
-      .groupBy(schema.planSessions.planId),
-  );
-
-  // Archived plans are hidden from the trainer UI — they're created automatically
-  // on publish to preserve history but offer no actionable value here.
-  const conditions = [eq(schema.plans.trainerId, user.id), ne(schema.plans.status, "archived")];
-  if (status !== "all") {
-    conditions.push(eq(schema.plans.status, status));
-  }
-
-  // Tab badge counts (active + draft only).
+  // Tab badge counts (active + draft only) — computed before applying search query.
   const statusCounts = await db
     .select({ status: schema.plans.status, c: count() })
     .from(schema.plans)
     .where(and(eq(schema.plans.trainerId, user.id), ne(schema.plans.status, "archived")))
     .groupBy(schema.plans.status);
-  const counts = {
-    all: 0,
-    active: 0,
-    draft: 0,
-  } as Record<StatusTab, number>;
+
+  type StatusKey = "all" | "active" | "draft";
+  const counts = { all: 0, active: 0, draft: 0 } as Record<StatusKey, number>;
   for (const r of statusCounts) {
     if (r.status === "active" || r.status === "draft") {
       counts[r.status] = Number(r.c);
@@ -67,10 +42,74 @@ export async function loader(args: LoaderFunctionArgs) {
     }
   }
 
-  const total = counts[status];
+  const spec: ListControlsSpec = {
+    sortOptions: [
+      { key: "newest", label: "Najnowsze" },
+      { key: "oldest", label: "Najstarsze" },
+      { key: "name_asc", label: "Nazwa A–Z" },
+      { key: "published", label: "Ostatnio opublikowane" },
+    ],
+    defaultSort: "newest",
+    filterGroups: [
+      {
+        param: "status",
+        label: "Status",
+        options: [
+          { value: "all", label: `Wszystkie (${counts.all})` },
+          { value: "active", label: `Aktywne (${counts.active})` },
+          { value: "draft", label: `Drafty (${counts.draft})` },
+        ],
+        defaultValue: "all",
+      },
+    ],
+    searchable: true,
+  };
+
+  const controls = parseListControls(url.searchParams, spec);
+  const status = controls.filters.status ?? "all";
+
+  // Archived plans are hidden from the trainer UI — they're created automatically
+  // on publish to preserve history but offer no actionable value here.
+  const conditions = [eq(schema.plans.trainerId, user.id), ne(schema.plans.status, "archived")];
+  if (status !== "all") {
+    conditions.push(eq(schema.plans.status, status as "active" | "draft"));
+  }
+  if (controls.q.length > 0) {
+    conditions.push(
+      or(
+        ilike(schema.plans.name, `%${controls.q}%`),
+        ilike(schema.users.displayName, `%${controls.q}%`),
+      )!,
+    );
+  }
+
+  const orderBy =
+    controls.sort === "oldest"
+      ? [asc(schema.plans.createdAt)]
+      : controls.sort === "name_asc"
+        ? [asc(schema.plans.name)]
+        : controls.sort === "published"
+          ? [sql`${schema.plans.publishedAt} DESC NULLS LAST`]
+          : [desc(schema.plans.createdAt)];
+
+  // Total must reflect the search/status filter (not just the status count).
+  const [totalRow] = await db
+    .select({ c: count() })
+    .from(schema.plans)
+    .innerJoin(schema.users, eq(schema.users.id, schema.plans.traineeId))
+    .where(and(...conditions));
+  const total = Number(totalRow?.c ?? 0);
+
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const offset = (safePage - 1) * PAGE_SIZE;
+
+  const sessionCountSub = db.$with("session_counts").as(
+    db
+      .select({ planId: schema.planSessions.planId, c: count().as("c") })
+      .from(schema.planSessions)
+      .groupBy(schema.planSessions.planId),
+  );
 
   const rows = await db
     .with(sessionCountSub)
@@ -83,7 +122,7 @@ export async function loader(args: LoaderFunctionArgs) {
     .innerJoin(schema.users, eq(schema.users.id, schema.plans.traineeId))
     .leftJoin(sessionCountSub, eq(sessionCountSub.planId, schema.plans.id))
     .where(and(...conditions))
-    .orderBy(sql`${schema.plans.createdAt} DESC`)
+    .orderBy(...orderBy)
     .limit(PAGE_SIZE)
     .offset(offset);
 
@@ -98,7 +137,7 @@ export async function loader(args: LoaderFunctionArgs) {
     sessionCount: r.sessionCount,
   }));
 
-  return { items, status, counts, page: safePage, totalPages, total };
+  return { items, spec, controls, counts, page: safePage, totalPages, total };
 }
 
 export async function action(args: ActionFunctionArgs) {
@@ -123,15 +162,10 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function PlanyList() {
-  const { items, status, counts, page, totalPages, total } = useLoaderData<typeof loader>();
+  const { items, spec, controls, counts, page, totalPages, total } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
-  const [searchParams] = useSearchParams();
 
-  const TAB_LABELS: Record<StatusTab, string> = {
-    all: "Wszystkie",
-    active: "Aktywne",
-    draft: "Drafty",
-  };
+  const status = controls.filters.status ?? "all";
 
   return (
     <div>
@@ -184,52 +218,14 @@ export default function PlanyList() {
         </p>
       )}
 
-      <div className="row wrap" style={{ gap: 6, marginBottom: 18 }}>
-        {STATUS_TABS.map((tab) => {
-          const isActive = tab === status;
-          const newParams = new URLSearchParams(searchParams);
-          if (tab === "all") newParams.delete("status");
-          else newParams.set("status", tab);
-          const qs = newParams.toString();
-          return (
-            <Link
-              key={tab}
-              to={qs.length > 0 ? `?${qs}` : ""}
-              className={isActive ? "btn btn-sm btn-dark" : "btn btn-sm"}
-            >
-              {TAB_LABELS[tab]}
-              <span
-                className="mono"
-                style={{
-                  marginLeft: 8,
-                  fontSize: 10,
-                  opacity: 0.7,
-                }}
-              >
-                {counts[tab]}
-              </span>
-            </Link>
-          );
-        })}
-      </div>
+      <ListControls
+        spec={spec}
+        state={controls}
+        searchPlaceholder="Szukaj planu lub podopiecznego…"
+      />
 
       {items.length === 0 ? (
-        <div className="empty">
-          <h3>
-            {status === "all"
-              ? "Brak planów"
-              : status === "active"
-                ? "Brak aktywnych planów"
-                : "Brak draftów"}
-          </h3>
-          <div>
-            {status === "draft"
-              ? "Wszystko opublikowane."
-              : status === "all"
-                ? "Kliknij „Nowy plan”, aby zacząć."
-                : "Zmień zakładkę, by zobaczyć inne plany."}
-          </div>
-        </div>
+        <EmptyState status={status} hasQuery={controls.q.length > 0} />
       ) : (
         <div className="list">
           <div
@@ -316,6 +312,31 @@ export default function PlanyList() {
         total={total}
         totalLabel={pluralizePl(total, PLAN)}
       />
+    </div>
+  );
+}
+
+function EmptyState({ status, hasQuery }: { status: string; hasQuery: boolean }) {
+  const title =
+    status === "active"
+      ? "Brak aktywnych planów"
+      : status === "draft"
+        ? "Brak draftów"
+        : "Brak planów";
+  let hint: string;
+  if (hasQuery) {
+    hint = "Spróbuj innego zapytania.";
+  } else if (status === "draft") {
+    hint = "Wszystko opublikowane.";
+  } else if (status === "all") {
+    hint = "Kliknij Nowy plan, aby zacząć.";
+  } else {
+    hint = "Zmień filtr, by zobaczyć inne plany.";
+  }
+  return (
+    <div className="empty">
+      <h3>{title}</h3>
+      <div>{hint}</div>
     </div>
   );
 }

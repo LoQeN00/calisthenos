@@ -6,7 +6,7 @@ schemat i uruchom `npm run db:generate`, a potem `npm run db:migrate`.
 
 | Element | Rola |
 |---|---|
-| `0000_*.sql … 0005_*.sql` | Kolejne migracje (np. `0000` zakłada schemat + `CREATE EXTENSION citext`, `0005` dodaje kategorie ćwiczeń). Aplikowane w kolejności. |
+| `0000_*.sql … 0007_*.sql` | Kolejne migracje (np. `0000` zakłada schemat + `CREATE EXTENSION citext`, `0005` dodaje kategorie ćwiczeń, `0007` dodaje `exercises.tracks_rpe` i robi `difficulty` nullowalnym). Aplikowane w kolejności. |
 | `meta/_journal.json` + `meta/*_snapshot.json` | Stan wewnętrzny Drizzle Kit (dziennik + snapshoty schematu). Generowane — nie ruszać. |
 
 Pierwsza migracja wymaga uprawnień do `CREATE EXTENSION citext` (na Railway rola

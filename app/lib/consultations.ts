@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, sql } from "drizzle-orm";
 import type { Db } from "~/lib/db/client";
 import type { ConsultationForm } from "~/lib/consultation-types";
 import * as schema from "~/lib/db/schema";
@@ -12,6 +12,16 @@ export class ConsultationError extends Error {
   }
 }
 
+export type ConsultationSort = "date_desc" | "date_asc" | "most_open";
+
+export interface ConsultationListOpts {
+  limit?: number;
+  offset?: number;
+  sort?: ConsultationSort;
+  q?: string;
+  open?: "all" | "with_open";
+}
+
 export interface ConsultationListItem {
   id: string;
   heldOn: string;
@@ -22,13 +32,27 @@ export interface ConsultationListItem {
   openItemCount: number;
 }
 
-/** Lista konsultacji podopiecznego, najnowsze wg daty spotkania. Tenant-scope: traineeId. */
+/** Lista konsultacji podopiecznego. Tenant-scope: traineeId. */
 export async function listConsultationsForTrainee(
   db: Db,
   traineeId: string,
-  opts: { limit?: number; offset?: number } = {},
+  opts: ConsultationListOpts = {},
 ): Promise<ConsultationListItem[]> {
-  const rows = await db
+  const openExpr = sql<number>`count(*) filter (where ${schema.consultationActionItems.status} = 'open')`;
+
+  const where = [eq(schema.consultations.traineeId, traineeId)];
+  if (opts.q && opts.q.length > 0) {
+    where.push(ilike(schema.consultations.title, `%${opts.q}%`));
+  }
+
+  const orderBy =
+    opts.sort === "date_asc"
+      ? [asc(schema.consultations.heldOn), asc(schema.consultations.createdAt)]
+      : opts.sort === "most_open"
+        ? [sql`${openExpr} DESC`, desc(schema.consultations.heldOn)]
+        : [desc(schema.consultations.heldOn), desc(schema.consultations.createdAt)];
+
+  let query = db
     .select({
       id: schema.consultations.id,
       heldOn: schema.consultations.heldOn,
@@ -37,16 +61,25 @@ export async function listConsultationsForTrainee(
       title: schema.consultations.title,
       createdAt: schema.consultations.createdAt,
       total: count(schema.consultationActionItems.id),
-      open: sql<number>`count(*) filter (where ${schema.consultationActionItems.status} = 'open')`,
+      open: openExpr,
     })
     .from(schema.consultations)
     .leftJoin(
       schema.consultationActionItems,
       eq(schema.consultationActionItems.consultationId, schema.consultations.id),
     )
-    .where(eq(schema.consultations.traineeId, traineeId))
+    .where(and(...where))
     .groupBy(schema.consultations.id)
-    .orderBy(desc(schema.consultations.heldOn), desc(schema.consultations.createdAt))
+    .$dynamic();
+
+  if (opts.open === "with_open") {
+    query = query.having(
+      sql`count(*) filter (where ${schema.consultationActionItems.status} = 'open') > 0`,
+    );
+  }
+
+  const rows = await query
+    .orderBy(...orderBy)
     .limit(opts.limit ?? 100)
     .offset(opts.offset ?? 0);
 

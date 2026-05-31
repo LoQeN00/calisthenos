@@ -37,7 +37,8 @@ export async function loader(args: LoaderFunctionArgs) {
   };
 }
 
-function tone(diff: number): string {
+function tone(diff: number | null): string {
+  if (diff === null) return "var(--muted)";
   if (diff <= 4) return "var(--ok)";
   if (diff <= 7) return "var(--warn)";
   return "var(--danger)";
@@ -54,10 +55,12 @@ export default function TrenerWorkoutLogDetail() {
   const { log, trainee, exercises, totalExpectedSets } = useLoaderData<typeof loader>();
   const totalSets = exercises.reduce((a, e) => a + e.sets.length, 0);
   const skippedSets = Math.max(0, totalExpectedSets - totalSets);
-  const allDiff = exercises.flatMap((e) => e.sets.map((s) => s.log.difficulty));
+  const allDiff = exercises
+    .flatMap((e) => e.sets.map((s) => s.log.difficulty))
+    .filter((d): d is number => d !== null);
   const avgDiff =
     allDiff.length === 0
-      ? 0
+      ? null
       : Math.round((allDiff.reduce((a, b) => a + b, 0) / allDiff.length) * 10) / 10;
 
   return (
@@ -117,13 +120,17 @@ export default function TrenerWorkoutLogDetail() {
                 · {skippedSets} pominięt{skippedSets === 1 ? "a" : "ych"}
               </span>
             )}
-            <span>·</span>
-            <span>
-              śr. trudność{" "}
-              <span className="mono" style={{ color: "var(--ink)", fontWeight: 600 }}>
-                {avgDiff}/10
-              </span>
-            </span>
+            {avgDiff != null && (
+              <>
+                <span>·</span>
+                <span>
+                  śr. trudność{" "}
+                  <span className="mono" style={{ color: "var(--ink)", fontWeight: 600 }}>
+                    {avgDiff}/10
+                  </span>
+                </span>
+              </>
+            )}
           </div>
         </div>
         <div className="row" style={{ gap: 10, alignItems: "center" }}>
@@ -172,8 +179,15 @@ export default function TrenerWorkoutLogDetail() {
           const setCount = ex.sets.length;
           const totalReps = ex.sets.reduce((a, s) => a + s.log.reps, 0);
           const avgReps = setCount === 0 ? 0 : totalReps / setCount;
+          const diffSets = ex.sets.filter((s) => s.log.difficulty !== null);
           const exAvgDiff =
-            setCount === 0 ? 0 : ex.sets.reduce((a, s) => a + s.log.difficulty, 0) / setCount;
+            diffSets.length === 0
+              ? null
+              : diffSets.reduce((a, s) => a + (s.log.difficulty as number), 0) / diffSets.length;
+          // Czy ten wpis ćwiczenia ma jakąkolwiek ocenę RPE (data-driven, nie wg
+          // bieżącej flagi ćwiczenia) — dzięki temu historyczne logi z RPE nadal
+          // pokazują trudność, a ćwiczenia bez RPE chowają kolumny Trudn./Wizualnie.
+          const hasRpe = exAvgDiff != null;
           const skippedHere = Math.max(0, ex.expectedSets - setCount);
 
           // Render a row per planned ordinal, looking up the logged set with
@@ -239,28 +253,30 @@ export default function TrenerWorkoutLogDetail() {
                       {avgReps.toFixed(1)} {ex.exercise.unit === "SEC" ? "s" : "rep"}
                     </div>
                   </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div
-                      className="mono muted"
-                      style={{
-                        fontSize: 10,
-                        textTransform: "uppercase",
-                        letterSpacing: ".08em",
-                      }}
-                    >
-                      Trudność
+                  {hasRpe && (
+                    <div style={{ textAlign: "right" }}>
+                      <div
+                        className="mono muted"
+                        style={{
+                          fontSize: 10,
+                          textTransform: "uppercase",
+                          letterSpacing: ".08em",
+                        }}
+                      >
+                        Trudność
+                      </div>
+                      <div
+                        className="mono"
+                        style={{
+                          fontSize: 14,
+                          fontWeight: 600,
+                          color: tone(exAvgDiff),
+                        }}
+                      >
+                        {exAvgDiff == null ? "—" : `${exAvgDiff.toFixed(1)}/10`}
+                      </div>
                     </div>
-                    <div
-                      className="mono"
-                      style={{
-                        fontSize: 14,
-                        fontWeight: 600,
-                        color: tone(exAvgDiff),
-                      }}
-                    >
-                      {exAvgDiff.toFixed(1)}/10
-                    </div>
-                  </div>
+                  )}
                 </div>
               </div>
 
@@ -276,7 +292,7 @@ export default function TrenerWorkoutLogDetail() {
                   <div
                     className="set-grid"
                     style={{
-                      gridTemplateColumns: "44px 78px 70px 1fr 60px",
+                      gridTemplateColumns: hasRpe ? "44px 78px 70px 1fr 60px" : "44px 1fr 60px",
                       marginBottom: 4,
                     }}
                   >
@@ -284,8 +300,8 @@ export default function TrenerWorkoutLogDetail() {
                     <span className="label-mini">
                       {ex.exercise.unit === "REPS" ? "Powt." : "Sek."}
                     </span>
-                    <span className="label-mini">Trudn.</span>
-                    <span className="label-mini">Wizualnie</span>
+                    {hasRpe && <span className="label-mini">Trudn.</span>}
+                    {hasRpe && <span className="label-mini">Wizualnie</span>}
                     <span className="label-mini">Video</span>
                   </div>
                   {rows.map(({ ordinal, logged }, rowIdx) =>
@@ -337,7 +353,7 @@ export default function TrenerWorkoutLogDetail() {
                         key={logged.log.id}
                         className="set-grid"
                         style={{
-                          gridTemplateColumns: "44px 78px 70px 1fr 60px",
+                          gridTemplateColumns: hasRpe ? "44px 78px 70px 1fr 60px" : "44px 1fr 60px",
                           padding: "8px 0",
                           borderTop: rowIdx > 0 ? "1px dashed var(--line)" : "none",
                           alignItems: "center",
@@ -352,31 +368,35 @@ export default function TrenerWorkoutLogDetail() {
                             {ex.exercise.unit === "SEC" ? "sek" : "rep"}
                           </span>
                         </span>
-                        <span
-                          className="mono"
-                          style={{
-                            color: tone(logged.log.difficulty),
-                            fontWeight: 600,
-                          }}
-                        >
-                          {logged.log.difficulty}/10
-                        </span>
-                        <div style={{ display: "flex", gap: 2 }}>
-                          {Array.from({ length: 10 }, (_, n) => `cell-${n}`).map((cellKey, n) => (
-                            <div
-                              key={cellKey}
-                              style={{
-                                flex: 1,
-                                height: 6,
-                                borderRadius: 2,
-                                background:
-                                  n < logged.log.difficulty
-                                    ? tone(logged.log.difficulty)
-                                    : "var(--surface-2)",
-                              }}
-                            />
-                          ))}
-                        </div>
+                        {hasRpe && (
+                          <span
+                            className="mono"
+                            style={{
+                              color: tone(logged.log.difficulty),
+                              fontWeight: 600,
+                            }}
+                          >
+                            {logged.log.difficulty !== null ? `${logged.log.difficulty}/10` : "—"}
+                          </span>
+                        )}
+                        {hasRpe && (
+                          <div style={{ display: "flex", gap: 2 }}>
+                            {Array.from({ length: 10 }, (_, n) => `cell-${n}`).map((cellKey, n) => (
+                              <div
+                                key={cellKey}
+                                style={{
+                                  flex: 1,
+                                  height: 6,
+                                  borderRadius: 2,
+                                  background:
+                                    logged.log.difficulty !== null && n < logged.log.difficulty
+                                      ? tone(logged.log.difficulty)
+                                      : "var(--surface-2)",
+                                }}
+                              />
+                            ))}
+                          </div>
+                        )}
                         <span>
                           {logged.videoUrl ? (
                             <VideoButton

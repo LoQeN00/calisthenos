@@ -152,7 +152,7 @@ export interface HeaviestDay {
   sessionName: string;
   setCount: number;
   totalReps: number;
-  avgRpe: number;
+  avgRpe: number | null;
 }
 
 export interface TopExercise {
@@ -171,8 +171,8 @@ export interface VsPrevious {
   repsThis: number;
   repsPrev: number;
   repsDeltaPct: number | null;
-  avgRpeThis: number;
-  avgRpePrev: number;
+  avgRpeThis: number | null;
+  avgRpePrev: number | null;
   rpeDelta: number | null;
 }
 
@@ -203,8 +203,9 @@ interface MonthCore {
   totalReps: number;
   totalSeconds: number;
   totalSets: number;
-  avgRpe: number;
+  avgRpe: number | null;
   redZoneSets: number;
+  ratedSets: number;
 }
 
 async function loadMonthCore(
@@ -221,8 +222,9 @@ async function loadMonthCore(
       sets: sql<number>`COUNT(${schema.workoutSetLogs.id})::int`,
       reps: sql<number>`COALESCE(SUM(CASE WHEN ${schema.exercises.unit} = 'REPS' THEN ${schema.workoutSetLogs.reps} ELSE 0 END), 0)::bigint`,
       secs: sql<number>`COALESCE(SUM(CASE WHEN ${schema.exercises.unit} = 'SEC' THEN ${schema.workoutSetLogs.reps} ELSE 0 END), 0)::bigint`,
-      avgRpe: sql<number>`COALESCE(AVG(${schema.workoutSetLogs.difficulty}), 0)::float`,
+      avgRpe: sql<number | null>`AVG(${schema.workoutSetLogs.difficulty})::float`,
       red: sql<number>`COALESCE(SUM(CASE WHEN ${schema.workoutSetLogs.difficulty} >= 9 THEN 1 ELSE 0 END), 0)::int`,
+      ratedSets: sql<number>`COUNT(${schema.workoutSetLogs.difficulty})::int`,
     })
     .from(schema.workoutLogs)
     .leftJoin(
@@ -247,8 +249,9 @@ async function loadMonthCore(
     totalSets: Number(row?.sets ?? 0),
     totalReps: Number(row?.reps ?? 0),
     totalSeconds: Number(row?.secs ?? 0),
-    avgRpe: Math.round(Number(row?.avgRpe ?? 0) * 10) / 10,
+    avgRpe: row?.avgRpe == null ? null : Math.round(Number(row.avgRpe) * 10) / 10,
     redZoneSets: Number(row?.red ?? 0),
+    ratedSets: Number(row?.ratedSets ?? 0),
   };
 }
 
@@ -413,7 +416,7 @@ async function loadHeaviestDay(
       sessionName: schema.workoutLogs.sessionName,
       setCount: sql<number>`COUNT(${schema.workoutSetLogs.id})::int`,
       totalReps: sql<number>`COALESCE(SUM(${schema.workoutSetLogs.reps}), 0)::bigint`,
-      avgRpe: sql<number>`COALESCE(AVG(${schema.workoutSetLogs.difficulty}), 0)::float`,
+      avgRpe: sql<number | null>`AVG(${schema.workoutSetLogs.difficulty})::float`,
     })
     .from(schema.workoutLogs)
     .leftJoin(
@@ -442,7 +445,7 @@ async function loadHeaviestDay(
     sessionName: r.sessionName,
     setCount: Number(r.setCount),
     totalReps: Number(r.totalReps),
-    avgRpe: Math.round(Number(r.avgRpe) * 10) / 10,
+    avgRpe: r.avgRpe == null ? null : Math.round(Number(r.avgRpe) * 10) / 10,
   };
 }
 
@@ -517,7 +520,7 @@ function pickArchetype(i: ArchetypeInputs): Archetype {
     };
   }
   // 4) >40% serii z RPE ≥ 9 → Maksymalista
-  if (i.core.totalSets > 0 && i.core.redZoneSets / i.core.totalSets > 0.4) {
+  if (i.core.ratedSets > 0 && i.core.redZoneSets / i.core.ratedSets > 0.4) {
     return {
       key: "maximalist",
       label: "Maksymalista",
@@ -624,7 +627,9 @@ export async function getMonthlyWrapped(
       ? null
       : Math.round(((core.totalReps - prevCore.totalReps) / prevCore.totalReps) * 100);
   const rpeDelta =
-    prevCore.avgRpe === 0 ? null : Math.round((core.avgRpe - prevCore.avgRpe) * 10) / 10;
+    core.avgRpe == null || prevCore.avgRpe == null
+      ? null
+      : Math.round((core.avgRpe - prevCore.avgRpe) * 10) / 10;
   const vsPrevious: VsPrevious = {
     hasPrevious: prevCore.sessions > 0,
     sessionsThis: core.sessions,

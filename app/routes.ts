@@ -27,6 +27,18 @@ export default [
         "routes/trener/podopieczni.$traineeId.statystyki.tsx",
       ),
       route(
+        "podopieczni/:traineeId/progresja",
+        "routes/trener/podopieczni.$traineeId.progresja._index.tsx",
+      ),
+      route(
+        "podopieczni/:traineeId/progresja/:exerciseId",
+        "routes/trener/podopieczni.$traineeId.progresja.$exerciseId.tsx",
+      ),
+      route(
+        "podopieczni/:traineeId/progresja/porownanie",
+        "routes/trener/podopieczni.$traineeId.progresja.porownanie.tsx",
+      ),
+      route(
         "podopieczni/:traineeId/konsultacje",
         "routes/trener/podopieczni.$traineeId.konsultacje._index.tsx",
       ),
@@ -49,6 +61,9 @@ export default [
       route("historia", "routes/podopieczny/historia._index.tsx"),
       route("historia/:logId", "routes/podopieczny/historia.$logId.tsx"),
       route("statystyki", "routes/podopieczny/statystyki.tsx"),
+      route("progresja", "routes/podopieczny/progresja._index.tsx"),
+      route("progresja/:exerciseId", "routes/podopieczny/progresja.$exerciseId.tsx"),
+      route("progresja/porownanie", "routes/podopieczny/progresja.porownanie.tsx"),
       route("sylwetka", "routes/podopieczny/sylwetka.tsx"),
       route("konsultacje", "routes/podopieczny/konsultacje._index.tsx"),
       route("konsultacje/:konsultacjaId", "routes/podopieczny/konsultacje.$konsultacjaId.tsx"),

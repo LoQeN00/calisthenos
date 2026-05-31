@@ -19,7 +19,9 @@ domenowej — czysta prezentacja + drobne interakcje (modale, providery kontekst
 | `body-photo-compare.tsx` | `SideBySideSection({ pairs, onOpenPhoto })`, `ResolvedPair` | Porównanie "przed/po" zdjęć sylwetki wg widoku (front/side/back). |
 | `video-modal.tsx` | `VideoButton({ src, title, label?, size? })`, `VideoModal({ src, title, onClose })` | Przycisk + modal odtwarzania wideo. |
 | `stat-widgets.tsx` | `Heatmap`, `Sparkline`, `SegmentedBar`, `SegmentedBarLegend`, `BarSegment` | Wykresy do dashboardów statystyk (heatmapa GitHub-style, sparkline, pasek segmentowy). |
+| `progression-charts.tsx` | `ProgressionLineChart`, `VolumeBars`, `RepsVsEffortChart`, `ComparisonChart` (+ `ComparisonChartLegend`), `ProgressionStatusBadge` | Wykresy SVG feature'u „Progresja": liniowy rekord-w-czasie (kropki kolorowane wg RPE, PR), słupki objętości, powtórzenia vs wysiłek, porównanie wielu ćwiczeń na osi czasu (%), pigułka trendu. Czysta prezentacja — bez fetchowania. |
 | `consultation-form.tsx` | `ConsultationForm({ defaultValue?, defaultHeldOn? })`, `ConsultationFormDefaultValue`, `ConsultationFormItem` | Formularz konsultacji (data, tytuł, podsumowanie, dynamiczna lista punktów "do poprawy"). Nie renderuje `<Form>` — owija go trasa-rodzic. |
+| `list-controls.tsx` | `ListControls({ spec, state, searchPlaceholder? })` | Współdzielony pasek kontrolek listy: szukajka (opcjonalna) + dropdown sortu + chipy filtrów. URL-driven (server-side); debounce 300 ms na zmianę; działa bez JS (`<noscript>`). Przyjmuje `ListControlsSpec` + `ListControlsState` z `~/lib/list-params`. |
 
 Konwencje wizualne (kolory, typografia, ikonografia): [`../../design-system/README.md`](../../design-system/README.md).
 

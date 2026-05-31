@@ -118,6 +118,10 @@ w `.gitignore`), `design-system/_src/` (rozpakowany prototyp, read-only).
 - **Review per task.** Po każdym kroku implementacji robimy przegląd
   (`/code-review` / `superpowers:requesting-code-review`) przed kolejnym — nie
   jeden przegląd na końcu.
+- **Sortowanie/filtrowanie list jest server-side przez URL params.** Używaj
+  `app/lib/list-params.ts` (`parseListControls`, `buildControlHref`) i komponentu
+  `app/components/list-controls.tsx` (`<ListControls>`). Przy dodawaniu nowej listy
+  z sort/filter/szukajką — reużyj tych dwóch modułów, nie twórz własnych mechanizmów.
 - **Git i Docker prowadzi właściciel.** Nie uruchamiaj operacji git ani
   `docker compose up/down/build`; konfigurację możesz edytować.
 

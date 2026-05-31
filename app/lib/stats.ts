@@ -351,7 +351,7 @@ export async function getHealthStats(db: Db, traineeId: string): Promise<HealthS
   if (recentLogIds.length > 0) {
     const [r] = await db
       .select({
-        avg: sql<number>`COALESCE(AVG(${schema.workoutSetLogs.difficulty}), 0)::float`,
+        avg: sql<number | null>`AVG(${schema.workoutSetLogs.difficulty})::float`,
       })
       .from(schema.workoutSetLogs)
       .innerJoin(
@@ -359,12 +359,12 @@ export async function getHealthStats(db: Db, traineeId: string): Promise<HealthS
         eq(schema.workoutExerciseLogs.id, schema.workoutSetLogs.workoutExerciseLogId),
       )
       .where(inArray(schema.workoutExerciseLogs.workoutLogId, recentLogIds));
-    recentAvgRpe = round1(Number(r?.avg ?? 0));
+    recentAvgRpe = r?.avg == null ? 0 : round1(Number(r.avg));
   }
 
   const [histRpeRow] = await db
     .select({
-      avg: sql<number>`COALESCE(AVG(${schema.workoutSetLogs.difficulty}), 0)::float`,
+      avg: sql<number | null>`AVG(${schema.workoutSetLogs.difficulty})::float`,
     })
     .from(schema.workoutSetLogs)
     .innerJoin(
@@ -376,15 +376,25 @@ export async function getHealthStats(db: Db, traineeId: string): Promise<HealthS
       eq(schema.workoutLogs.id, schema.workoutExerciseLogs.workoutLogId),
     )
     .where(eq(schema.workoutLogs.traineeId, traineeId));
-  const historicalAvgRpe = round1(Number(histRpeRow?.avg ?? 0));
+  const historicalAvgRpe = histRpeRow?.avg == null ? 0 : round1(Number(histRpeRow.avg));
 
+  // 0 oznacza „brak ocenionych serii w oknie” (skala to 1–10), nie realne RPE.
+  // Trend liczymy tylko gdy OBA okna mają oceny — inaczej (np. ostatnie sesje bez
+  // RPE, a historia z RPE) delta sfabrykowałaby „spadek/wzrost”. Brak danych → flat.
   const delta = recentAvgRpe - historicalAvgRpe;
-  const rpeTrend: HealthStats["rpeTrend"] = delta > 0.3 ? "up" : delta < -0.3 ? "down" : "flat";
+  const rpeTrend: HealthStats["rpeTrend"] =
+    recentAvgRpe === 0 || historicalAvgRpe === 0
+      ? "flat"
+      : delta > 0.3
+        ? "up"
+        : delta < -0.3
+          ? "down"
+          : "flat";
 
   const [redRow] = await db
     .select({
       red: sql<number>`COALESCE(SUM(CASE WHEN ${schema.workoutSetLogs.difficulty} >= 9 THEN 1 ELSE 0 END), 0)::int`,
-      total: sql<number>`COUNT(*)::int`,
+      total: sql<number>`COUNT(${schema.workoutSetLogs.difficulty})::int`,
     })
     .from(schema.workoutSetLogs)
     .innerJoin(
@@ -506,7 +516,7 @@ interface PerExerciseRow {
   createdAt: Date;
   avgReps: number;
   maxReps: number;
-  avgRpe: number;
+  avgRpe: number | null;
   exerciseName: string;
   unit: "REPS" | "SEC";
 }
@@ -523,7 +533,7 @@ async function loadPerExerciseHistory(
       createdAt: schema.workoutLogs.createdAt,
       avgReps: sql<number>`AVG(${schema.workoutSetLogs.reps})::float`,
       maxReps: sql<number>`MAX(${schema.workoutSetLogs.reps})::int`,
-      avgRpe: sql<number>`AVG(${schema.workoutSetLogs.difficulty})::float`,
+      avgRpe: sql<number | null>`AVG(${schema.workoutSetLogs.difficulty})::float`,
       exerciseName: schema.exercises.name,
       unit: schema.exercises.unit,
     })
@@ -557,7 +567,7 @@ async function loadPerExerciseHistory(
       createdAt: r.createdAt,
       avgReps: Number(r.avgReps),
       maxReps: Number(r.maxReps),
-      avgRpe: Number(r.avgRpe),
+      avgRpe: r.avgRpe == null ? null : Number(r.avgRpe),
       exerciseName: r.exerciseName,
       unit: r.unit,
     });
@@ -594,8 +604,10 @@ export async function getExerciseProgress(db: Db, traineeId: string): Promise<Ex
     const prior = group.slice(4, 8);
     const recentAvg = avg(recent.map((r) => r.avgReps));
     const priorAvg = avg(prior.map((r) => r.avgReps));
-    const recentRpe = avg(recent.map((r) => r.avgRpe));
-    const priorRpe = avg(prior.map((r) => r.avgRpe));
+    const ratedRecent = recent.map((r) => r.avgRpe).filter((x): x is number => x != null);
+    const ratedPrior = prior.map((r) => r.avgRpe).filter((x): x is number => x != null);
+    const recentRpe = avg(ratedRecent);
+    const priorRpe = avg(ratedPrior);
 
     let status: ExerciseProgress["status"];
     let deltaPct: number | null;
@@ -667,8 +679,11 @@ export async function getPlateauExercises(db: Db, traineeId: string): Promise<Pl
     const repsStuck = newestReps <= oldestReps + 0.5; // tolerate noise
 
     // RPE: not decreasing (struggling at least as much as before).
-    const newestRpe = window[0]!.avgRpe;
-    const oldestRpe = window[window.length - 1]!.avgRpe;
+    const newestRpeRaw = window[0]!.avgRpe;
+    const oldestRpeRaw = window[window.length - 1]!.avgRpe;
+    if (newestRpeRaw == null || oldestRpeRaw == null) continue; // brak RPE → brak sygnału plateau
+    const newestRpe = newestRpeRaw;
+    const oldestRpe = oldestRpeRaw;
     const rpeNonFalling = newestRpe >= oldestRpe - 0.3;
 
     if (repsStuck && rpeNonFalling) {
@@ -700,7 +715,7 @@ export interface ExerciseSparkline {
   unit: "REPS" | "SEC";
   pr: number;
   prAchievedOn: string;
-  points: Array<{ performedOn: string; avgReps: number; avgRpe: number }>;
+  points: Array<{ performedOn: string; avgReps: number; avgRpe: number | null }>;
 }
 
 export async function getTopExerciseSparklines(
@@ -734,7 +749,7 @@ export async function getTopExerciseSparklines(
       points: chrono.map((r) => ({
         performedOn: r.performedOn,
         avgReps: round1(r.avgReps),
-        avgRpe: round1(r.avgRpe),
+        avgRpe: r.avgRpe == null ? null : round1(r.avgRpe),
       })),
     };
   });
@@ -765,18 +780,24 @@ export async function getEasierAtSameReps(db: Db, traineeId: string): Promise<Ea
   for (const group of byExercise.values()) {
     if (group.length < 2) continue;
     const recent = group[0]!;
+    if (recent.avgRpe == null) continue;
     const recentRoundedReps = Math.round(recent.avgReps);
     if (recentRoundedReps === 0) continue;
     const recentDateMs = new Date(recent.performedOn).getTime();
     const thirtyDays = 30 * 24 * 60 * 60 * 1000;
 
     let best: PerExerciseRow | null = null;
+    let bestRpe = 0;
     for (let i = 1; i < group.length; i++) {
       const prev = group[i]!;
+      if (prev.avgRpe == null) continue;
       if (Math.round(prev.avgReps) !== recentRoundedReps) continue;
       if (recentDateMs - new Date(prev.performedOn).getTime() < thirtyDays) continue;
       if (prev.avgRpe - recent.avgRpe < 1) continue;
-      if (best == null || prev.avgRpe > best.avgRpe) best = prev;
+      if (best == null || prev.avgRpe > bestRpe) {
+        best = prev;
+        bestRpe = prev.avgRpe;
+      }
     }
     if (best != null) {
       out.push({
@@ -785,7 +806,7 @@ export async function getEasierAtSameReps(db: Db, traineeId: string): Promise<Ea
         unit: recent.unit,
         reps: recentRoundedReps,
         recentRpe: round1(recent.avgRpe),
-        priorRpe: round1(best.avgRpe),
+        priorRpe: round1(bestRpe),
         recentDate: recent.performedOn,
         priorDate: best.performedOn,
       });
@@ -813,7 +834,7 @@ export async function getEffortBalance(db: Db, traineeId: string): Promise<Effor
   const sessions = await db
     .select({
       id: schema.workoutLogs.id,
-      avgRpe: sql<number>`AVG(${schema.workoutSetLogs.difficulty})::float`,
+      avgRpe: sql<number | null>`AVG(${schema.workoutSetLogs.difficulty})::float`,
     })
     .from(schema.workoutLogs)
     .innerJoin(
@@ -840,12 +861,13 @@ export async function getEffortBalance(db: Db, traineeId: string): Promise<Effor
   let mid = 0;
   let hard = 0;
   for (const s of sessions) {
+    if (s.avgRpe == null) continue; // sesja bez żadnej oceny RPE nie wchodzi do bilansu wysiłku
     const rpe = Number(s.avgRpe);
     if (rpe < 5) easy++;
     else if (rpe < 8) mid++;
     else hard++;
   }
-  const total = sessions.length;
+  const total = easy + mid + hard;
   let verdict: EffortBalance["verdict"];
   if (total === 0) verdict = "no-data";
   else if (hard / total > 0.5) verdict = "too-hard";

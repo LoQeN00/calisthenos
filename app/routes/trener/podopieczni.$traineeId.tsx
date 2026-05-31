@@ -10,16 +10,42 @@ import {
 } from "react-router";
 import { ConfirmSubmitButton } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
+import { ListControls } from "~/components/list-controls";
 import { Pagination, parsePage } from "~/components/pagination";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import { daysAgo, fmtDate, pluralizePl, type PlForms } from "~/lib/format";
-
-const SESJA: PlForms = { one: "sesja", few: "sesje", many: "sesji" };
+import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
 import { deletePlan, PlanRepoError } from "~/lib/plans";
 import { deleteTraineeFully, TraineeDeleteError } from "~/lib/trainees";
-import { countLogsForTrainee, listLogsForTrainee } from "~/lib/workouts";
+import { countLogsForTrainee, listLogsForTrainee, type LogSort } from "~/lib/workouts";
+
+const SESJA: PlForms = { one: "sesja", few: "sesje", many: "sesji" };
+
+const spec: ListControlsSpec = {
+  sortOptions: [
+    { key: "date_desc", label: "Najnowsze" },
+    { key: "date_asc", label: "Najstarsze" },
+    { key: "hardest", label: "Najtrudniejsze" },
+    { key: "easiest", label: "Najłatwiejsze" },
+    { key: "sets_desc", label: "Najwięcej serii" },
+  ],
+  defaultSort: "date_desc",
+  filterGroups: [
+    {
+      param: "video",
+      label: "Wideo",
+      options: [
+        { value: "all", label: "Wszystkie" },
+        { value: "with", label: "Z wideo" },
+        { value: "without", label: "Bez wideo" },
+      ],
+      defaultValue: "all",
+    },
+  ],
+  searchable: true,
+};
 
 const LOGS_PAGE_SIZE = 20;
 
@@ -28,6 +54,7 @@ export async function loader(args: LoaderFunctionArgs) {
   const traineeId = args.params.traineeId ?? "";
   const url = new URL(args.request.url);
   const logsPage = parsePage(url.searchParams);
+  const controls = parseListControls(url.searchParams, spec);
 
   const traineeRows = await db
     .select()
@@ -52,13 +79,17 @@ export async function loader(args: LoaderFunctionArgs) {
   const activePlan = plans.find((p) => p.status === "active") ?? null;
   const draftPlan = plans.find((p) => p.status === "draft") ?? null;
 
-  const totalLogs = await countLogsForTrainee(db, traineeId);
+  const video = (controls.filters.video ?? "all") as "all" | "with" | "without";
+  const totalLogs = await countLogsForTrainee(db, traineeId, { q: controls.q, video });
   const totalLogPages = Math.max(1, Math.ceil(totalLogs / LOGS_PAGE_SIZE));
   const safeLogsPage = Math.min(logsPage, totalLogPages);
   const logsOffset = (safeLogsPage - 1) * LOGS_PAGE_SIZE;
   const logs = await listLogsForTrainee(db, traineeId, {
     limit: LOGS_PAGE_SIZE,
     offset: logsOffset,
+    sort: controls.sort as LogSort,
+    q: controls.q,
+    video,
   });
 
   return {
@@ -69,6 +100,8 @@ export async function loader(args: LoaderFunctionArgs) {
     logsPage: safeLogsPage,
     totalLogPages,
     totalLogs,
+    spec,
+    controls,
   };
 }
 
@@ -124,7 +157,7 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function TrenerPodopiecznyDetail() {
-  const { trainee, activePlan, draftPlan, logs, logsPage, totalLogPages, totalLogs } =
+  const { trainee, activePlan, draftPlan, logs, logsPage, totalLogPages, totalLogs, spec, controls } =
     useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
 
@@ -155,6 +188,9 @@ export default function TrenerPodopiecznyDetail() {
         <div className="row" style={{ gap: 8 }}>
           <Link to={`/trener/podopieczni/${trainee.id}/statystyki`} className="btn">
             <Icons.Chart /> Statystyki
+          </Link>
+          <Link to={`/trener/podopieczni/${trainee.id}/progresja`} className="btn">
+            <Icons.Trend /> Progresja
           </Link>
           <Link to={`/trener/podopieczni/${trainee.id}/sylwetka`} className="btn">
             <Icons.Camera /> Sylwetka
@@ -292,6 +328,7 @@ export default function TrenerPodopiecznyDetail() {
       )}
 
       <h2 style={{ margin: "28px 0 12px", fontSize: 17 }}>Historia treningów</h2>
+      <ListControls spec={spec} state={controls} searchPlaceholder="Szukaj po nazwie sesji…" />
       {totalLogs === 0 ? (
         <div className="empty">
           <h3>Brak sesji</h3>
@@ -313,7 +350,7 @@ export default function TrenerPodopiecznyDetail() {
                   <div className="text-xs muted" style={{ marginTop: 2 }}>
                     <span className="mono">{log.exerciseCount}</span> ćwiczeń ·{" "}
                     <span className="mono">{log.setCount}</span> serii · śr.{" "}
-                    <span className="mono">{log.avgDifficulty}</span>/10
+                    {log.avgDifficulty == null ? "—" : <><span className="mono">{log.avgDifficulty}</span>/10</>}
                     {log.hasVideo && " · video"}
                     {log.note && (
                       <span style={{ fontStyle: "italic", color: "var(--ink-2)" }}>
@@ -412,7 +449,17 @@ function DeletePlanForm({ planId, planName }: { planId: string; planName: string
   );
 }
 
-function DifficultyBadge({ avg }: { avg: number }) {
+function DifficultyBadge({ avg }: { avg: number | null }) {
+  if (avg == null) {
+    return (
+      <span
+        className="badge"
+        style={{ color: "var(--muted)" }}
+      >
+        —
+      </span>
+    );
+  }
   if (avg === 0) return <span />;
   const tone = avg <= 4 ? "var(--ok)" : avg <= 7 ? "var(--warn)" : "var(--danger)";
   return (

@@ -12,5 +12,8 @@ sprawdzić bez bazy (tenant-scope, zapisy transakcyjne, kaskady, autoryzacja).
 | Plik | Zakres |
 |---|---|
 | `consultations.itest.ts` | Repo konsultacji (`app/lib/consultations.ts`): tworzenie z punktami, izolacja tenantów (obcy trener/podopieczny → brak dostępu), guard własności przy zmianie statusu punktu, podmiana punktów przy edycji, kaskadowe usuwanie, liczniki. |
+| `progression-tenant-scope.itest.ts` | Tenant-scope Progresji (`app/lib/progression.ts`): `findTraineeOfTrainer` (obcy trener → null, właściwy → podopieczny), `listProgressionExercises` (lista P_A bez logów innego podopiecznego), `getExerciseProgression` (dane tylko z logów P_A, cudze ćwiczenie → null), `getProgressionComparison` (serie + pominięte). |
+| `lists-sort-filter-tenant-scope.itest.ts` | Tenant-scope + poprawność sort/filtr/szukajki dla list: `listLogsForTrainee` (sort=hardest/easiest/sets_desc, video=with/without, q, izolacja traineeB), `countLogsForTrainee` (video+q), `listClientsForTrainer` (sort=most_sessions + paginacja, q, plan=with/without, izolacja trenerów), `listConsultationsForTrainee` (open=with_open, q, sort=most_open/date_asc, izolacja traineeB). |
+| `rpe-toggle.itest.ts` | Przełącznik RPE per ćwiczenie (`exercises.tracksRpe`): zapis `difficulty = NULL` dla ćwiczenia bez RPE, sesja mieszana liczy `avgDifficulty` tylko z ocenionych serii, `getExerciseProgression` zwraca `avgRpeInRange = null` gdy brak ocen, `getEffortBalance` pomija sesje bez RPE (nie rzuca i zwraca liczbę). |
 
 Konwencja i zasady aktualizacji dokumentacji: [`../CLAUDE.md`](../CLAUDE.md).

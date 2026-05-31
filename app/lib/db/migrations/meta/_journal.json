@@ -50,6 +50,13 @@
       "when": 1780229155312,
       "tag": "0006_awesome_prodigy",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1780249516494,
+      "tag": "0007_panoramic_jamie_braddock",
+      "breakpoints": true
     }
   ]
 }

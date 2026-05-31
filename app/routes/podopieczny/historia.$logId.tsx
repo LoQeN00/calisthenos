@@ -39,10 +39,12 @@ export default function TraineeLogDetail() {
   const { log, exercises, totalExpectedSets } = useLoaderData<typeof loader>();
   const totalSets = exercises.reduce((a, e) => a + e.sets.length, 0);
   const skippedSets = Math.max(0, totalExpectedSets - totalSets);
-  const allDiff = exercises.flatMap((e) => e.sets.map((s) => s.log.difficulty));
+  const allDiff = exercises
+    .flatMap((e) => e.sets.map((s) => s.log.difficulty))
+    .filter((d): d is number => d !== null);
   const avgDiff =
     allDiff.length === 0
-      ? 0
+      ? null
       : Math.round((allDiff.reduce((a, b) => a + b, 0) / allDiff.length) * 10) / 10;
 
   usePRToasts(exercises);
@@ -80,10 +82,14 @@ export default function TraineeLogDetail() {
                 </strong>
               </>
             )}
-            {" · śr. trudność "}
-            <strong style={{ color: "var(--ink)" }} className="mono">
-              {avgDiff}/10
-            </strong>
+            {avgDiff != null && (
+              <>
+                {" · śr. trudność "}
+                <strong style={{ color: "var(--ink)" }} className="mono">
+                  {avgDiff}/10
+                </strong>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -146,7 +152,7 @@ type ExWithSigned = {
   log: { id: string; ordinal: number };
   exercise: { id: string; name: string; unit: "REPS" | "SEC" };
   sets: Array<{
-    log: { id: string; ordinal: number; reps: number; difficulty: number };
+    log: { id: string; ordinal: number; reps: number; difficulty: number | null };
     videoUrl: string | null;
   }>;
   expectedSets: number;
@@ -156,6 +162,9 @@ type ExWithSigned = {
 function ExerciseLogCard({ exercise: ex, index }: { exercise: ExWithSigned; index: number }) {
   const totalReps = ex.sets.reduce((a, s) => a + s.log.reps, 0);
   const avgReps = ex.sets.length === 0 ? 0 : Math.round((totalReps / ex.sets.length) * 10) / 10;
+  // Czy ten wpis ma jakąkolwiek ocenę RPE (data-driven) — ćwiczenia bez RPE
+  // nie pokazują pigułki trudności przy seriach; historyczne z RPE nadal tak.
+  const hasRpe = ex.sets.some((s) => s.log.difficulty !== null);
   const skippedHere = Math.max(0, ex.expectedSets - ex.sets.length);
 
   const setsByOrdinal = new Map(ex.sets.map((s) => [s.log.ordinal, s]));
@@ -214,6 +223,7 @@ function ExerciseLogCard({ exercise: ex, index }: { exercise: ExWithSigned; inde
               ordinal={ordinal}
               reps={logged.log.reps}
               difficulty={logged.log.difficulty}
+              hasRpe={hasRpe}
               unit={ex.exercise.unit}
               videoUrl={logged.videoUrl}
             />
@@ -280,22 +290,31 @@ function SetRowDisplay({
   ordinal,
   reps,
   difficulty,
+  hasRpe,
   unit,
   videoUrl,
 }: {
   ordinal: number;
   reps: number;
-  difficulty: number;
+  difficulty: number | null;
+  hasRpe: boolean;
   unit: "REPS" | "SEC";
   videoUrl: string | null;
 }) {
-  const tone = difficulty <= 4 ? "var(--ok)" : difficulty <= 7 ? "var(--warn)" : "var(--danger)";
+  const tone =
+    difficulty === null
+      ? "var(--muted)"
+      : difficulty <= 4
+        ? "var(--ok)"
+        : difficulty <= 7
+          ? "var(--warn)"
+          : "var(--danger)";
 
   return (
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "32px 1fr auto auto",
+        gridTemplateColumns: hasRpe ? "32px 1fr auto auto" : "32px 1fr auto",
         gap: 10,
         alignItems: "center",
         padding: "8px 10px",
@@ -319,19 +338,21 @@ function SetRowDisplay({
           {unit === "SEC" ? "s" : "rep"}
         </span>
       </span>
-      <span
-        className="mono"
-        style={{
-          fontSize: 12,
-          color: tone,
-          fontWeight: 600,
-          background: "var(--surface-2)",
-          padding: "2px 8px",
-          borderRadius: 999,
-        }}
-      >
-        {difficulty}/10
-      </span>
+      {hasRpe && (
+        <span
+          className="mono"
+          style={{
+            fontSize: 12,
+            color: tone,
+            fontWeight: 600,
+            background: "var(--surface-2)",
+            padding: "2px 8px",
+            borderRadius: 999,
+          }}
+        >
+          {difficulty !== null ? `${difficulty}/10` : "—"}
+        </span>
+      )}
       {videoUrl ? (
         <a
           href={videoUrl}

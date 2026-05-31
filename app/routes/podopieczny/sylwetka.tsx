@@ -10,6 +10,7 @@ import { z } from "zod";
 import { SideBySideSection, type ResolvedPair } from "~/components/body-photo-compare";
 import { FileDropzone } from "~/components/file-dropzone";
 import { Icons } from "~/components/icons";
+import { ListControls } from "~/components/list-controls";
 import { Modal } from "~/components/modal";
 import { Pagination, parsePage } from "~/components/pagination";
 import { PhotoCard } from "~/components/photo-card";
@@ -26,6 +27,7 @@ import { db } from "~/lib/db/client";
 import type { BodyPhotoView } from "~/lib/db/schema";
 import { signFileUrl } from "~/lib/files";
 import { todayISO } from "~/lib/format";
+import { type ListControlsSpec, parseListControls } from "~/lib/list-params";
 import { getSideBySidePhotoPairs } from "~/lib/stats";
 
 const UploadSchema = z.object({
@@ -42,10 +44,22 @@ const DELETE_ACTION_PATH = "/podopieczny/sylwetka";
 
 const PAGE_SIZE = 60;
 
+const SYLWETKA_SPEC: ListControlsSpec = {
+  sortOptions: [
+    { key: "newest", label: "Najnowsze" },
+    { key: "oldest", label: "Najstarsze" },
+  ],
+  defaultSort: "newest",
+  filterGroups: [],
+  searchable: false,
+};
+
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainee" });
   const url = new URL(args.request.url);
   const page = parsePage(url.searchParams);
+
+  const controls = parseListControls(url.searchParams, SYLWETKA_SPEC);
 
   const total = await countBodyPhotosForTrainee(db, user.id);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -53,7 +67,11 @@ export async function loader(args: LoaderFunctionArgs) {
   const offset = (safePage - 1) * PAGE_SIZE;
 
   const [photos, pairs] = await Promise.all([
-    listBodyPhotosForTrainee(db, user.id, { limit: PAGE_SIZE, offset }),
+    listBodyPhotosForTrainee(db, user.id, {
+      limit: PAGE_SIZE,
+      offset,
+      sort: controls.sort as "newest" | "oldest",
+    }),
     getSideBySidePhotoPairs(db, user.id),
   ]);
 
@@ -83,6 +101,8 @@ export async function loader(args: LoaderFunctionArgs) {
     totalPages,
     total,
     resolvedPairs,
+    spec: SYLWETKA_SPEC,
+    controls,
   };
 }
 
@@ -136,7 +156,8 @@ export async function action(args: ActionFunctionArgs) {
 type ViewFilter = "all" | BodyPhotoView;
 
 export default function TraineeBodyGallery() {
-  const { photos, page, totalPages, total, resolvedPairs } = useLoaderData<typeof loader>();
+  const { photos, page, totalPages, total, resolvedPairs, spec, controls } =
+    useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [showAddModal, setShowAddModal] = useState(false);
   const [filter, setFilter] = useState<ViewFilter>("all");
@@ -266,6 +287,8 @@ export default function TraineeBodyGallery() {
         </div>
       ) : (
         <>
+          <ListControls spec={spec} state={controls} />
+
           <SideBySideSection pairs={resolvedPairs} onOpenPhoto={setLightboxId} />
 
           <FilterTabs filter={filter} setFilter={setFilter} counts={counts} />
@@ -445,7 +468,7 @@ const MONTHS_PL = [
 function groupByMonth<
   T extends { id: string; url: string; takenOn: string; view: BodyPhotoView; note: string | null },
 >(photos: T[]): PhotoGroup[] {
-  // Already arrives sorted desc by takenOn from the loader.
+  // Arrives pre-sorted by takenOn from the loader (kierunek zależny od ?sort=); grupowanie zachowuje tę kolejność.
   const groups = new Map<string, PhotoGroup>();
   const order: string[] = [];
   for (const p of photos) {

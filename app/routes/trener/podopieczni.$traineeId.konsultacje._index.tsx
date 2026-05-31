@@ -1,11 +1,34 @@
 import { and, eq } from "drizzle-orm";
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
+import { ListControls } from "~/components/list-controls";
 import { Icons } from "~/components/icons";
 import { requireUser } from "~/lib/auth";
-import { listConsultationsForTrainee } from "~/lib/consultations";
+import { listConsultationsForTrainee, type ConsultationSort } from "~/lib/consultations";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import { fmtDate, pluralizePl, type PlForms } from "~/lib/format";
+import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
+
+const spec: ListControlsSpec = {
+  sortOptions: [
+    { key: "date_desc", label: "Najnowsze" },
+    { key: "date_asc", label: "Najstarsze" },
+    { key: "most_open", label: "Najwięcej otwartych" },
+  ],
+  defaultSort: "date_desc",
+  filterGroups: [
+    {
+      param: "open",
+      label: "Punkty",
+      options: [
+        { value: "all", label: "Wszystkie" },
+        { value: "with_open", label: "Z otwartymi" },
+      ],
+      defaultValue: "all",
+    },
+  ],
+  searchable: true,
+};
 
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainer" });
@@ -22,14 +45,22 @@ export async function loader(args: LoaderFunctionArgs) {
     )
     .limit(1);
   if (!trainee) throw new Response("not found", { status: 404 });
-  const consultations = await listConsultationsForTrainee(db, traineeId, { limit: 200 });
-  return { trainee, consultations };
+  const url = new URL(args.request.url);
+  const controls = parseListControls(url.searchParams, spec);
+  const open = (controls.filters.open ?? "all") as "all" | "with_open";
+  const consultations = await listConsultationsForTrainee(db, traineeId, {
+    limit: 200,
+    sort: controls.sort as ConsultationSort,
+    q: controls.q,
+    open,
+  });
+  return { trainee, consultations, spec, controls };
 }
 
 const KONSULTACJA: PlForms = { one: "konsultacja", few: "konsultacje", many: "konsultacji" };
 
 export default function TrenerKonsultacjeIndex() {
-  const { trainee, consultations } = useLoaderData<typeof loader>();
+  const { trainee, consultations, spec, controls } = useLoaderData<typeof loader>();
 
   return (
     <div>
@@ -57,6 +88,8 @@ export default function TrenerKonsultacjeIndex() {
           <Icons.Plus /> Nowa konsultacja
         </Link>
       </div>
+
+      <ListControls spec={spec} state={controls} searchPlaceholder="Szukaj po tytule…" />
 
       {consultations.length === 0 ? (
         <div className="empty">

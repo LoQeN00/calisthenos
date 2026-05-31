@@ -385,7 +385,7 @@ export default function TraineeDashboard() {
                     <div style={{ fontSize: 13.5, fontWeight: 500 }}>{log.sessionName}</div>
                     <div className="text-xs muted" style={{ marginTop: 2 }}>
                       <span className="mono">{log.exerciseCount}</span> ćwiczeń · trudność{" "}
-                      <span className="mono">{log.avgDifficulty}</span>/10
+                      {log.avgDifficulty == null ? "—" : <><span className="mono">{log.avgDifficulty}</span>/10</>}
                     </div>
                   </div>
                   <Icons.Chev style={{ color: "var(--muted-2)" }} />

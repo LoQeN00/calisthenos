@@ -1,0 +1,249 @@
+import { useState } from "react";
+import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
+import { Icons } from "~/components/icons";
+import { ListControls } from "~/components/list-controls";
+import { ProgressionStatusBadge } from "~/components/progression-charts";
+import { Sparkline } from "~/components/stat-widgets";
+import { requireUser } from "~/lib/auth";
+import { db } from "~/lib/db/client";
+import { daysAgo, fmtDate, pluralizePl, type PlForms } from "~/lib/format";
+import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
+import { listProgressionExercises } from "~/lib/progression";
+import { sortProgressionRows } from "~/lib/progression-math";
+
+const SESJA: PlForms = { one: "sesja", few: "sesje", many: "sesji" };
+
+export async function loader(args: LoaderFunctionArgs) {
+  const user = await requireUser(args.request, db, { role: "trainee" });
+  const url = new URL(args.request.url);
+  const rows = await listProgressionExercises(db, user.id);
+
+  const tagSet = new Set<string>();
+  for (const r of rows) for (const t of r.tags) tagSet.add(t);
+  const tagOptions = [...tagSet].sort((a, b) => a.localeCompare(b, "pl"));
+
+  const spec: ListControlsSpec = {
+    sortOptions: [
+      { key: "recent", label: "Ostatnio trenowane" },
+      { key: "attention", label: "Wymaga uwagi" },
+    ],
+    defaultSort: "recent",
+    filterGroups: [
+      {
+        param: "tag",
+        label: "Kategoria",
+        options: [
+          { value: "all", label: "Wszystkie" },
+          ...tagOptions.map((t) => ({ value: t, label: t })),
+        ],
+        defaultValue: "all",
+      },
+    ],
+    searchable: false,
+  };
+  const controls = parseListControls(url.searchParams, spec);
+
+  const tag = controls.filters.tag ?? "all";
+  const filtered = tag === "all" ? rows : rows.filter((r) => r.tags.includes(tag));
+  const visible = sortProgressionRows(filtered, controls.sort as "recent" | "attention");
+
+  return { rows: visible, spec, controls, hasAny: rows.length > 0 };
+}
+
+export default function TraineeProgresja() {
+  const { rows, spec, controls, hasAny } = useLoaderData<typeof loader>();
+
+  const [compare, setCompare] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+
+  function toggleSelected(id: string) {
+    setSelected((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  }
+
+  function exitCompare() {
+    setCompare(false);
+    setSelected([]);
+  }
+
+  const compareHref = `/podopieczny/progresja/porownanie?ex=${selected.join(",")}`;
+
+  if (!hasAny) {
+    return (
+      <div>
+        <div className="pagehead">
+          <div>
+            <div className="eyebrow" style={{ marginBottom: 6 }}>
+              Podopieczny
+            </div>
+            <h1>Progresja</h1>
+            <div className="sub">Postęp w ćwiczeniach w czasie.</div>
+          </div>
+        </div>
+        <div className="empty">
+          <h3>Jeszcze nic tu nie ma</h3>
+          <div style={{ marginBottom: 16 }}>
+            Progresja pojawi się, gdy zarejestrujesz pierwszą serię ćwiczenia.
+          </div>
+          <Link to="/podopieczny/sesje" className="btn btn-primary">
+            Zacznij trening
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="pagehead">
+        <div>
+          <div className="eyebrow" style={{ marginBottom: 6 }}>
+            Podopieczny
+          </div>
+          <h1>Progresja</h1>
+          <div className="sub">Postęp w ćwiczeniach w czasie.</div>
+        </div>
+        <div className="row" style={{ gap: 8 }}>
+          {compare ? (
+            <>
+              <button type="button" className="btn btn-sm" onClick={exitCompare}>
+                Anuluj
+              </button>
+              {selected.length < 2 ? (
+                <button type="button" className="btn btn-sm btn-primary" disabled>
+                  Porównaj{selected.length > 0 ? ` (${selected.length})` : ""}
+                </button>
+              ) : (
+                <Link to={compareHref} className="btn btn-sm btn-primary">
+                  Porównaj ({selected.length})
+                </Link>
+              )}
+            </>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => setCompare(true)}
+            >
+              <Icons.Trend />
+              Porównaj
+            </button>
+          )}
+        </div>
+      </div>
+
+      <ListControls spec={spec} state={controls} />
+
+      {compare && (
+        <div className="text-xs muted" style={{ marginBottom: 12 }}>
+          Zaznacz co najmniej 2 ćwiczenia, aby je porównać.
+        </div>
+      )}
+
+      {rows.length === 0 ? (
+        <div className="empty">
+          <h3>Brak ćwiczeń w tej kategorii</h3>
+          <div>Wybierz inną kategorię lub „Wszystkie".</div>
+        </div>
+      ) : (
+        <div className="col" style={{ gap: 10 }}>
+          {rows.map((row) => {
+            const subtitle = `${row.sessionCount} ${pluralizePl(
+              row.sessionCount,
+              SESJA,
+            )} · ostatnio: ${daysAgo(row.lastPerformedOn)} (${fmtDate(row.lastPerformedOn)})`;
+            const prText = `${row.pr}${row.unit === "SEC" ? " s" : ""}`;
+            const isSelected = selected.includes(row.exerciseId);
+
+            const inner = (
+              <>
+                <div className="row" style={{ gap: 10, minWidth: 0, flex: 1 }}>
+                  {compare && (
+                    <span
+                      aria-hidden
+                      style={{
+                        width: 18,
+                        height: 18,
+                        borderRadius: 5,
+                        flexShrink: 0,
+                        border: `2px solid ${isSelected ? "var(--accent)" : "var(--line-2)"}`,
+                        background: isSelected ? "var(--accent)" : "transparent",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: "var(--accent-ink)",
+                      }}
+                    >
+                      {isSelected && <Icons.Check />}
+                    </span>
+                  )}
+                  <div style={{ minWidth: 0 }}>
+                    <div className="row" style={{ gap: 8, alignItems: "center" }}>
+                      <span style={{ fontSize: 14, fontWeight: 500 }}>{row.name}</span>
+                      <span className="badge">{row.unit}</span>
+                    </div>
+                    <div className="text-xs muted" style={{ marginTop: 2 }}>
+                      {subtitle}
+                    </div>
+                  </div>
+                </div>
+                <div className="row" style={{ gap: 14, alignItems: "center" }}>
+                  <Sparkline values={row.sparkline} width={96} height={30} />
+                  <ProgressionStatusBadge status={row.status} />
+                  <div
+                    className="mono"
+                    style={{ fontSize: 15, fontWeight: 600, minWidth: 48, textAlign: "right" }}
+                    title="Rekord osobisty"
+                  >
+                    {prText}
+                  </div>
+                </div>
+              </>
+            );
+
+            if (compare) {
+              return (
+                <button
+                  key={row.exerciseId}
+                  type="button"
+                  onClick={() => toggleSelected(row.exerciseId)}
+                  aria-pressed={isSelected}
+                  className="card card-hover row between"
+                  style={{
+                    gap: 14,
+                    padding: "12px 16px",
+                    flexWrap: "wrap",
+                    width: "100%",
+                    textAlign: "left",
+                    background: isSelected ? "var(--accent-soft)" : undefined,
+                    borderColor: isSelected ? "transparent" : undefined,
+                  }}
+                >
+                  {inner}
+                </button>
+              );
+            }
+
+            return (
+              <Link
+                key={row.exerciseId}
+                to={`/podopieczny/progresja/${row.exerciseId}`}
+                className="card card-hover row between"
+                style={{
+                  gap: 14,
+                  padding: "12px 16px",
+                  flexWrap: "wrap",
+                  textDecoration: "none",
+                  color: "inherit",
+                }}
+              >
+                {inner}
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}

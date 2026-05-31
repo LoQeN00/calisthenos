@@ -1,21 +1,52 @@
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
+import { ListControls } from "~/components/list-controls";
 import { Icons } from "~/components/icons";
 import { requireUser } from "~/lib/auth";
-import { listConsultationsForTrainee } from "~/lib/consultations";
+import { listConsultationsForTrainee, type ConsultationSort } from "~/lib/consultations";
 import { db } from "~/lib/db/client";
 import { fmtDate, pluralizePl, type PlForms } from "~/lib/format";
+import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
 
 const PUNKT: PlForms = { one: "punkt", few: "punkty", many: "punktów" };
 
+const spec: ListControlsSpec = {
+  sortOptions: [
+    { key: "date_desc", label: "Najnowsze" },
+    { key: "date_asc", label: "Najstarsze" },
+    { key: "most_open", label: "Najwięcej otwartych" },
+  ],
+  defaultSort: "date_desc",
+  filterGroups: [
+    {
+      param: "open",
+      label: "Punkty",
+      options: [
+        { value: "all", label: "Wszystkie" },
+        { value: "with_open", label: "Z otwartymi" },
+      ],
+      defaultValue: "all",
+    },
+  ],
+  searchable: true,
+};
+
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainee" });
+  const url = new URL(args.request.url);
+  const controls = parseListControls(url.searchParams, spec);
+  const open = (controls.filters.open ?? "all") as "all" | "with_open";
   // Konsultacji jest zwykle kilka–kilkanaście; 200 to bezpieczny sufit bez paginacji.
-  const consultations = await listConsultationsForTrainee(db, user.id, { limit: 200 });
-  return { consultations };
+  const consultations = await listConsultationsForTrainee(db, user.id, {
+    limit: 200,
+    sort: controls.sort as ConsultationSort,
+    q: controls.q,
+    open,
+  });
+  return { consultations, spec, controls };
 }
 
 export default function TraineeKonsultacjeList() {
-  const { consultations } = useLoaderData<typeof loader>();
+  const { consultations, spec, controls } = useLoaderData<typeof loader>();
   const total = consultations.length;
 
   return (
@@ -33,6 +64,8 @@ export default function TraineeKonsultacjeList() {
           </div>
         </div>
       </div>
+
+      <ListControls spec={spec} state={controls} searchPlaceholder="Szukaj po tytule…" />
 
       {total === 0 ? (
         <div className="empty">
