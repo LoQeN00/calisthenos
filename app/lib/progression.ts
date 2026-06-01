@@ -2,12 +2,11 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import {
-  aggregateToWeeks,
   computePeriodChangePct,
   markPrs,
   normalizeToPctFromStart,
   rangeStartIso,
-  shouldAggregateWeekly,
+  seriesForRange,
   statusFromSessions,
   type ChartPoint,
   type ProgressionListRow,
@@ -223,14 +222,15 @@ export async function getExerciseProgression(
       ? null
       : Math.round((ratedInRange.reduce((a, b) => a + b, 0) / ratedInRange.length) * 10) / 10;
 
-  // Aggregate for display when the range is long.
-  const aggregate = shouldAggregateWeekly(range);
-  const series = aggregate ? aggregateToWeeks(inRange) : inRange;
+  // Ujęcie tygodniowe dla długich zakresów, z fallbackiem do per-sesja gdy
+  // tygodniowe zwinęłoby dane do <2 punktów (patrz seriesForRange) — szerszy
+  // okres nie może pokazać mniej niż węższy.
+  const { series, granularity } = seriesForRange(inRange, range);
   const points = markPrs(series);
 
   return {
     exercise: { id: group[0]!.exerciseId, name: group[0]!.name, unit: group[0]!.unit },
-    granularity: aggregate ? "week" : "session",
+    granularity,
     points,
     kpis: {
       pr,

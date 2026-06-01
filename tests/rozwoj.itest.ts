@@ -620,3 +620,50 @@ describe("audyt usuwania: zarchiwizowane ćwiczenie nie pojawia się w Rozwoju",
     expect(view).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Fix okresu: szeroki zakres z sesjami w jednym tygodniu nie pokazuje „za mało
+// danych" — fallback do ujęcia per-sesja (zakres "all" = brak dolnej granicy daty,
+// więc test jest niezależny od zegara).
+// ---------------------------------------------------------------------------
+describe("okres: sesje w jednym tygodniu na szerokim zakresie → per-sesja, nie pusto", () => {
+  it("3 sesje w jednym tygodniu + zakres 'all' → granularity 'session', 3 punkty", async () => {
+    const [plan] = await db
+      .select({ id: schema.plans.id })
+      .from(schema.plans)
+      .where(and(eq(schema.plans.traineeId, traineePA), eq(schema.plans.status, "active")))
+      .limit(1);
+    const [ps] = await db
+      .select({ id: schema.planSessions.id })
+      .from(schema.planSessions)
+      .where(eq(schema.planSessions.planId, plan!.id))
+      .limit(1);
+    const [ex] = await db
+      .insert(schema.exercises)
+      .values({ trainerId: trainerA, name: "Same-week movement", unit: "REPS" })
+      .returning({ id: schema.exercises.id });
+    // 2026-05-25/26/27 to pon/wt/śr tego samego tygodnia → tygodniowo = 1 punkt.
+    for (const [d, reps] of [
+      ["2026-05-25", [5]],
+      ["2026-05-26", [6]],
+      ["2026-05-27", [7]],
+    ] as const) {
+      await seedSession({
+        trainerId: trainerA,
+        traineeId: traineePA,
+        planId: plan!.id,
+        planSessionId: ps!.id,
+        exerciseId: ex!.id,
+        performedOn: d,
+        reps: [...reps],
+      });
+    }
+
+    const view = await getExerciseProgression(db, traineePA, ex!.id, "all");
+    expect(view).not.toBeNull();
+    // Mimo szerokiego zakresu (który domyślnie agreguje tygodniowo) fallback daje
+    // ujęcie per-sesja, bo tygodniowo byłby tylko 1 punkt → „za mało danych".
+    expect(view!.granularity).toBe("session");
+    expect(view!.points).toHaveLength(3);
+  });
+});

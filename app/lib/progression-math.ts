@@ -85,6 +85,28 @@ export function aggregateToWeeks(points: SessionPoint[]): SessionPoint[] {
     }));
 }
 
+/**
+ * Wybiera serię punktów do wykresu dla danego okresu. Dla długich zakresów
+ * (6m/all) stosuje ujęcie tygodniowe, ALE jeśli zwinęłoby ono dane do <2 punktów
+ * (np. gdy wszystkie sesje wpadają w jeden tydzień), wraca do ujęcia per-sesja.
+ * Dzięki temu szerszy okres nigdy nie pokazuje MNIEJ punktów niż węższy — inaczej
+ * „6 mies." potrafiło wyświetlić „za mało danych", choć „4 tyg." rysowało wykres.
+ * Zakłada `inRange` już przefiltrowane do okresu, chronologicznie rosnąco.
+ */
+export function seriesForRange(
+  inRange: SessionPoint[],
+  range: ProgressionRange,
+): { series: SessionPoint[]; granularity: "session" | "week" } {
+  if (!shouldAggregateWeekly(range)) {
+    return { series: inRange, granularity: "session" };
+  }
+  const weekly = aggregateToWeeks(inRange);
+  if (weekly.length < 2) {
+    return { series: inRange, granularity: "session" };
+  }
+  return { series: weekly, granularity: "week" };
+}
+
 /** Map chronological sessions to chart points, flagging each new running-high. */
 export function markPrs(pointsChrono: SessionPoint[]): ChartPoint[] {
   let running = Number.NEGATIVE_INFINITY;

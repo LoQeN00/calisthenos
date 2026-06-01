@@ -4,6 +4,7 @@ import {
   shouldAggregateWeekly,
   weekStartIso,
   aggregateToWeeks,
+  seriesForRange,
   markPrs,
   classifyStatus,
   statusFromSessions,
@@ -34,6 +35,45 @@ describe("rangeStartIso", () => {
   });
   it("subtracts 90 days for '3m'", () => {
     expect(rangeStartIso("3m", "2026-05-31")).toBe("2026-03-02");
+  });
+});
+
+describe("seriesForRange (A: szerszy okres nie pokazuje mniej punktów niż węższy)", () => {
+  it("krótki zakres ('4w'): zawsze per-sesja", () => {
+    const inRange = [sp("2026-05-01", 5), sp("2026-05-03", 6)];
+    const r = seriesForRange(inRange, "4w");
+    expect(r.granularity).toBe("session");
+    expect(r.series).toEqual(inRange);
+  });
+
+  it("długi zakres ('6m') z sesjami w ≥2 tygodniach: ujęcie tygodniowe", () => {
+    // 2026-01-05 (pon) i 2026-01-12 (pon następnego tygodnia) → dwa kubełki.
+    const inRange = [sp("2026-01-05", 5), sp("2026-01-12", 7)];
+    const r = seriesForRange(inRange, "6m");
+    expect(r.granularity).toBe("week");
+    expect(r.series).toHaveLength(2);
+  });
+
+  it("długi zakres ('6m') z sesjami w JEDNYM tygodniu: fallback do per-sesja", () => {
+    // pon/wt/śr tego samego tygodnia → tygodniowo zwija się do 1 punktu.
+    const inRange = [sp("2026-01-05", 5), sp("2026-01-06", 6), sp("2026-01-07", 7)];
+    expect(aggregateToWeeks(inRange)).toHaveLength(1); // sanity
+    const r = seriesForRange(inRange, "6m");
+    expect(r.granularity).toBe("session");
+    expect(r.series).toEqual(inRange);
+  });
+
+  it("'all' z jedną sesją: per-sesja (1 punkt — render obsłuży Fix B)", () => {
+    const inRange = [sp("2026-01-05", 5)];
+    const r = seriesForRange(inRange, "all");
+    expect(r.granularity).toBe("session");
+    expect(r.series).toEqual(inRange);
+  });
+
+  it("pusty zakres: per-sesja, pusta seria", () => {
+    const r = seriesForRange([], "6m");
+    expect(r.granularity).toBe("session");
+    expect(r.series).toEqual([]);
   });
 });
 

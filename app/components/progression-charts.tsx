@@ -100,7 +100,9 @@ export function ProgressionLineChart({
   unit: Unit;
   height?: number;
 }) {
-  if (points.length < 2) return <NotEnough />;
+  // Pusto tylko gdy 0 punktów. Pojedynczy punkt rysujemy jako kropkę (linia się
+  // nie pojawia — LinePath na 1 punkcie nic nie kreśli), zamiast „za mało danych".
+  if (points.length === 0) return <NotEnough />;
   return (
     <div>
       <div style={{ width: "100%", height }}>
