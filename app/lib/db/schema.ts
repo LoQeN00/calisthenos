@@ -417,6 +417,123 @@ export const consultationActionItems = pgTable(
   }),
 );
 
+// ---------------- Skills (drabiny wariantów) ----------------
+
+export const skills = pgTable(
+  "skills",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    trainerId: uuid("trainer_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    // Partial: zarchiwizowana umiejętność NIE blokuje utworzenia nowej o tej samej
+    // nazwie (po archiwizacji „znika z listy", więc nazwa powinna być znów wolna).
+    trainerNameUniq: uniqueIndex("skills_trainer_name_uniq")
+      .on(t.trainerId, t.name)
+      .where(sql`${t.archivedAt} IS NULL`),
+    trainerIdx: index("skills_trainer_idx").on(t.trainerId),
+  }),
+);
+
+export const skillVariations = pgTable(
+  "skill_variations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    skillId: uuid("skill_id")
+      .notNull()
+      .references(() => skills.id, { onDelete: "cascade" }),
+    exerciseId: uuid("exercise_id")
+      .notNull()
+      .references(() => exercises.id, { onDelete: "restrict" }),
+    ordinal: integer("ordinal").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    skillOrdinalUniq: uniqueIndex("skill_variations_skill_ordinal_uniq").on(t.skillId, t.ordinal),
+    skillExerciseUniq: uniqueIndex("skill_variations_skill_exercise_uniq").on(
+      t.skillId,
+      t.exerciseId,
+    ),
+    // Ćwiczenie należy do co najwyżej jednej umiejętności. Indeks wygląda globalnie,
+    // ale exercises są per-trener (mają własny trainer_id), więc działa w zakresie trenera.
+    exerciseUniq: uniqueIndex("skill_variations_exercise_uniq").on(t.exerciseId),
+  }),
+);
+
+export const skillAdvancements = pgTable(
+  "skill_advancements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    trainerId: uuid("trainer_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    traineeId: uuid("trainee_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    skillId: uuid("skill_id")
+      .notNull()
+      .references(() => skills.id, { onDelete: "cascade" }),
+    fromVariationId: uuid("from_variation_id").references(() => skillVariations.id, {
+      onDelete: "restrict",
+    }),
+    toVariationId: uuid("to_variation_id")
+      .notNull()
+      .references(() => skillVariations.id, { onDelete: "restrict" }),
+    advancedOn: date("advanced_on").notNull(),
+    advancedBy: uuid("advanced_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    traineeSkillIdx: index("skill_advancements_trainee_skill_idx").on(
+      t.traineeId,
+      t.skillId,
+      t.advancedOn,
+    ),
+    trainerIdx: index("skill_advancements_trainer_idx").on(t.trainerId, t.createdAt),
+  }),
+);
+
+export const skillPrerequisites = pgTable(
+  "skill_prerequisites",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Denormalizacja tenant-scope (jak skill_advancements/workout_logs).
+    trainerId: uuid("trainer_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // Umiejętność, która MA prerekwizyt.
+    skillId: uuid("skill_id")
+      .notNull()
+      .references(() => skills.id, { onDelete: "cascade" }),
+    // Prerekwizyt (musi być opanowany, by odblokować skillId).
+    requiresSkillId: uuid("requires_skill_id")
+      .notNull()
+      .references(() => skills.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    edgeUniq: uniqueIndex("skill_prerequisites_edge_uniq").on(t.skillId, t.requiresSkillId),
+    trainerIdx: index("skill_prerequisites_trainer_idx").on(t.trainerId),
+    skillIdx: index("skill_prerequisites_skill_idx").on(t.skillId),
+    requiresIdx: index("skill_prerequisites_requires_idx").on(t.requiresSkillId),
+    // Acykliczność egzekwujemy w repo (Postgres nie ma constraintu DAG);
+    // tu blokujemy tylko trywialną pętlę własną.
+    noSelfLoop: check(
+      "skill_prerequisites_no_self_loop",
+      sql`${t.skillId} <> ${t.requiresSkillId}`,
+    ),
+  }),
+);
+
 // ---------------- Types ----------------
 
 export type User = typeof users.$inferSelect;
@@ -453,3 +570,11 @@ export type NewConsultation = typeof consultations.$inferInsert;
 export type ConsultationActionItem = typeof consultationActionItems.$inferSelect;
 export type NewConsultationActionItem = typeof consultationActionItems.$inferInsert;
 export type ConsultationItemStatus = (typeof consultationItemStatus.enumValues)[number];
+export type Skill = typeof skills.$inferSelect;
+export type NewSkill = typeof skills.$inferInsert;
+export type SkillVariation = typeof skillVariations.$inferSelect;
+export type NewSkillVariation = typeof skillVariations.$inferInsert;
+export type SkillAdvancement = typeof skillAdvancements.$inferSelect;
+export type NewSkillAdvancement = typeof skillAdvancements.$inferInsert;
+export type SkillPrerequisite = typeof skillPrerequisites.$inferSelect;
+export type NewSkillPrerequisite = typeof skillPrerequisites.$inferInsert;

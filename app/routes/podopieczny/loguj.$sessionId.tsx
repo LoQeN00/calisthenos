@@ -372,7 +372,7 @@ export default function LogForm() {
         </div>
       </Form>
 
-      <div className="text-xs muted-2" style={{ marginTop: 18 }}>
+      <div className="text-xs muted" style={{ marginTop: 18 }}>
         Zalogowany jako {user.displayName}.
       </div>
     </div>
@@ -447,10 +447,10 @@ function ProgressBar({
               {pending > 0 && (
                 <>
                   {" · "}
-                  <span className="mono" style={{ color: "var(--muted-2)" }}>
+                  <span className="mono" style={{ color: "var(--muted)" }}>
                     {pending}
                   </span>{" "}
-                  <span className="muted-2">do uzupełnienia</span>
+                  <span className="muted">do uzupełnienia</span>
                 </>
               )}
             </>
@@ -773,7 +773,7 @@ function SkippedSetRow({
         >
           Pominięta
         </span>
-        <span className="text-xs muted-2" style={{ fontStyle: "italic" }}>
+        <span className="text-xs muted" style={{ fontStyle: "italic" }}>
           nie wlicza się do statystyk
         </span>
       </div>

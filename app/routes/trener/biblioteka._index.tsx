@@ -167,6 +167,9 @@ export default function BibliotekaList() {
   const { items, spec, controls, categories, page, totalPages, total } =
     useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  // Po usunięciu kategorii jej nazwa zostaje w `exercises.tags[]` (świadome), ale
+  // nie powinna już wisieć jako chip — pokazujemy tylko tagi będące znaną kategorią.
+  const knownCategoryNames = new Set(categories.map((c) => c.name));
 
   return (
     <div>
@@ -319,13 +322,16 @@ export default function BibliotekaList() {
                   {ex.description}
                 </div>
               )}
-              {ex.tags.length > 0 && (
+              {ex.tags.some((t) => knownCategoryNames.has(t)) && (
                 <div className="row wrap" style={{ gap: 4, marginTop: 10 }}>
-                  {ex.tags.slice(0, 4).map((t) => (
-                    <span key={t} className="tag">
-                      {t}
-                    </span>
-                  ))}
+                  {ex.tags
+                    .filter((t) => knownCategoryNames.has(t))
+                    .slice(0, 4)
+                    .map((t) => (
+                      <span key={t} className="tag">
+                        {t}
+                      </span>
+                    ))}
                 </div>
               )}
             </Link>

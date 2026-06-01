@@ -37,6 +37,7 @@ Setup lokalny, deploy na Railway, lista komend i posture bezpieczeństwa:
 | Auth | Własna, sesje w cookie (`__Host-`), hasła **Argon2id** (`@node-rs/argon2`) |
 | Pliki | Wolumen na dysku przez interfejs `FileStorage` (lokalnie / Railway volume), URL-e podpisywane HMAC |
 | PWA | `vite-plugin-pwa` (cache statyków, instalowalność; brak offline-sync) |
+| Wykresy | **visx** (SVG, SSR-friendly, tree-shakeable) |
 | Walidacja | **Zod** |
 | Lint/format | **Biome** (`npm run lint` / `npm run format`) |
 | Bundler | Vite (wbudowany w RR7) |
@@ -124,6 +125,24 @@ w `.gitignore`), `design-system/_src/` (rozpakowany prototyp, read-only).
   z sort/filter/szukajką — reużyj tych dwóch modułów, nie twórz własnych mechanizmów.
 - **Git i Docker prowadzi właściciel.** Nie uruchamiaj operacji git ani
   `docker compose up/down/build`; konfigurację możesz edytować.
+- **Dozwolone komendy powłoki — TYLKO z poniższej listy i TYLKO pojedynczo.**
+  Reguły `allow` w `.claude/settings.local.json` dopasowują pojedynczą komendę po
+  prefiksie. **Nie łańcuchuj** (`;`, `&&`), **nie używaj potoków** (`| tail`,
+  `| head`), **nie przekierowuj** (`>/dev/null`, `2>&1`) — każdy taki dodatek
+  powoduje, że komenda przestaje pasować do allowlisty i wyskakuje okienko.
+  Uruchamiaj każdą z osobna, w jednym wywołaniu narzędzia:
+
+  | Komenda | Do czego |
+  |---|---|
+  | `npm run typecheck` | sprawdzenie typów (tsc) |
+  | `npm run lint` | Biome lint |
+  | `npm run build` | build SSR + klient |
+  | `npm run db:generate` | wygenerowanie migracji z `schema.ts` (bez DB) |
+  | `npx vitest run <wzorzec>` | testy jednostkowe (NIE `npm test` — to watch) |
+  | `npx biome format --write <plik>` | formatowanie dotkniętego pliku |
+
+  Do czytania plików/wyników używaj narzędzi Read/Grep/Glob, **nie** `cat`/`tail`/
+  `grep` w Bash. `npm run db:migrate`, git i docker — wyłącznie właściciel.
 
 Komendy (`dev`, `build`, `db:migrate`, `db:seed`, `lint`, `format`…) i ich opis:
 sekcja "Useful commands" w [`README.md`](README.md).

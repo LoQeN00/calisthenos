@@ -55,6 +55,13 @@ const NAV_ITEMS = [
     icon: "Plans" as const,
     tailKey: "plans" as const,
   },
+  {
+    to: "/trener/umiejetnosci",
+    label: "Umiejętności",
+    end: false,
+    icon: "Trend" as const,
+    tailKey: null,
+  },
 ];
 
 export default function TrenerLayout() {

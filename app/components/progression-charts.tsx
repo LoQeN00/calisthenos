@@ -1,10 +1,20 @@
+import { useCallback, useMemo } from "react";
+import { AxisBottom, AxisLeft } from "@visx/axis";
+import { localPoint } from "@visx/event";
+import { GridRows } from "@visx/grid";
+import { Group } from "@visx/group";
+import { ParentSize } from "@visx/responsive";
+import { scaleBand, scaleLinear, scalePoint, scaleTime } from "@visx/scale";
+import { Bar, LinePath } from "@visx/shape";
+import { useTooltip, useTooltipInPortal } from "@visx/tooltip";
 import type { ComparisonSeries } from "~/lib/progression";
-import type { ChartPoint, ProgressionStatus } from "~/lib/progression-math";
+import type { ChartPoint, ProgressionStatus, StatusSummary } from "~/lib/progression-math";
 
 // ============================================================
-// Progression charts — hand-rolled SVG, matching stat-widgets.tsx idiom:
+// Progression charts — visx, matching stat-widgets.tsx idiom:
 // all colors via var(--*), numbers in var(--font-mono), role="img" +
-// aria-label, responsive viewBox, shared "za mało danych" empty state.
+// aria-label, responsive via <ParentSize> (returns null at width 0 → SSR safe),
+// shared "za mało danych" empty state.
 // Pure presentation: no data fetching, no router imports.
 // ============================================================
 
@@ -33,151 +43,299 @@ function fmtBest(best: number, unit: Unit): string {
 }
 
 // ============================================================
+// Wspólne helpery prezentacji (pasek statusów + kolor sparkline)
+// ============================================================
+
+/** Pasek podsumowania statusów nad listą Progresji (obie role). */
+export function StatusSummaryBar({ summary }: { summary: StatusSummary }) {
+  const items: Array<{ label: string; value: number; color: string }> = [
+    { label: "▲ rośnie", value: summary.up, color: "var(--ok)" },
+    { label: "= stabilnie", value: summary.flat, color: "var(--muted)" },
+    { label: "▼ spada", value: summary.down, color: "var(--danger)" },
+    { label: "nowe", value: summary.new, color: "var(--muted)" },
+  ];
+  return (
+    <div
+      className="row wrap"
+      style={{
+        gap: 16,
+        marginBottom: 18,
+        padding: "10px 14px",
+        border: "1px solid var(--line)",
+        borderRadius: 10,
+        background: "var(--surface)",
+      }}
+    >
+      {items.map((it) => (
+        <span key={it.label} className="row" style={{ gap: 6, alignItems: "baseline" }}>
+          <span className="text-xs" style={{ color: it.color, fontWeight: 600 }}>
+            {it.label}
+          </span>
+          <span className="mono" style={{ fontSize: 15, fontWeight: 600, color: it.color }}>
+            {it.value}
+          </span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** Kolor linii sparkline wg statusu trendu (zielony/czerwony/szary). */
+export function sparkStrokeForStatus(status: ProgressionStatus): string {
+  if (status === "up") return "var(--ok)";
+  if (status === "down") return "var(--danger)";
+  return "var(--muted)"; // flat / new
+}
+
+// ============================================================
 // 1. ProgressionLineChart — hero: best set per session over time.
 // ============================================================
 
 export function ProgressionLineChart({
   points,
   unit,
-  height = 220,
+  height = 240,
 }: {
   points: ChartPoint[];
   unit: Unit;
   height?: number;
 }) {
   if (points.length < 2) return <NotEnough />;
+  return (
+    <div>
+      <div style={{ width: "100%", height }}>
+        <ParentSize debounceTime={30}>
+          {({ width }) =>
+            width > 0 ? (
+              <LineChartInner width={width} height={height} points={points} unit={unit} />
+            ) : null
+          }
+        </ParentSize>
+      </div>
+      <RpeLegend />
+    </div>
+  );
+}
 
-  const W = 640;
-  const padL = 16;
-  const padR = 16;
-  const padT = 26; // room for the PR label above the top dot
-  const padB = 22; // room for the X labels below the baseline
+const MARGIN = { top: 22, right: 16, bottom: 26, left: 34 };
 
-  const plotW = W - padL - padR;
-  const plotH = height - padT - padB;
+function LineChartInner({
+  width,
+  height,
+  points,
+  unit,
+}: {
+  width: number;
+  height: number;
+  points: ChartPoint[];
+  unit: Unit;
+}) {
+  const innerW = Math.max(width - MARGIN.left - MARGIN.right, 1);
+  const innerH = Math.max(height - MARGIN.top - MARGIN.bottom, 1);
 
   const bests = points.map((p) => p.best);
   const min = Math.min(...bests);
   const max = Math.max(...bests);
-  // Pad the value domain so the line isn't glued to the edges.
   const span = Math.max(max - min, 1);
-  const yMin = min - span * 0.12;
-  const yMax = max + span * 0.12;
-  const yRange = Math.max(yMax - yMin, 1);
 
-  const stepX = plotW / (points.length - 1);
-  const xAt = (i: number) => padL + i * stepX;
-  const yAt = (v: number) => padT + plotH - ((v - yMin) / yRange) * plotH;
+  const xScale = useMemo(
+    () =>
+      scalePoint<string>({ domain: points.map((p) => p.key), range: [0, innerW], padding: 0.5 }),
+    [points, innerW],
+  );
+  const yScale = useMemo(
+    () =>
+      scaleLinear<number>({
+        domain: [min - span * 0.12, max + span * 0.12],
+        range: [innerH, 0],
+        nice: true,
+      }),
+    [min, max, span, innerH],
+  );
 
-  const coords = points.map((p, i) => ({ x: xAt(i), y: yAt(p.best), p }));
-
-  const linePath = coords
-    .map((c, i) => `${i === 0 ? "M" : "L"}${c.x.toFixed(1)},${c.y.toFixed(1)}`)
-    .join(" ");
-
-  // The in-view PR: the (first) point reaching the maximum best.
   const prIndex = bests.indexOf(max);
 
-  const baselineY = padT + plotH;
-  const midY = padT + plotH / 2;
+  const { showTooltip, hideTooltip, tooltipData, tooltipLeft, tooltipTop, tooltipOpen } =
+    useTooltip<ChartPoint>();
+  const { containerRef, TooltipInPortal } = useTooltipInPortal({
+    detectBounds: true,
+    scroll: true,
+  });
 
-  // Sparse X labels: first, middle, last.
-  const labelIdx = Array.from(new Set([0, Math.floor((points.length - 1) / 2), points.length - 1]));
+  // Nearest-point detection — działa dla myszy (move) i dotyku (touchmove).
+  const handleMove = useCallback(
+    (event: React.PointerEvent<SVGRectElement> | React.TouchEvent<SVGRectElement>) => {
+      const coords = localPoint(event.nativeEvent);
+      if (!coords) return;
+      const xInner = coords.x - MARGIN.left;
+      let nearest = 0;
+      let best = Number.POSITIVE_INFINITY;
+      points.forEach((p, i) => {
+        const px = xScale(p.key) ?? 0;
+        const d = Math.abs(px - xInner);
+        if (d < best) {
+          best = d;
+          nearest = i;
+        }
+      });
+      const p = points[nearest]!;
+      showTooltip({
+        tooltipData: p,
+        tooltipLeft: MARGIN.left + (xScale(p.key) ?? 0),
+        tooltipTop: MARGIN.top + yScale(p.best),
+      });
+    },
+    [points, xScale, yScale, showTooltip],
+  );
 
   return (
-    <svg
-      width="100%"
-      viewBox={`0 0 ${W} ${height}`}
-      role="img"
-      aria-label="Wykres rekordu w czasie"
-      style={{ display: "block", width: "100%", height: "auto" }}
-    >
-      {/* Dashed mid gridline */}
-      <line
-        x1={padL}
-        y1={midY}
-        x2={W - padR}
-        y2={midY}
-        stroke="var(--line)"
-        strokeWidth={1}
-        strokeDasharray="4 4"
-        opacity={0.6}
-      />
-      {/* Y axis */}
-      <line x1={padL} y1={padT} x2={padL} y2={baselineY} stroke="var(--line)" strokeWidth={1} />
-      {/* X baseline */}
-      <line
-        x1={padL}
-        y1={baselineY}
-        x2={W - padR}
-        y2={baselineY}
-        stroke="var(--line)"
-        strokeWidth={1}
-      />
+    <div ref={containerRef} style={{ position: "relative" }}>
+      <svg width={width} height={height} role="img" aria-label="Wykres rekordu w czasie">
+        <Group left={MARGIN.left} top={MARGIN.top}>
+          <GridRows
+            scale={yScale}
+            width={innerW}
+            numTicks={4}
+            stroke="var(--line)"
+            strokeDasharray="4 4"
+            opacity={0.5}
+          />
+          <AxisLeft
+            scale={yScale}
+            numTicks={4}
+            hideAxisLine
+            hideTicks
+            tickFormat={(v) => `${v}`}
+            tickLabelProps={() => ({
+              fill: "var(--muted)",
+              fontSize: 9,
+              fontFamily: "var(--font-mono)",
+              textAnchor: "end",
+              dy: "0.33em",
+              dx: "-2",
+            })}
+          />
+          <AxisBottom
+            top={innerH}
+            scale={xScale}
+            // Dedupe: for a 2-point series the midpoint collides with the
+            // first, which would render overlapping labels + duplicate React keys.
+            tickValues={[
+              ...new Set([
+                points[0]!.key,
+                points[Math.floor((points.length - 1) / 2)]!.key,
+                points[points.length - 1]!.key,
+              ]),
+            ]}
+            hideTicks
+            stroke="var(--line)"
+            tickFormat={(k) => points.find((p) => p.key === k)?.label ?? ""}
+            tickLabelProps={() => ({
+              fill: "var(--muted)",
+              fontSize: 9,
+              fontFamily: "var(--font-mono)",
+              textAnchor: "middle",
+            })}
+          />
+          <LinePath
+            data={points}
+            x={(p) => xScale(p.key) ?? 0}
+            y={(p) => yScale(p.best)}
+            stroke="var(--ink)"
+            strokeWidth={2.5}
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+          {points.map((p, i) => {
+            const isPr = i === prIndex;
+            const cx = xScale(p.key) ?? 0;
+            const cy = yScale(p.best);
+            return (
+              <g key={p.key}>
+                <circle
+                  cx={cx}
+                  cy={cy}
+                  r={isPr ? 6 : 3.5}
+                  fill={rpeColor(p.avgRpe)}
+                  stroke={isPr ? "#fff" : "none"}
+                  strokeWidth={isPr ? 1.5 : 0}
+                />
+                {isPr && (
+                  <text
+                    x={cx}
+                    y={cy - 11}
+                    fontSize={10}
+                    fontFamily="var(--font-mono)"
+                    fill="var(--ink)"
+                    fontWeight={600}
+                    textAnchor="middle"
+                  >
+                    {fmtBest(p.best, unit)}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+          {/* Warstwa przechwytująca wskaźnik/dotyk */}
+          <rect
+            width={innerW}
+            height={innerH}
+            fill="transparent"
+            onPointerMove={handleMove}
+            onPointerLeave={hideTooltip}
+            onTouchMove={handleMove}
+            onTouchEnd={hideTooltip}
+          />
+        </Group>
+      </svg>
+      {tooltipOpen && tooltipData && (
+        <TooltipInPortal
+          key={Math.random()}
+          top={tooltipTop}
+          left={tooltipLeft}
+          style={{
+            background: "var(--ink)",
+            color: "var(--surface)",
+            fontSize: 11,
+            padding: "6px 8px",
+            borderRadius: 6,
+            lineHeight: 1.4,
+            fontFamily: "var(--font-mono)",
+          }}
+        >
+          <div style={{ fontWeight: 700 }}>
+            {tooltipData.label} · {fmtBest(tooltipData.best, unit)}
+          </div>
+          <div>RPE {tooltipData.avgRpe ?? "—"}</div>
+          {tooltipData.isPr && <div style={{ color: "var(--accent)" }}>nowy rekord ★</div>}
+        </TooltipInPortal>
+      )}
+    </div>
+  );
+}
 
-      {/* Value line */}
-      <path
-        d={linePath}
-        fill="none"
-        stroke="var(--ink)"
-        strokeWidth={2.5}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-        vectorEffect="non-scaling-stroke"
-      />
+/** Format a % change value with sign ("+" prefix for positives). */
+const fmtPct = (pct: number) => `${pct > 0 ? "+" : ""}${Math.round(pct)}%`;
 
-      {/* Dots, colored by RPE; PR dot enlarged with white stroke + label. */}
-      {coords.map(({ x, y, p }, i) => {
-        const isPr = i === prIndex;
-        return (
-          <g key={p.key}>
-            <circle
-              cx={x}
-              cy={y}
-              r={isPr ? 7 : 3.5}
-              fill={rpeColor(p.avgRpe)}
-              stroke={isPr ? "#ffffff" : "none"}
-              strokeWidth={isPr ? 1.5 : 0}
-            >
-              <title>
-                {p.label}: {fmtBest(p.best, unit)} · RPE {p.avgRpe ?? "—"}
-              </title>
-            </circle>
-            {isPr && (
-              <text
-                x={x}
-                y={y - 12}
-                fontSize={11}
-                fontFamily="var(--font-mono)"
-                fill="var(--ink)"
-                fontWeight={600}
-                textAnchor="middle"
-              >
-                {fmtBest(p.best, unit)}
-              </text>
-            )}
-          </g>
-        );
-      })}
-
-      {/* Sparse X labels */}
-      {labelIdx.map((i) => {
-        const anchor = i === 0 ? "start" : i === points.length - 1 ? "end" : "middle";
-        return (
-          <text
-            key={points[i]!.key}
-            x={xAt(i)}
-            y={height - 6}
-            fontSize={10}
-            fontFamily="var(--font-mono)"
-            fill="var(--muted)"
-            textAnchor={anchor}
-          >
-            {points[i]!.label}
-          </text>
-        );
-      })}
-    </svg>
+/** Legenda kolorów RPE pod wykresem rekordu. */
+function RpeLegend() {
+  const items = [
+    { c: "var(--ok)", t: "łatwo" },
+    { c: "var(--warn)", t: "średnio" },
+    { c: "var(--danger)", t: "ciężko" },
+  ];
+  return (
+    <div className="row wrap" style={{ gap: 12, fontSize: 11, marginTop: 8 }}>
+      <span className="muted">kolor = jak ciężko (RPE):</span>
+      {items.map((it) => (
+        <span key={it.t} className="row" style={{ gap: 6, alignItems: "center" }}>
+          <span
+            style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: it.c }}
+          />
+          <span className="muted">{it.t}</span>
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -185,141 +343,81 @@ export function ProgressionLineChart({
 // 2. VolumeBars — one bar per session, height ∝ volume.
 // ============================================================
 
-export function VolumeBars({
-  points,
-  height = 90,
-}: {
-  points: ChartPoint[];
-  height?: number;
-}) {
+export function VolumeBars({ points, height = 110 }: { points: ChartPoint[]; height?: number }) {
   if (points.length === 0) return <NotEnough />;
-
-  const W = 640;
-  const padB = 2;
-  const plotH = height - padB;
-  const max = Math.max(...points.map((p) => p.volume), 1);
-
-  const gap = points.length > 1 ? 4 : 0;
-  const barW = (W - gap * (points.length - 1)) / points.length;
-  const lastIdx = points.length - 1;
-
   return (
-    <svg
-      width="100%"
-      viewBox={`0 0 ${W} ${height}`}
-      role="img"
-      aria-label="Objętość treningowa w czasie"
-      style={{ display: "block", width: "100%", height: "auto" }}
-    >
-      {points.map((p, i) => {
-        const h = Math.max((p.volume / max) * plotH, p.volume > 0 ? 2 : 0);
-        const x = i * (barW + gap);
-        const y = plotH - h;
-        // Mark the latest bar with a darker lime so "now" stands out.
-        const fill = i === lastIdx ? "#9bbf2e" : "var(--accent)";
-        return (
-          <rect key={p.key} x={x} y={y} width={barW} height={h} rx={3} ry={3} fill={fill}>
-            <title>
-              {p.label}: {p.volume}
-            </title>
-          </rect>
-        );
-      })}
-    </svg>
+    <div style={{ width: "100%", height }}>
+      <ParentSize debounceTime={30}>
+        {({ width }) =>
+          width > 0 ? <VolumeBarsInner width={width} height={height} points={points} /> : null
+        }
+      </ParentSize>
+    </div>
   );
 }
 
-// ============================================================
-// 3. RepsVsEffortChart — best vs avgRpe over the same X.
-// ============================================================
+const VB_MARGIN = { top: 8, right: 8, bottom: 20, left: 30 };
 
-export function RepsVsEffortChart({
+function VolumeBarsInner({
+  width,
+  height,
   points,
-  height = 90,
 }: {
+  width: number;
+  height: number;
   points: ChartPoint[];
-  height?: number;
 }) {
-  if (points.length < 2) return <NotEnough />;
-
-  const rpePoints = points
-    .map((p, i) => ({ i, avgRpe: p.avgRpe }))
-    .filter((x): x is { i: number; avgRpe: number } => x.avgRpe != null);
-  const hasRpe = rpePoints.length >= 2;
-
-  const W = 640;
-  const padL = 4;
-  const padR = 4;
-  const padY = 6;
-  const plotW = W - padL - padR;
-  const plotH = height - padY * 2;
-
-  const stepX = plotW / (points.length - 1);
-  const xAt = (i: number) => padL + i * stepX;
-
-  // best on its own min/max domain
-  const bests = points.map((p) => p.best);
-  const bMin = Math.min(...bests);
-  const bMax = Math.max(...bests);
-  const bRange = Math.max(bMax - bMin, 1);
-  const bestY = (v: number) => padY + plotH - ((v - bMin) / bRange) * plotH;
-
-  // RPE on a fixed 1–10 domain
-  const rpeY = (v: number) => padY + plotH - ((v - 1) / 9) * plotH;
-
-  const bestPath = points
-    .map((p, i) => `${i === 0 ? "M" : "L"}${xAt(i).toFixed(1)},${bestY(p.best).toFixed(1)}`)
-    .join(" ");
-  const rpePath = hasRpe
-    ? rpePoints
-        .map((x, k) => `${k === 0 ? "M" : "L"}${xAt(x.i).toFixed(1)},${rpeY(x.avgRpe).toFixed(1)}`)
-        .join(" ")
-    : "";
-
+  const innerW = Math.max(width - VB_MARGIN.left - VB_MARGIN.right, 1);
+  const innerH = Math.max(height - VB_MARGIN.top - VB_MARGIN.bottom, 1);
+  const max = Math.max(...points.map((p) => p.volume), 1);
+  const x = useMemo(
+    () => scaleBand<string>({ domain: points.map((p) => p.key), range: [0, innerW], padding: 0.2 }),
+    [points, innerW],
+  );
+  const y = useMemo(
+    () => scaleLinear<number>({ domain: [0, max], range: [innerH, 0], nice: true }),
+    [max, innerH],
+  );
+  const lastKey = points[points.length - 1]!.key;
   return (
-    <div>
-      <svg
-        width="100%"
-        viewBox={`0 0 ${W} ${height}`}
-        role="img"
-        aria-label="Powtórzenia względem wysiłku"
-        style={{ display: "block", width: "100%", height: "auto" }}
-      >
-        <path
-          d={bestPath}
-          fill="none"
-          stroke="#9bbf2e"
-          strokeWidth={2}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-          vectorEffect="non-scaling-stroke"
+    <svg width={width} height={height} role="img" aria-label="Łączna praca w sesji">
+      <Group left={VB_MARGIN.left} top={VB_MARGIN.top}>
+        <AxisLeft
+          scale={y}
+          numTicks={3}
+          hideAxisLine
+          hideTicks
+          tickLabelProps={() => ({
+            fill: "var(--muted)",
+            fontSize: 9,
+            fontFamily: "var(--font-mono)",
+            textAnchor: "end",
+            dy: "0.33em",
+            dx: "-2",
+          })}
         />
-        {hasRpe && (
-          <path
-            d={rpePath}
-            fill="none"
-            stroke="var(--danger)"
-            strokeWidth={2}
-            strokeLinejoin="round"
-            strokeLinecap="round"
-            strokeDasharray="4 3"
-            vectorEffect="non-scaling-stroke"
-          />
-        )}
-      </svg>
-      <div className="row wrap" style={{ gap: 12, fontSize: 11, marginTop: 8 }}>
-        <div className="row" style={{ gap: 6, alignItems: "center" }}>
-          <LegendDot color="#9bbf2e" />
-          <span className="muted">powtórzenia</span>
-        </div>
-        {hasRpe && (
-          <div className="row" style={{ gap: 6, alignItems: "center" }}>
-            <LegendDot color="var(--danger)" />
-            <span className="muted">wysiłek (RPE)</span>
-          </div>
-        )}
-      </div>
-    </div>
+        {points.map((p) => {
+          const bx = x(p.key) ?? 0;
+          const by = y(p.volume);
+          const h = innerH - by;
+          return (
+            <Bar
+              key={p.key}
+              x={bx}
+              y={by}
+              width={x.bandwidth()}
+              height={Math.max(h, p.volume > 0 ? 2 : 0)}
+              rx={3}
+              fill={p.key === lastKey ? "#9bbf2e" : "var(--accent)"}
+            >
+              <title>
+                {p.label}: {p.volume}
+              </title>
+            </Bar>
+          );
+        })}
+      </Group>
+    </svg>
   );
 }
 
@@ -339,135 +437,248 @@ function LegendDot({ color }: { color: string }) {
 }
 
 // ============================================================
-// 4. ComparisonChart — multiple exercises on one % timeline.
+// 3. ComparisonChart — multiple exercises on one % timeline.
 // ============================================================
 
 // Categorical palette for overlaid comparison lines — distinct hues, not theme tokens.
 const COMPARE_COLORS = ["var(--ink)", "#3f6212", "var(--warn)", "var(--muted)", "var(--danger)"];
 
+const CMP_MARGIN = { top: 12, right: 14, bottom: 24, left: 40 };
+
 export function ComparisonChart({
   series,
-  height = 220,
+  height = 240,
 }: {
   series: ComparisonSeries[];
   height?: number;
 }) {
-  if (series.length === 0) {
-    return <NotEnough text="wybierz co najmniej 2 ćwiczenia do porównania" />;
-  }
+  if (series.length === 0) return <NotEnough text="wybierz co najmniej 2 ćwiczenia do porównania" />;
+  const hasPoints = series.some((s) => s.points.length > 0);
+  if (!hasPoints) return <NotEnough text="brak punktów do porównania" />;
+  return (
+    <div style={{ width: "100%", height }}>
+      <ParentSize debounceTime={30}>
+        {({ width }) =>
+          width > 0 ? <ComparisonInner width={width} height={height} series={series} /> : null
+        }
+      </ParentSize>
+    </div>
+  );
+}
 
-  const W = 640;
-  const padL = 38; // room for Y % labels
-  const padR = 12;
-  const padT = 10;
-  const padB = 8;
-  const plotW = W - padL - padR;
-  const plotH = height - padT - padB;
+function ComparisonInner({
+  width,
+  height,
+  series,
+}: {
+  width: number;
+  height: number;
+  series: ComparisonSeries[];
+}) {
+  const innerW = Math.max(width - CMP_MARGIN.left - CMP_MARGIN.right, 1);
+  const innerH = Math.max(height - CMP_MARGIN.top - CMP_MARGIN.bottom, 1);
 
-  // X domain: absolute time across all series.
-  const allTimes: number[] = [];
-  const allPct: number[] = [];
-  for (const s of series) {
-    for (const pt of s.points) {
-      allTimes.push(new Date(pt.performedOn).getTime());
-      allPct.push(pt.pct);
+  const [minTime, maxTime] = useMemo(() => {
+    let mn = Number.POSITIVE_INFINITY;
+    let mx = Number.NEGATIVE_INFINITY;
+    for (const s of series) {
+      for (const pt of s.points) {
+        const t = new Date(pt.performedOn).getTime();
+        if (t < mn) mn = t;
+        if (t > mx) mx = t;
+      }
     }
-  }
-  if (allTimes.length === 0) {
-    return <NotEnough text="brak punktów do porównania" />;
-  }
+    return [mn, mx] as const;
+  }, [series]);
 
-  const tMin = Math.min(...allTimes);
-  const tMax = Math.max(...allTimes);
-  const tRange = Math.max(tMax - tMin, 1);
-  const xAt = (t: number) => padL + ((t - tMin) / tRange) * plotW;
+  const [pMin, pMax] = useMemo(() => {
+    let mn = 0;
+    let mx = 0;
+    for (const s of series) {
+      for (const pt of s.points) {
+        if (pt.pct < mn) mn = pt.pct;
+        if (pt.pct > mx) mx = pt.pct;
+      }
+    }
+    return [mn, mx] as const;
+  }, [series]);
 
-  // Y domain: percent, always including 0.
-  const pMin = Math.min(0, ...allPct);
-  const pMax = Math.max(...allPct, 0);
-  const pRange = Math.max(pMax - pMin, 1);
-  const yAt = (pct: number) => padT + plotH - ((pct - pMin) / pRange) * plotH;
+  const xScale = useMemo(() => {
+    // Guard a degenerate domain: if every in-range session shares one date
+    // (e.g. two logs the same day), minTime===maxTime → scaleTime would map
+    // every point to x=0. Pad by ±12h so the points spread around the center.
+    const HALF_DAY = 12 * 60 * 60 * 1000;
+    const [d0, d1] = minTime === maxTime ? [minTime - HALF_DAY, maxTime + HALF_DAY] : [minTime, maxTime];
+    return scaleTime<number>({ domain: [d0, d1], range: [0, innerW] });
+  }, [minTime, maxTime, innerW]);
+  const yScale = useMemo(
+    () => scaleLinear<number>({ domain: [pMin, pMax], range: [innerH, 0], nice: true }),
+    [pMin, pMax, innerH],
+  );
 
-  const fmtPct = (pct: number) => `${pct > 0 ? "+" : ""}${Math.round(pct)}%`;
+  const { showTooltip, hideTooltip, tooltipData, tooltipLeft, tooltipTop, tooltipOpen } =
+    useTooltip<{ dateMs: number; rows: Array<{ name: string; pct: number; color: string }> }>();
+  const { containerRef, TooltipInPortal } = useTooltipInPortal({
+    detectBounds: true,
+    scroll: true,
+  });
 
-  // Gridlines / Y labels: a few evenly-spaced ticks plus the 0 baseline.
-  const ticks = [pMin, pMin + pRange / 2, pMax];
-  const baselineY = yAt(0);
+  const handleMove = useCallback(
+    (event: React.PointerEvent<SVGRectElement> | React.TouchEvent<SVGRectElement>) => {
+      const coords = localPoint(event.nativeEvent);
+      if (!coords) return;
+      const tMs = xScale.invert(coords.x - CMP_MARGIN.left).getTime();
+      const rows = series.map((s, si) => {
+        let nearest = s.points[0];
+        let bestD = Number.POSITIVE_INFINITY;
+        for (const pt of s.points) {
+          const d = Math.abs(new Date(pt.performedOn).getTime() - tMs);
+          if (d < bestD) {
+            bestD = d;
+            nearest = pt;
+          }
+        }
+        return {
+          name: s.name,
+          pct: nearest?.pct ?? 0,
+          color: COMPARE_COLORS[si % COMPARE_COLORS.length]!,
+        };
+      });
+      showTooltip({
+        tooltipData: { dateMs: tMs, rows },
+        tooltipLeft: coords.x,
+        tooltipTop: CMP_MARGIN.top,
+      });
+    },
+    [series, xScale, showTooltip],
+  );
 
   return (
-    <svg
-      width="100%"
-      viewBox={`0 0 ${W} ${height}`}
-      role="img"
-      aria-label="Porównanie progresji ćwiczeń"
-      style={{ display: "block", width: "100%", height: "auto" }}
-    >
-      {/* Faint gridlines + Y labels */}
-      {ticks.map((t) => {
-        const y = yAt(t);
-        return (
-          <g key={t}>
+    <div ref={containerRef} style={{ position: "relative" }}>
+      <svg width={width} height={height} role="img" aria-label="Porównanie progresji ćwiczeń">
+        <Group left={CMP_MARGIN.left} top={CMP_MARGIN.top}>
+          <GridRows scale={yScale} width={innerW} numTicks={4} stroke="var(--line)" opacity={0.4} />
+          <AxisLeft
+            scale={yScale}
+            numTicks={4}
+            hideAxisLine
+            hideTicks
+            tickFormat={(v) => fmtPct(Number(v))}
+            tickLabelProps={() => ({
+              fill: "var(--muted)",
+              fontSize: 9,
+              fontFamily: "var(--font-mono)",
+              textAnchor: "end",
+              dy: "0.33em",
+              dx: "-2",
+            })}
+          />
+          <AxisBottom
+            top={innerH}
+            scale={xScale}
+            numTicks={3}
+            hideTicks
+            stroke="var(--line)"
+            tickFormat={(d) => {
+              const dt = d as Date;
+              return `${String(dt.getDate()).padStart(2, "0")}.${String(dt.getMonth() + 1).padStart(2, "0")}`;
+            }}
+            tickLabelProps={() => ({
+              fill: "var(--muted)",
+              fontSize: 9,
+              fontFamily: "var(--font-mono)",
+              textAnchor: "middle",
+            })}
+          />
+          {/* mocna linia 0% */}
+          <line
+            x1={0}
+            x2={innerW}
+            y1={yScale(0)}
+            y2={yScale(0)}
+            stroke="var(--line-2)"
+            strokeWidth={1.5}
+          />
+          {series.map((s, si) => {
+            const color = COMPARE_COLORS[si % COMPARE_COLORS.length]!;
+            if (s.points.length === 0) return null;
+            const last = s.points[s.points.length - 1]!;
+            return (
+              <g key={s.exerciseId}>
+                <LinePath
+                  data={s.points}
+                  x={(pt) => xScale(new Date(pt.performedOn).getTime())}
+                  y={(pt) => yScale(pt.pct)}
+                  stroke={color}
+                  strokeWidth={2}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                />
+                <circle
+                  cx={xScale(new Date(last.performedOn).getTime())}
+                  cy={yScale(last.pct)}
+                  r={3}
+                  fill={color}
+                />
+              </g>
+            );
+          })}
+          {tooltipOpen && tooltipData && tooltipLeft != null && (
             <line
-              x1={padL}
-              y1={y}
-              x2={W - padR}
-              y2={y}
-              stroke="var(--line)"
-              strokeWidth={1}
-              opacity={0.5}
+              x1={tooltipLeft - CMP_MARGIN.left}
+              x2={tooltipLeft - CMP_MARGIN.left}
+              y1={0}
+              y2={innerH}
+              stroke="var(--line-2)"
+              strokeDasharray="3 3"
             />
-            <text
-              x={padL - 6}
-              y={y + 3}
-              fontSize={10}
-              fontFamily="var(--font-mono)"
-              fill="var(--muted)"
-              textAnchor="end"
-            >
-              {fmtPct(t)}
-            </text>
-          </g>
-        );
-      })}
-
-      {/* Solid 0% baseline */}
-      <line
-        x1={padL}
-        y1={baselineY}
-        x2={W - padR}
-        y2={baselineY}
-        stroke="var(--line-2)"
-        strokeWidth={1.5}
-      />
-
-      {/* One polyline per series + end dot */}
-      {series.map((s, si) => {
-        const color = COMPARE_COLORS[si % COMPARE_COLORS.length]!;
-        const pts = s.points.map((pt) => ({
-          x: xAt(new Date(pt.performedOn).getTime()),
-          y: yAt(pt.pct),
-        }));
-        if (pts.length === 0) return null;
-        const path = pts
-          .map((c, i) => `${i === 0 ? "M" : "L"}${c.x.toFixed(1)},${c.y.toFixed(1)}`)
-          .join(" ");
-        const last = pts[pts.length - 1]!;
-        return (
-          <g key={s.exerciseId}>
-            <path
-              d={path}
-              fill="none"
-              stroke={color}
-              strokeWidth={2}
-              strokeLinejoin="round"
-              strokeLinecap="round"
-              vectorEffect="non-scaling-stroke"
-            />
-            <circle cx={last.x} cy={last.y} r={3} fill={color} />
-          </g>
-        );
-      })}
-    </svg>
+          )}
+          <rect
+            width={innerW}
+            height={innerH}
+            fill="transparent"
+            onPointerMove={handleMove}
+            onPointerLeave={hideTooltip}
+            onTouchMove={handleMove}
+            onTouchEnd={hideTooltip}
+          />
+        </Group>
+      </svg>
+      {tooltipOpen && tooltipData && (
+        <TooltipInPortal
+          key={Math.random()}
+          top={tooltipTop}
+          left={tooltipLeft}
+          style={{
+            background: "var(--ink)",
+            color: "var(--surface)",
+            fontSize: 11,
+            padding: "6px 8px",
+            borderRadius: 6,
+            lineHeight: 1.5,
+            fontFamily: "var(--font-mono)",
+          }}
+        >
+          {tooltipData.rows.map((r) => (
+            <div key={r.name} className="row" style={{ gap: 6, alignItems: "center" }}>
+              <span
+                style={{
+                  display: "inline-block",
+                  width: 8,
+                  height: 8,
+                  borderRadius: 2,
+                  background: r.color,
+                }}
+              />
+              <span>
+                {r.name}: {r.pct > 0 ? "+" : ""}
+                {Math.round(r.pct)}%
+              </span>
+            </div>
+          ))}
+        </TooltipInPortal>
+      )}
+    </div>
   );
 }
 
@@ -486,7 +697,7 @@ export function ComparisonChartLegend({ series }: { series: ComparisonSeries[] }
 }
 
 // ============================================================
-// 5. ProgressionStatusBadge — small pill describing trend.
+// 4. ProgressionStatusBadge — small pill describing trend.
 // ============================================================
 
 const STATUS_META: Record<

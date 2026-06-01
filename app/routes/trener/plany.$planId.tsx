@@ -121,7 +121,7 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 // ============================================================
-// Action: save / publish / discard. Intents arrive in the `intent` field.
+// Action: save / publish / delete. Intents arrive in the `intent` field.
 // ============================================================
 
 export async function action(args: ActionFunctionArgs) {
@@ -408,15 +408,15 @@ function PlanEditor() {
             {` · dla ${trainee.displayName}`}
           </div>
           <input
+            className="inline-edit"
             value={state.name}
             onChange={(e) => setState((p) => ({ ...p, name: e.target.value }))}
             placeholder="Nazwa planu"
+            aria-label="Nazwa planu"
             maxLength={120}
             style={{
               fontSize: 28,
               fontWeight: 600,
-              border: 0,
-              background: "transparent",
               width: "100%",
               padding: 0,
               fontFamily: "var(--font-display)",
@@ -899,7 +899,9 @@ function SessionCard({
   return (
     <div
       style={{
-        background: "var(--surface)",
+        // Collapsed sessions sink to the "well" surface so a long plan is
+        // scannable at a glance (open = white editing surface, collapsed = grey).
+        background: collapsed ? "var(--surface-2)" : "var(--surface)",
         border: "1px solid var(--line)",
         borderRadius: 12,
         padding: 16,
@@ -945,17 +947,17 @@ function SessionCard({
           #{String(index + 1).padStart(2, "0")}
         </span>
         <input
+          className="inline-edit"
           value={session.name}
           onChange={(e) => onChange({ ...session, name: e.target.value })}
           placeholder="Nazwa sesji"
+          aria-label="Nazwa sesji"
           maxLength={80}
           style={{
             flex: 1,
             fontSize: 15,
             fontWeight: 500,
-            border: 0,
-            background: "transparent",
-            padding: "4px 0",
+            padding: "4px 6px",
             fontFamily: "inherit",
             color: "var(--ink)",
           }}

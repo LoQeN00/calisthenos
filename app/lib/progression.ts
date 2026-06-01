@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import {
@@ -37,12 +37,15 @@ async function loadProgressionSessions(
   traineeId: string,
   exerciseId?: string,
 ): Promise<Map<string, RawSession[]>> {
-  const where = exerciseId
+  const base = exerciseId
     ? and(
         eq(schema.workoutLogs.traineeId, traineeId),
         eq(schema.workoutExerciseLogs.exerciseId, exerciseId),
       )
     : eq(schema.workoutLogs.traineeId, traineeId);
+  // Zarchiwizowane ćwiczenia znikają z Rozwoju (lista „Pozostałe ćwiczenia" oraz
+  // szczegół ćwiczenia → 404) — pełna symetria z biblioteką i pickerami.
+  const where = and(base, isNull(schema.exercises.archivedAt));
 
   const rows = await db
     .select({
@@ -245,6 +248,8 @@ export interface ComparisonSeries {
   exerciseId: string;
   name: string;
   unit: "REPS" | "SEC";
+  startValue: number; // best na początku okresu (surowo)
+  endValue: number; // best na końcu okresu (surowo)
   points: Array<{ performedOn: string; pct: number }>;
 }
 
@@ -282,6 +287,8 @@ export async function getProgressionComparison(
       exerciseId: id,
       name: group[0]!.name,
       unit: group[0]!.unit,
+      startValue: inRange[0]!.best,
+      endValue: inRange[inRange.length - 1]!.best,
       points: inRange.map((p, i) => ({ performedOn: p.performedOn, pct: pct[i]! })),
     });
   }

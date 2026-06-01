@@ -12,12 +12,30 @@ import { ConfirmSubmitButton } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
 import { ListControls } from "~/components/list-controls";
 import { Pagination, parsePage } from "~/components/pagination";
+import {
+  ActivityHeatmapCard,
+  CoverageCard,
+  HealthTilesCard,
+  PlateauCard,
+  PlanUsageCard,
+  TagDistributionCard,
+} from "~/components/trainee-health";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import { daysAgo, fmtDate, pluralizePl, type PlForms } from "~/lib/format";
 import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
 import { deletePlan, PlanRepoError } from "~/lib/plans";
+import {
+  getActivePlanSessionUsage,
+  getActivityHeatmap,
+  getBodyPhotoCoverage,
+  getCurrentPlanTotals,
+  getHealthStats,
+  getPlateauExercises,
+  getTagDistribution,
+  getVideoCoverage,
+} from "~/lib/stats";
 import { deleteTraineeFully, TraineeDeleteError } from "~/lib/trainees";
 import { countLogsForTrainee, listLogsForTrainee, type LogSort } from "~/lib/workouts";
 
@@ -80,7 +98,20 @@ export async function loader(args: LoaderFunctionArgs) {
   const draftPlan = plans.find((p) => p.status === "draft") ?? null;
 
   const video = (controls.filters.video ?? "all") as "all" | "with" | "without";
-  const totalLogs = await countLogsForTrainee(db, traineeId, { q: controls.q, video });
+
+  const [totalLogs, health, heatmap, plateau, planUsage, planTotals, videoCov, photoCov, tagDist] =
+    await Promise.all([
+      countLogsForTrainee(db, traineeId, { q: controls.q, video }),
+      getHealthStats(db, traineeId),
+      getActivityHeatmap(db, traineeId, 12),
+      getPlateauExercises(db, traineeId),
+      getActivePlanSessionUsage(db, traineeId),
+      getCurrentPlanTotals(db, traineeId),
+      getVideoCoverage(db, traineeId, 30),
+      getBodyPhotoCoverage(db, traineeId),
+      getTagDistribution(db, traineeId, 30),
+    ]);
+
   const totalLogPages = Math.max(1, Math.ceil(totalLogs / LOGS_PAGE_SIZE));
   const safeLogsPage = Math.min(logsPage, totalLogPages);
   const logsOffset = (safeLogsPage - 1) * LOGS_PAGE_SIZE;
@@ -102,6 +133,14 @@ export async function loader(args: LoaderFunctionArgs) {
     totalLogs,
     spec,
     controls,
+    health,
+    heatmap,
+    plateau,
+    planUsage,
+    planTotals,
+    videoCov,
+    photoCov,
+    tagDist,
   };
 }
 
@@ -157,8 +196,25 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function TrenerPodopiecznyDetail() {
-  const { trainee, activePlan, draftPlan, logs, logsPage, totalLogPages, totalLogs, spec, controls } =
-    useLoaderData<typeof loader>();
+  const {
+    trainee,
+    activePlan,
+    draftPlan,
+    logs,
+    logsPage,
+    totalLogPages,
+    totalLogs,
+    spec,
+    controls,
+    health,
+    heatmap,
+    plateau,
+    planUsage,
+    planTotals,
+    videoCov,
+    photoCov,
+    tagDist,
+  } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
 
   return (
@@ -186,11 +242,8 @@ export default function TrenerPodopiecznyDetail() {
           )}
         </div>
         <div className="row" style={{ gap: 8 }}>
-          <Link to={`/trener/podopieczni/${trainee.id}/statystyki`} className="btn">
-            <Icons.Chart /> Statystyki
-          </Link>
-          <Link to={`/trener/podopieczni/${trainee.id}/progresja`} className="btn">
-            <Icons.Trend /> Progresja
+          <Link to={`/trener/podopieczni/${trainee.id}/rozwoj`} className="btn">
+            <Icons.Trend /> Rozwój
           </Link>
           <Link to={`/trener/podopieczni/${trainee.id}/sylwetka`} className="btn">
             <Icons.Camera /> Sylwetka
@@ -205,6 +258,8 @@ export default function TrenerPodopiecznyDetail() {
           )}
         </div>
       </div>
+
+      <HealthTilesCard health={health} />
 
       {actionData != null && "success" in actionData && actionData.success != null && (
         <output
@@ -327,6 +382,16 @@ export default function TrenerPodopiecznyDetail() {
         </div>
       )}
 
+      <ActivityHeatmapCard days={heatmap} />
+      <PlateauCard plateau={plateau} />
+      <PlanUsageCard usage={planUsage} totals={planTotals} />
+      <CoverageCard video={videoCov} photos={photoCov} traineeId={trainee.id} />
+      <TagDistributionCard
+        shares={tagDist.shares}
+        untagged={tagDist.untagged}
+        total={tagDist.totalExerciseLogs}
+      />
+
       <h2 style={{ margin: "28px 0 12px", fontSize: 17 }}>Historia treningów</h2>
       <ListControls spec={spec} state={controls} searchPlaceholder="Szukaj po nazwie sesji…" />
       {totalLogs === 0 ? (
@@ -350,7 +415,13 @@ export default function TrenerPodopiecznyDetail() {
                   <div className="text-xs muted" style={{ marginTop: 2 }}>
                     <span className="mono">{log.exerciseCount}</span> ćwiczeń ·{" "}
                     <span className="mono">{log.setCount}</span> serii · śr.{" "}
-                    {log.avgDifficulty == null ? "—" : <><span className="mono">{log.avgDifficulty}</span>/10</>}
+                    {log.avgDifficulty == null ? (
+                      "—"
+                    ) : (
+                      <>
+                        <span className="mono">{log.avgDifficulty}</span>/10
+                      </>
+                    )}
                     {log.hasVideo && " · video"}
                     {log.note && (
                       <span style={{ fontStyle: "italic", color: "var(--ink-2)" }}>
@@ -452,10 +523,7 @@ function DeletePlanForm({ planId, planName }: { planId: string; planName: string
 function DifficultyBadge({ avg }: { avg: number | null }) {
   if (avg == null) {
     return (
-      <span
-        className="badge"
-        style={{ color: "var(--muted)" }}
-      >
+      <span className="badge" style={{ color: "var(--muted)" }}>
         —
       </span>
     );

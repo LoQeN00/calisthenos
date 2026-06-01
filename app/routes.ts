@@ -15,6 +15,9 @@ export default [
       route("plany", "routes/trener/plany._index.tsx"),
       route("plany/nowy", "routes/trener/plany.nowy.tsx"),
       route("plany/:planId", "routes/trener/plany.$planId.tsx"),
+      route("umiejetnosci", "routes/trener/umiejetnosci._index.tsx"),
+      route("umiejetnosci/nowa", "routes/trener/umiejetnosci.nowa.tsx"),
+      route("umiejetnosci/:skillId", "routes/trener/umiejetnosci.$skillId.tsx"),
       route("podopieczni", "routes/trener/podopieczni._index.tsx"),
       route("podopieczni/:traineeId", "routes/trener/podopieczni.$traineeId.tsx"),
       route(
@@ -27,6 +30,22 @@ export default [
         "routes/trener/podopieczni.$traineeId.statystyki.tsx",
       ),
       route(
+        "podopieczni/:traineeId/rozwoj",
+        "routes/trener/podopieczni.$traineeId.rozwoj._index.tsx",
+      ),
+      route(
+        "podopieczni/:traineeId/rozwoj/umiejetnosc/:skillId",
+        "routes/trener/podopieczni.$traineeId.rozwoj.umiejetnosc.$skillId.tsx",
+      ),
+      route(
+        "podopieczni/:traineeId/rozwoj/cwiczenie/:exerciseId",
+        "routes/trener/podopieczni.$traineeId.rozwoj.cwiczenie.$exerciseId.tsx",
+      ),
+      route(
+        "podopieczni/:traineeId/rozwoj/porownanie",
+        "routes/trener/podopieczni.$traineeId.rozwoj.porownanie.tsx",
+      ),
+      route(
         "podopieczni/:traineeId/progresja",
         "routes/trener/podopieczni.$traineeId.progresja._index.tsx",
       ),
@@ -37,6 +56,14 @@ export default [
       route(
         "podopieczni/:traineeId/progresja/porownanie",
         "routes/trener/podopieczni.$traineeId.progresja.porownanie.tsx",
+      ),
+      route(
+        "podopieczni/:traineeId/umiejetnosci",
+        "routes/trener/podopieczni.$traineeId.umiejetnosci.tsx",
+      ),
+      route(
+        "podopieczni/:traineeId/umiejetnosci/:skillId",
+        "routes/trener/podopieczni.$traineeId.umiejetnosci.$skillId.tsx",
       ),
       route(
         "podopieczni/:traineeId/konsultacje",
@@ -61,12 +88,18 @@ export default [
       route("historia", "routes/podopieczny/historia._index.tsx"),
       route("historia/:logId", "routes/podopieczny/historia.$logId.tsx"),
       route("statystyki", "routes/podopieczny/statystyki.tsx"),
+      route("rozwoj", "routes/podopieczny/rozwoj._index.tsx"),
+      route("rozwoj/umiejetnosc/:skillId", "routes/podopieczny/rozwoj.umiejetnosc.$skillId.tsx"),
+      route("rozwoj/cwiczenie/:exerciseId", "routes/podopieczny/rozwoj.cwiczenie.$exerciseId.tsx"),
+      route("rozwoj/porownanie", "routes/podopieczny/rozwoj.porownanie.tsx"),
       route("progresja", "routes/podopieczny/progresja._index.tsx"),
       route("progresja/:exerciseId", "routes/podopieczny/progresja.$exerciseId.tsx"),
       route("progresja/porownanie", "routes/podopieczny/progresja.porownanie.tsx"),
       route("sylwetka", "routes/podopieczny/sylwetka.tsx"),
       route("konsultacje", "routes/podopieczny/konsultacje._index.tsx"),
       route("konsultacje/:konsultacjaId", "routes/podopieczny/konsultacje.$konsultacjaId.tsx"),
+      route("umiejetnosci", "routes/podopieczny/umiejetnosci.tsx"),
+      route("umiejetnosci/:skillId", "routes/podopieczny/umiejetnosci.$skillId.tsx"),
     ]),
     // Wrapped lives OUTSIDE the sidenav layout so it can render full-screen.
     route("wrapped/:ym", "routes/podopieczny/wrapped.$ym.tsx"),

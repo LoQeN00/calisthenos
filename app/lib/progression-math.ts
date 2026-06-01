@@ -4,15 +4,15 @@ export type ProgressionStatus = "up" | "flat" | "down" | "new";
 /** One logged session for a single exercise. Chronological order is caller's responsibility. */
 export interface SessionPoint {
   performedOn: string; // YYYY-MM-DD
-  best: number;        // max reps/sec across sets in the session
-  avgReps: number;     // mean reps across sets (used for status, mirrors stats.ts)
+  best: number; // max reps/sec across sets in the session
+  avgReps: number; // mean reps across sets (used for status, mirrors stats.ts)
   avgRpe: number | null; // mean difficulty 1–10; null gdy żadna seria nie ma oceny
-  volume: number;      // sum of reps/sec across sets
+  volume: number; // sum of reps/sec across sets
 }
 
 /** A point ready to render on the hero/volume/effort charts. */
 export interface ChartPoint {
-  key: string;   // unique x key (date or week-start)
+  key: string; // unique x key (date or week-start)
   label: string; // short x label "DD.MM"
   best: number;
   avgRpe: number | null; // mean difficulty 1–10; null gdy żadna seria nie ma oceny
@@ -127,16 +127,20 @@ export interface StatusSummary {
 }
 
 /** Mirrors stats.ts getExerciseProgress thresholds: <5 sessions → "new"; ±5% band. */
-export function classifyStatus(recentAvg: number, priorAvg: number, totalSessions: number): ProgressionStatus {
+export function classifyStatus(
+  recentAvg: number,
+  priorAvg: number,
+  totalSessions: number,
+): ProgressionStatus {
   if (totalSessions < 5) return "new";
   const deltaPct = priorAvg === 0 ? 0 : ((recentAvg - priorAvg) / priorAvg) * 100;
   return deltaPct > 5 ? "up" : deltaPct < -5 ? "down" : "flat";
 }
 
-/** sessions newest-first → status from avgReps of recent 4 vs prior 4. */
+/** sessions newest-first → status z best (rekordu) recent 4 vs prior 4. */
 export function statusFromSessions(sessionsNewestFirst: SessionPoint[]): ProgressionStatus {
-  const recent = sessionsNewestFirst.slice(0, 4).map((s) => s.avgReps);
-  const prior = sessionsNewestFirst.slice(4, 8).map((s) => s.avgReps);
+  const recent = sessionsNewestFirst.slice(0, 4).map((s) => s.best);
+  const prior = sessionsNewestFirst.slice(4, 8).map((s) => s.best);
   return classifyStatus(mean(recent), mean(prior), sessionsNewestFirst.length);
 }
 
@@ -190,4 +194,18 @@ export function summarizeStatuses(rows: Array<{ status: ProgressionStatus }>): S
   const out: StatusSummary = { up: 0, flat: 0, down: 0, new: 0 };
   for (const r of rows) out[r.status] += 1;
   return out;
+}
+
+/** Polski skrót jednostki ćwiczenia do etykiet UI. */
+export function unitLabelPl(unit: "REPS" | "SEC"): string {
+  return unit === "SEC" ? "sek." : "powt.";
+}
+
+/** Czysty filtr: zwraca nową listę bez wierszy, których exerciseId jest w `ids`. */
+export function excludeByExerciseId(
+  rows: ProgressionListRow[],
+  ids: Set<string>,
+): ProgressionListRow[] {
+  if (ids.size === 0) return [...rows];
+  return rows.filter((r) => !ids.has(r.exerciseId));
 }

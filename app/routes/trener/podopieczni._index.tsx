@@ -274,7 +274,7 @@ export default function TrenerPodopieczniList() {
                   <span className="muted">brak sesji</span>
                 )}
                 {c.totalSessions > 0 && (
-                  <span className="muted-2" style={{ marginLeft: 6 }}>
+                  <span className="muted" style={{ marginLeft: 6 }}>
                     · <span className="mono">{c.totalSessions}</span>
                   </span>
                 )}

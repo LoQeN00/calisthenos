@@ -7,10 +7,12 @@ import {
   markPrs,
   classifyStatus,
   statusFromSessions,
+  unitLabelPl,
   computePeriodChangePct,
   normalizeToPctFromStart,
   sortProgressionRows,
   summarizeStatuses,
+  excludeByExerciseId,
   type SessionPoint,
   type ProgressionListRow,
 } from "./progression-math";
@@ -99,10 +101,31 @@ describe("classifyStatus", () => {
 });
 
 describe("statusFromSessions (newest-first)", () => {
-  it("averages recent 4 vs prior 4 of avgReps", () => {
-    const mk = (avgReps: number): SessionPoint => sp("2026-01-01", avgReps, avgReps);
+  it("averages recent 4 vs prior 4 of best", () => {
+    const mk = (best: number): SessionPoint => sp("2026-01-01", best, best);
     const rows = [mk(10), mk(10), mk(10), mk(10), mk(8), mk(8), mk(8), mk(8)];
     expect(statusFromSessions(rows)).toBe("up");
+  });
+});
+
+describe("statusFromSessions liczy z best (nie avgReps)", () => {
+  it("rośnie, gdy best ostatnich 4 > poprzednich 4, mimo płaskiego avgReps", () => {
+    // avgReps stałe = 5, ale best rośnie z 8 → 12
+    const mk = (best: number): SessionPoint => sp("2026-01-01", best, 5, 7, best * 3);
+    const rows = [mk(12), mk(12), mk(12), mk(12), mk(8), mk(8), mk(8), mk(8)];
+    expect(statusFromSessions(rows)).toBe("up");
+  });
+  it("spada, gdy best ostatnich 4 < poprzednich 4", () => {
+    const mk = (best: number): SessionPoint => sp("2026-01-01", best, 5, 7, best * 3);
+    const rows = [mk(8), mk(8), mk(8), mk(8), mk(12), mk(12), mk(12), mk(12)];
+    expect(statusFromSessions(rows)).toBe("down");
+  });
+});
+
+describe("unitLabelPl", () => {
+  it("mapuje jednostki na polskie skróty", () => {
+    expect(unitLabelPl("REPS")).toBe("powt.");
+    expect(unitLabelPl("SEC")).toBe("sek.");
   });
 });
 
@@ -193,5 +216,37 @@ describe("markPrs z nullowalnym RPE", () => {
     expect(out[0]!.avgRpe).toBeNull();
     expect(out[1]!.avgRpe).toBe(6);
     expect(out.map((p) => p.isPr)).toEqual([true, true]);
+  });
+});
+
+describe("excludeByExerciseId", () => {
+  const row = (exerciseId: string): ProgressionListRow => ({
+    exerciseId,
+    name: exerciseId,
+    unit: "REPS",
+    tags: [],
+    sessionCount: 1,
+    lastPerformedOn: "2026-06-01",
+    pr: 10,
+    prAchievedOn: "2026-06-01",
+    sparkline: [10],
+    status: "new",
+  });
+
+  it("usuwa wiersze, których exerciseId jest w zbiorze", () => {
+    const rows = [row("a"), row("b"), row("c")];
+    const out = excludeByExerciseId(rows, new Set(["b"]));
+    expect(out.map((r) => r.exerciseId)).toEqual(["a", "c"]);
+  });
+
+  it("pusty zbiór = brak zmian", () => {
+    const rows = [row("a"), row("b")];
+    expect(excludeByExerciseId(rows, new Set())).toHaveLength(2);
+  });
+
+  it("nie mutuje wejścia", () => {
+    const rows = [row("a"), row("b")];
+    excludeByExerciseId(rows, new Set(["a"]));
+    expect(rows).toHaveLength(2);
   });
 });

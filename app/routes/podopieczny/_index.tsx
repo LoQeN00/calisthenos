@@ -1,13 +1,19 @@
-import { and, count, eq, gte } from "drizzle-orm";
 import { useEffect, useState } from "react";
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
+import {
+  ActivityHeatmapCard,
+  EffortBalanceCard,
+  HeroStatsCard,
+  ThisWeekCard,
+  WrappedListRow,
+} from "~/components/trainee-stats";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
 import { daysAgo, fmtDate, fmtDateShort } from "~/lib/format";
+import { getActivityHeatmap, getEffortBalance, getHeroStats, getThisWeekStats } from "~/lib/stats";
 import { listLogsForTrainee, loadActivePlanSummaryForTrainee } from "~/lib/workouts";
-import { getLatestAvailableWrapped } from "~/lib/wrapped";
+import { getAvailableWrappedMonths, getLatestAvailableWrapped } from "~/lib/wrapped";
 
 // ============================================================
 // Wrapped banner — appears when the previous month's wrapped is fresh and
@@ -117,51 +123,49 @@ function WrappedBanner({
   );
 }
 
-function isoDaysAgo(n: number): string {
-  return new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-}
-
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainee" });
-  const planSummary = await loadActivePlanSummaryForTrainee(db, user.id);
-  const recent = await listLogsForTrainee(db, user.id, { limit: 5 });
-
-  const sevenDaysAgo = isoDaysAgo(7);
-  const [weekRow] = await db
-    .select({ c: count() })
-    .from(schema.workoutLogs)
-    .where(
-      and(
-        eq(schema.workoutLogs.traineeId, user.id),
-        gte(schema.workoutLogs.performedOn, sevenDaysAgo),
-      ),
-    );
-  const [totalRow] = await db
-    .select({ c: count() })
-    .from(schema.workoutLogs)
-    .where(eq(schema.workoutLogs.traineeId, user.id));
-
-  // Latest wrapped (previous calendar month, if it has data). Banner is
-  // suppressed client-side once the trainee opens the wrapped.
-  const latestWrapped = await getLatestAvailableWrapped(db, user.id);
+  const [planSummary, recent, hero, thisWeek, heatmap, effort, wrappedMonths, latestWrapped] =
+    await Promise.all([
+      loadActivePlanSummaryForTrainee(db, user.id),
+      listLogsForTrainee(db, user.id, { limit: 5 }),
+      getHeroStats(db, user.id),
+      getThisWeekStats(db, user.id),
+      getActivityHeatmap(db, user.id, 26),
+      getEffortBalance(db, user.id),
+      getAvailableWrappedMonths(db, user.id),
+      // Latest wrapped (previous calendar month, if it has data). Banner is
+      // suppressed client-side once the trainee opens the wrapped.
+      getLatestAvailableWrapped(db, user.id),
+    ]);
 
   return {
     user,
     planSummary,
     recent,
-    stats: {
-      weekSessions: Number(weekRow?.c ?? 0),
-      totalSessions: Number(totalRow?.c ?? 0),
-    },
+    hero,
+    thisWeek,
+    heatmap,
+    effort,
+    wrappedMonths,
     latestWrapped,
   };
 }
 
 export default function TraineeDashboard() {
-  const { user, planSummary, recent, stats, latestWrapped } = useLoaderData<typeof loader>();
+  const {
+    user,
+    planSummary,
+    recent,
+    hero,
+    thisWeek,
+    heatmap,
+    effort,
+    wrappedMonths,
+    latestWrapped,
+  } = useLoaderData<typeof loader>();
 
   const firstName = user.displayName.split(" ")[0] ?? user.displayName;
-  const lastSessionLabel = recent[0]?.performedOn ? daysAgo(recent[0].performedOn) : null;
 
   return (
     <div>
@@ -193,40 +197,7 @@ export default function TraineeDashboard() {
         )}
       </div>
 
-      {stats.totalSessions > 0 && (
-        <div
-          className="card"
-          style={{
-            display: "flex",
-            gap: 28,
-            padding: "16px 20px",
-            marginBottom: 20,
-            alignItems: "center",
-            flexWrap: "wrap",
-          }}
-        >
-          <div className="stat">
-            <div className="v">{stats.weekSessions}</div>
-            <div className="k">w tym tygodniu</div>
-          </div>
-          <span className="vdiv" style={{ height: 36 }} />
-          <Link to="/podopieczny/historia" className="stat" style={{ textDecoration: "none" }}>
-            <div className="v">{stats.totalSessions}</div>
-            <div className="k">łącznie sesji</div>
-          </Link>
-          {lastSessionLabel && (
-            <>
-              <span className="vdiv" style={{ height: 36 }} />
-              <div className="stat">
-                <div className="v" style={{ fontSize: 18 }}>
-                  {lastSessionLabel}
-                </div>
-                <div className="k">ostatnia sesja</div>
-              </div>
-            </>
-          )}
-        </div>
-      )}
+      {hero.totalSessions > 0 && <HeroStatsCard hero={hero} />}
 
       {planSummary == null ? (
         <div className="empty" style={{ marginBottom: 22 }}>
@@ -305,7 +276,18 @@ export default function TraineeDashboard() {
         </div>
       )}
 
-      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+      {hero.totalSessions > 0 && (
+        <>
+          <ThisWeekCard thisWeek={thisWeek} />
+          <ActivityHeatmapCard days={heatmap} />
+          <EffortBalanceCard effort={effort} />
+        </>
+      )}
+
+      <div
+        className="grid"
+        style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 20 }}
+      >
         {planSummary != null && planSummary.sessions.length > 0 && (
           <section>
             <div className="row between" style={{ alignItems: "baseline", marginBottom: 10 }}>
@@ -385,7 +367,13 @@ export default function TraineeDashboard() {
                     <div style={{ fontSize: 13.5, fontWeight: 500 }}>{log.sessionName}</div>
                     <div className="text-xs muted" style={{ marginTop: 2 }}>
                       <span className="mono">{log.exerciseCount}</span> ćwiczeń · trudność{" "}
-                      {log.avgDifficulty == null ? "—" : <><span className="mono">{log.avgDifficulty}</span>/10</>}
+                      {log.avgDifficulty == null ? (
+                        "—"
+                      ) : (
+                        <>
+                          <span className="mono">{log.avgDifficulty}</span>/10
+                        </>
+                      )}
                     </div>
                   </div>
                   <Icons.Chev style={{ color: "var(--muted-2)" }} />
@@ -395,6 +383,8 @@ export default function TraineeDashboard() {
           )}
         </section>
       </div>
+
+      <WrappedListRow months={wrappedMonths} />
     </div>
   );
 }

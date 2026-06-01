@@ -23,6 +23,7 @@ import {
   uploadFile,
 } from "~/lib/file-uploads";
 import { signFileUrl } from "~/lib/files";
+import { findSkillForExercise } from "~/lib/skills";
 import { CategoryPicker } from "~/components/exercise-fields";
 import { FileDropzone } from "~/components/file-dropzone";
 
@@ -79,6 +80,15 @@ export async function action(args: ActionFunctionArgs) {
   const exercise = existing[0]!;
 
   if (intent === "archive") {
+    // Inwariant: wariant aktywnej umiejętności nigdy nie wskazuje zarchiwizowanego
+    // ćwiczenia — inaczej w drzewie/mapie Rozwoju wisiałby „duch". Blokujemy
+    // archiwizację, dopóki ćwiczenie jest wariantem; trener musi je najpierw odpiąć.
+    const skill = await findSkillForExercise(db, user.id, exerciseId);
+    if (skill) {
+      return {
+        error: `To ćwiczenie jest wariantem umiejętności „${skill.skillName}". Usuń je z wariantów tej umiejętności, zanim je zarchiwizujesz.`,
+      };
+    }
     await db
       .update(schema.exercises)
       .set({ archivedAt: new Date() })
@@ -155,7 +165,13 @@ export async function action(args: ActionFunctionArgs) {
     });
     cleanup.commit();
     if (oldDemoStoragePathToDelete) {
-      await deleteFileBlob(oldDemoStoragePathToDelete);
+      // Best-effort post-commit (jak w deleteBodyPhoto / trainees): podmiana demo
+      // jest już zatwierdzona w DB; błąd usunięcia starego blobu nie może dać 500.
+      try {
+        await deleteFileBlob(oldDemoStoragePathToDelete);
+      } catch {
+        // Swallow — osierocony blob zamiast wywrócenia udanej operacji.
+      }
     }
   } catch (e) {
     await cleanup.cleanup();

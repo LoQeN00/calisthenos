@@ -16,10 +16,13 @@ export class TraineeDeleteError extends Error {
  * Permanently delete a trainee and everything they own.
  *
  * Cascade map (from schema):
- * - plans.traineeId, workoutLogs.traineeId, bodyPhotos.traineeId, sessions.userId
- *   → ON DELETE CASCADE. These cascade-delete automatically when the user is
- *   removed, dragging their children with them (plan sessions/blocks/items,
- *   workout exercise/set logs).
+ * - plans.traineeId, workoutLogs.traineeId, bodyPhotos.traineeId, sessions.userId,
+ *   consultations.traineeId → ON DELETE CASCADE. These cascade-delete automatically
+ *   when the user is removed, dragging their children with them (plan
+ *   sessions/blocks/items, workout exercise/set logs, consultation action items).
+ * - `skill_advancements.trainee_id` → ON DELETE CASCADE. The trainee's advancement
+ *   history goes with the user. `advanced_by` points to the *trainer* (who stays),
+ *   so its RESTRICT does not block this cascade.
  *
  * What we have to handle manually:
  * - `invites.consumed_by_user` / `invites.replaces_user_id`: no ON DELETE
@@ -29,6 +32,10 @@ export class TraineeDeleteError extends Error {
  *   rows (and their blobs post-commit) before deleting the user. We must drop
  *   `body_photos` rows first because `body_photos.file_id` is RESTRICT.
  *   `workout_set_logs.video_file_id` is SET NULL, so it doesn't block.
+ * - `skill_advancements.advanced_by`: ON DELETE RESTRICT. Today only trainers
+ *   advance, so this never points at the trainee — but the FK is a foot-gun for a
+ *   future self-advance flow. We defensively drop any row authored by this user
+ *   first so the cascade below can never be blocked.
  */
 export async function deleteTraineeFully(
   db: Db,
@@ -70,6 +77,15 @@ export async function deleteTraineeFully(
     //    so the file rows can't be removed while a body_photo still references
     //    them.
     await tx.delete(schema.bodyPhotos).where(eq(schema.bodyPhotos.traineeId, traineeId));
+
+    // 2b) Defensive: drop advancement rows AUTHORED by this user (advanced_by).
+    //     `skill_advancements.advanced_by` is RESTRICT; today it's always the
+    //     trainer, but a future self-advance flow would otherwise block the user
+    //     delete. Rows where the trainee is the SUBJECT (trainee_id) cascade in
+    //     step 4.
+    await tx
+      .delete(schema.skillAdvancements)
+      .where(eq(schema.skillAdvancements.advancedBy, traineeId));
 
     // 3) Delete every file the trainee uploaded. Capture storagePaths for the
     //    post-commit blob cleanup. workout_set_logs.video_file_id is SET NULL,

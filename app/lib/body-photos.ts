@@ -143,7 +143,14 @@ export async function deleteBodyPhoto(
   });
 
   if (storagePath != null) {
-    await deleteFileBlob(storagePath);
+    // Best-effort: wiersze są już skasowane w transakcji, więc DB jest spójne.
+    // Błąd I/O dysku zostawia osierocony blob, ale nie może wywrócić udanej
+    // operacji 500-tką (ten sam wzorzec co w trainees.ts).
+    try {
+      await deleteFileBlob(storagePath);
+    } catch {
+      // Swallow.
+    }
     return true;
   }
   return false;

@@ -64,15 +64,8 @@ const NAV_ITEMS = [
     tailKey: "history" as const,
   },
   {
-    to: "/podopieczny/statystyki",
-    label: "Statystyki",
-    end: false,
-    icon: "Chart" as const,
-    tailKey: null,
-  },
-  {
-    to: "/podopieczny/progresja",
-    label: "Progresja",
+    to: "/podopieczny/rozwoj",
+    label: "Rozwój",
     end: false,
     icon: "Trend" as const,
     tailKey: null,

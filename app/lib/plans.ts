@@ -416,7 +416,21 @@ export async function deletePlan(
     const logCount = Number(logCountRows[0]?.c ?? 0);
 
     if (logCount === 0) {
-      await tx.delete(schema.plans).where(eq(schema.plans.id, planId));
+      try {
+        await tx.delete(schema.plans).where(eq(schema.plans.id, planId));
+      } catch (e) {
+        // Teoretyczny wyścig: log treningu wstawiony równolegle mimo blokady
+        // `FOR UPDATE` wyżej (workout_logs.plan_id jest RESTRICT). Zamiast surowego
+        // błędu FK (→ 500) zwracamy przyjazny komunikat, by trener odświeżył i ponowił.
+        // Dopasowanie po nazwie constraintu (precyzyjniej niż sama nazwa tabeli).
+        if (e instanceof Error && e.message.includes("workout_logs_plan_id")) {
+          throw new PlanRepoError(
+            "race: logs added concurrently",
+            "Plan ma już zapisane sesje — odśwież stronę i spróbuj ponownie.",
+          );
+        }
+        throw e;
+      }
       return { kind: "deleted" };
     }
 

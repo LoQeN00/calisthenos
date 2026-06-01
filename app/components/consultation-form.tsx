@@ -68,7 +68,7 @@ export function ConsultationForm({ defaultValue, defaultHeldOn }: ConsultationFo
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "1fr 1fr",
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
             gap: 12,
             maxWidth: 460,
           }}

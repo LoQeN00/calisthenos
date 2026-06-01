@@ -179,6 +179,21 @@ summary:focus-visible {
   outline-offset: 0;
 }
 
+/* Respect the OS "reduce motion" setting — neutralize view crossfades, modal
+   rise, toast, Wrapped reveals and hover transitions for users with vestibular
+   sensitivity. Gated behind the query, so the default (motion-on) UI is
+   untouched. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -747,6 +762,23 @@ button.userchip:hover {
   font-family: var(--font-mono);
   text-align: center;
   padding: 9px 8px;
+}
+
+/* Borderless text inputs that double as headings (plan name, session name in
+   the editor). They look like static text until hovered/focused — the tint
+   signals "this is editable" without breaking the heading look at rest. */
+.inline-edit {
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  transition: background .12s ease, border-color .12s ease;
+}
+.inline-edit:hover {
+  background: var(--surface-2);
+}
+.inline-edit:focus {
+  background: var(--surface);
+  border-color: var(--line-2);
 }
 
 .input-row {
