@@ -1,6 +1,7 @@
-import { and, asc, count, desc, eq, ilike, sql } from "drizzle-orm";
+import { and, asc, between, eq, gt, inArray, isNull, ne } from "drizzle-orm";
+import type { ConsultationDocForm, TraineeAction } from "~/lib/consultation-types";
+import { canDocument, canTraineeAct, canTrainerReschedule } from "~/lib/consultation-types";
 import type { Db } from "~/lib/db/client";
-import type { ConsultationForm } from "~/lib/consultation-types";
 import * as schema from "~/lib/db/schema";
 
 export class ConsultationError extends Error {
@@ -12,112 +13,176 @@ export class ConsultationError extends Error {
   }
 }
 
-export type ConsultationSort = "date_desc" | "date_asc" | "most_open";
+const LIVE_STATUSES = ["planned", "confirmed", "change_requested"] as const;
 
-export interface ConsultationListOpts {
-  limit?: number;
-  offset?: number;
-  sort?: ConsultationSort;
-  q?: string;
-  open?: "all" | "with_open";
-}
-
-export interface ConsultationListItem {
+export interface OccurrenceListItem {
   id: string;
-  heldOn: string;
-  periodFrom: string | null;
-  periodTo: string | null;
+  scheduledAt: string;
+  durationMin: number;
+  status: schema.ConsultationStatus;
   title: string;
-  totalItemCount: number;
+  meetingUrl: string | null;
   openItemCount: number;
+  totalItemCount: number;
 }
 
-/** Lista konsultacji podopiecznego. Tenant-scope: traineeId. */
-export async function listConsultationsForTrainee(
+/**
+ * Terminy podopiecznego w zakresie [fromISO, toISO] (ISO datetime) — pod kalendarz.
+ * Tenant-scope: traineeId. Pomija `cancelled`.
+ */
+export async function listOccurrencesForTrainee(
   db: Db,
   traineeId: string,
-  opts: ConsultationListOpts = {},
-): Promise<ConsultationListItem[]> {
-  const openExpr = sql<number>`count(*) filter (where ${schema.consultationActionItems.status} = 'open')`;
-
-  const where = [eq(schema.consultations.traineeId, traineeId)];
-  if (opts.q && opts.q.length > 0) {
-    where.push(ilike(schema.consultations.title, `%${opts.q}%`));
-  }
-
-  const orderBy =
-    opts.sort === "date_asc"
-      ? [asc(schema.consultations.heldOn), asc(schema.consultations.createdAt)]
-      : opts.sort === "most_open"
-        ? [sql`${openExpr} DESC`, desc(schema.consultations.heldOn)]
-        : [desc(schema.consultations.heldOn), desc(schema.consultations.createdAt)];
-
-  let query = db
+  range: { fromISO: string; toISO: string },
+): Promise<OccurrenceListItem[]> {
+  const rows = await db
     .select({
       id: schema.consultations.id,
-      heldOn: schema.consultations.heldOn,
-      periodFrom: schema.consultations.periodFrom,
-      periodTo: schema.consultations.periodTo,
+      scheduledAt: schema.consultations.scheduledAt,
+      durationMin: schema.consultations.durationMin,
+      status: schema.consultations.status,
       title: schema.consultations.title,
-      createdAt: schema.consultations.createdAt,
-      total: count(schema.consultationActionItems.id),
-      open: openExpr,
+      meetingUrl: schema.consultations.meetingUrl,
     })
     .from(schema.consultations)
-    .leftJoin(
-      schema.consultationActionItems,
-      eq(schema.consultationActionItems.consultationId, schema.consultations.id),
-    )
-    .where(and(...where))
-    .groupBy(schema.consultations.id)
-    .$dynamic();
-
-  if (opts.open === "with_open") {
-    query = query.having(
-      sql`count(*) filter (where ${schema.consultationActionItems.status} = 'open') > 0`,
-    );
-  }
-
-  const rows = await query
-    .orderBy(...orderBy)
-    .limit(opts.limit ?? 100)
-    .offset(opts.offset ?? 0);
-
-  return rows.map((r) => ({
-    id: r.id,
-    heldOn: r.heldOn,
-    periodFrom: r.periodFrom,
-    periodTo: r.periodTo,
-    title: r.title,
-    totalItemCount: Number(r.total),
-    openItemCount: Number(r.open),
-  }));
-}
-
-export async function countConsultationsForTrainee(db: Db, traineeId: string): Promise<number> {
-  const [row] = await db
-    .select({ c: count() })
-    .from(schema.consultations)
-    .where(eq(schema.consultations.traineeId, traineeId));
-  return Number(row?.c ?? 0);
-}
-
-/** Liczba otwartych punktów „do poprawy" w skali wszystkich konsultacji — pod badge. */
-export async function countOpenItemsForTrainee(db: Db, traineeId: string): Promise<number> {
-  const [row] = await db
-    .select({ c: count() })
-    .from(schema.consultationActionItems)
-    .innerJoin(
-      schema.consultations,
-      eq(schema.consultations.id, schema.consultationActionItems.consultationId),
-    )
     .where(
       and(
         eq(schema.consultations.traineeId, traineeId),
-        eq(schema.consultationActionItems.status, "open"),
+        between(
+          schema.consultations.scheduledAt,
+          new Date(range.fromISO),
+          new Date(range.toISO),
+        ),
+      ),
+    )
+    .orderBy(asc(schema.consultations.scheduledAt));
+
+  return rows
+    .filter((r) => r.status !== "cancelled")
+    .map((r) => ({
+      id: r.id,
+      scheduledAt:
+        typeof r.scheduledAt === "string"
+          ? r.scheduledAt
+          : (r.scheduledAt as Date).toISOString(),
+      durationMin: r.durationMin,
+      status: r.status,
+      title: r.title,
+      meetingUrl: r.meetingUrl,
+      openItemCount: 0,
+      totalItemCount: 0,
+    }));
+}
+
+export interface TrainerCalendarItem {
+  id: string;
+  traineeId: string;
+  traineeName: string;
+  scheduledAt: string;
+  durationMin: number;
+  status: schema.ConsultationStatus;
+  title: string;
+  meetingUrl: string | null;
+}
+
+/**
+ * Wszystkie terminy trenera ze WSZYSTKIMI podopiecznymi w zakresie [fromISO, toISO]
+ * — pod zbiorczy kalendarz trenera (dobór wolnego slotu). Pomija `cancelled`.
+ * Tenant-scope: trainerId.
+ */
+export async function listTrainerOccurrencesInRange(
+  db: Db,
+  args: { trainerId: string; fromISO: string; toISO: string },
+): Promise<TrainerCalendarItem[]> {
+  const rows = await db
+    .select({
+      id: schema.consultations.id,
+      traineeId: schema.consultations.traineeId,
+      traineeName: schema.users.displayName,
+      scheduledAt: schema.consultations.scheduledAt,
+      durationMin: schema.consultations.durationMin,
+      status: schema.consultations.status,
+      title: schema.consultations.title,
+      meetingUrl: schema.consultations.meetingUrl,
+    })
+    .from(schema.consultations)
+    .innerJoin(schema.users, eq(schema.users.id, schema.consultations.traineeId))
+    .where(
+      and(
+        eq(schema.consultations.trainerId, args.trainerId),
+        ne(schema.consultations.status, "cancelled"),
+        between(
+          schema.consultations.scheduledAt,
+          new Date(args.fromISO),
+          new Date(args.toISO),
+        ),
+      ),
+    )
+    .orderBy(asc(schema.consultations.scheduledAt));
+
+  return rows.map((r) => ({
+    id: r.id,
+    traineeId: r.traineeId,
+    traineeName: r.traineeName,
+    scheduledAt:
+      typeof r.scheduledAt === "string" ? r.scheduledAt : (r.scheduledAt as Date).toISOString(),
+    durationMin: r.durationMin,
+    status: r.status,
+    title: r.title,
+    meetingUrl: r.meetingUrl,
+  }));
+}
+
+/** Terminy podopiecznego widziane przez trenera (wszystkie statusy). Tenant-scope: trainerId+traineeId. */
+export async function listOccurrencesForTrainer(
+  db: Db,
+  args: { trainerId: string; traineeId: string },
+): Promise<schema.Consultation[]> {
+  return await db
+    .select()
+    .from(schema.consultations)
+    .where(
+      and(
+        eq(schema.consultations.trainerId, args.trainerId),
+        eq(schema.consultations.traineeId, args.traineeId),
+      ),
+    )
+    .orderBy(asc(schema.consultations.scheduledAt));
+}
+
+/** Liczba terminów czekających na reakcję podopiecznego (badge). Tenant-scope: traineeId. */
+export async function countPendingForTrainee(db: Db, traineeId: string): Promise<number> {
+  const rows = await db
+    .select({ id: schema.consultations.id })
+    .from(schema.consultations)
+    .where(
+      and(
+        eq(schema.consultations.traineeId, traineeId),
+        eq(schema.consultations.status, "planned"),
       ),
     );
-  return Number(row?.c ?? 0);
+  return rows.length;
+}
+
+/** Najbliższy żywy termin podopiecznego po `nowISO` (lub null). Tenant-scope: traineeId. */
+export async function nextUpcomingForTrainee(
+  db: Db,
+  traineeId: string,
+  nowISO: string,
+): Promise<schema.Consultation | null> {
+  const [row] = await db
+    .select()
+    .from(schema.consultations)
+    .where(
+      and(
+        eq(schema.consultations.traineeId, traineeId),
+        gt(schema.consultations.scheduledAt, new Date(nowISO)),
+        inArray(schema.consultations.status, [...LIVE_STATUSES]),
+      ),
+    )
+    .orderBy(asc(schema.consultations.scheduledAt))
+    .limit(1);
+  return row ?? null;
 }
 
 export interface ConsultationDetail {
@@ -125,29 +190,19 @@ export interface ConsultationDetail {
   items: schema.ConsultationActionItem[];
 }
 
-/**
- * Szczegóły konsultacji z punktami. Tenant-scope: podaj `trainerId` (widok trenera)
- * LUB `traineeId` (widok podopiecznego). Brak dopasowania → null (route zwraca 404).
- */
+/** Szczegóły. Tenant-scope: podaj trainerId LUB traineeId. Brak dopasowania → null (404). */
 export async function getConsultationDetail(
   db: Db,
   args: { consultationId: string; trainerId?: string; traineeId?: string },
 ): Promise<ConsultationDetail | null> {
   if (!args.trainerId && !args.traineeId) {
-    throw new ConsultationError(
-      "getConsultationDetail requires trainerId or traineeId",
-      "Brak kontekstu dostępu.",
-    );
+    throw new ConsultationError("scope required", "Brak kontekstu dostępu.");
   }
   const conds = [eq(schema.consultations.id, args.consultationId)];
   if (args.trainerId) conds.push(eq(schema.consultations.trainerId, args.trainerId));
   if (args.traineeId) conds.push(eq(schema.consultations.traineeId, args.traineeId));
 
-  const [c] = await db
-    .select()
-    .from(schema.consultations)
-    .where(and(...conds))
-    .limit(1);
+  const [c] = await db.select().from(schema.consultations).where(and(...conds)).limit(1);
   if (!c) return null;
 
   const items = await db
@@ -155,7 +210,6 @@ export async function getConsultationDetail(
     .from(schema.consultationActionItems)
     .where(eq(schema.consultationActionItems.consultationId, args.consultationId))
     .orderBy(asc(schema.consultationActionItems.ordinal));
-
   return { consultation: c, items };
 }
 
@@ -174,48 +228,45 @@ async function assertTraineeOwnedBy(db: Db, trainerId: string, traineeId: string
   if (!row) throw new ConsultationError("trainee not owned", "Nie znaleziono podopiecznego.");
 }
 
-export interface CreateConsultationInput {
-  trainerId: string;
-  traineeId: string;
-  form: ConsultationForm;
-}
-
-/** Tworzy konsultację z punktami. Re-weryfikuje własność podopiecznego. */
-export async function createConsultation(db: Db, input: CreateConsultationInput): Promise<string> {
+/** Termin ad-hoc (poza serią): status `planned` albo od razu `documented`. Tenant-scope: trainerId. */
+export async function createAdhocConsultation(
+  db: Db,
+  input: { trainerId: string; traineeId: string; form: ConsultationDocForm; documented: boolean },
+): Promise<string> {
   await assertTraineeOwnedBy(db, input.trainerId, input.traineeId);
   return await db.transaction(async (tx) => {
+    const f = input.form;
     const [row] = await tx
       .insert(schema.consultations)
       .values({
         trainerId: input.trainerId,
         traineeId: input.traineeId,
-        heldOn: input.form.heldOn,
-        periodFrom: input.form.periodFrom ?? null,
-        periodTo: input.form.periodTo ?? null,
-        title: input.form.title,
-        summary: input.form.summary ?? "",
+        scheduleId: null,
+        scheduledAt: new Date(`${f.scheduledAt}:00.000Z`),
+        durationMin: f.durationMin,
+        status: input.documented ? "documented" : "planned",
+        meetingUrl: f.meetingUrl ?? null,
+        title: f.title,
+        summary: f.summary ?? "",
+        periodFrom: f.periodFrom ?? null,
+        periodTo: f.periodTo ?? null,
       })
       .returning({ id: schema.consultations.id });
-    const id = row!.id;
-    await insertItems(tx, id, input.form.items);
+    const id = row?.id;
+    if (!id) throw new ConsultationError("insert failed", "Nie udało się zapisać konsultacji.");
+    if (input.documented) await insertItems(tx, id, f.items);
     return id;
   });
 }
 
-export interface UpdateConsultationInput {
-  trainerId: string;
-  consultationId: string;
-  form: ConsultationForm;
-}
-
-/**
- * Edycja konsultacji (tylko właściciel-trener). Punkty są wycierane i pisane od
- * nowa z formularza (status każdego punktu pochodzi z formularza). Brak własności → ConsultationError.
- */
-export async function updateConsultation(db: Db, input: UpdateConsultationInput): Promise<void> {
+/** Dokumentuje termin (status → documented; pola + punkty). Tenant-scope: trainerId. */
+export async function documentConsultation(
+  db: Db,
+  input: { trainerId: string; consultationId: string; form: ConsultationDocForm },
+): Promise<void> {
   await db.transaction(async (tx) => {
     const [c] = await tx
-      .select({ id: schema.consultations.id })
+      .select({ id: schema.consultations.id, status: schema.consultations.status })
       .from(schema.consultations)
       .where(
         and(
@@ -225,29 +276,34 @@ export async function updateConsultation(db: Db, input: UpdateConsultationInput)
       )
       .limit(1);
     if (!c) throw new ConsultationError("not owned", "Nie znaleziono konsultacji.");
-
+    if (!canDocument(c.status)) {
+      throw new ConsultationError("bad status", "Nie można udokumentować odwołanego terminu.");
+    }
+    const f = input.form;
     await tx
       .update(schema.consultations)
       .set({
-        heldOn: input.form.heldOn,
-        periodFrom: input.form.periodFrom ?? null,
-        periodTo: input.form.periodTo ?? null,
-        title: input.form.title,
-        summary: input.form.summary ?? "",
+        scheduledAt: new Date(`${f.scheduledAt}:00.000Z`),
+        durationMin: f.durationMin,
+        meetingUrl: f.meetingUrl ?? null,
+        title: f.title,
+        summary: f.summary ?? "",
+        periodFrom: f.periodFrom ?? null,
+        periodTo: f.periodTo ?? null,
+        status: "documented",
       })
       .where(eq(schema.consultations.id, input.consultationId));
-
     await tx
       .delete(schema.consultationActionItems)
       .where(eq(schema.consultationActionItems.consultationId, input.consultationId));
-    await insertItems(tx, input.consultationId, input.form.items);
+    await insertItems(tx, input.consultationId, f.items);
   });
 }
 
 async function insertItems(
   db: Db,
   consultationId: string,
-  items: ConsultationForm["items"],
+  items: ConsultationDocForm["items"],
 ): Promise<void> {
   if (items.length === 0) return;
   await db.insert(schema.consultationActionItems).values(
@@ -261,7 +317,94 @@ async function insertItems(
   );
 }
 
-/** Przełącza status punktu (tylko właściciel-trener). Ustawia/zeruje resolved_at. */
+/** Trener: przełóż pojedynczy termin (nowy czas, status → planned). Tenant-scope: trainerId. */
+export async function rescheduleOccurrence(
+  db: Db,
+  args: {
+    trainerId: string;
+    consultationId: string;
+    scheduledAtLocal: string;
+    durationMin?: number;
+  },
+): Promise<void> {
+  const [c] = await db
+    .select({ id: schema.consultations.id, status: schema.consultations.status })
+    .from(schema.consultations)
+    .where(
+      and(
+        eq(schema.consultations.id, args.consultationId),
+        eq(schema.consultations.trainerId, args.trainerId),
+      ),
+    )
+    .limit(1);
+  if (!c) throw new ConsultationError("not owned", "Nie znaleziono terminu.");
+  if (!canTrainerReschedule(c.status)) {
+    throw new ConsultationError("bad status", "Tego terminu nie można przełożyć.");
+  }
+  await db
+    .update(schema.consultations)
+    .set({
+      scheduledAt: new Date(`${args.scheduledAtLocal}:00.000Z`),
+      status: "planned",
+      traineeNote: null,
+      ...(args.durationMin ? { durationMin: args.durationMin } : {}),
+    })
+    .where(eq(schema.consultations.id, args.consultationId));
+}
+
+/** Trener: odwołaj pojedynczy termin (status → cancelled). Tenant-scope: trainerId. */
+export async function cancelOccurrence(
+  db: Db,
+  args: { trainerId: string; consultationId: string },
+): Promise<void> {
+  const rows = await db
+    .update(schema.consultations)
+    .set({ status: "cancelled" })
+    .where(
+      and(
+        eq(schema.consultations.id, args.consultationId),
+        eq(schema.consultations.trainerId, args.trainerId),
+      ),
+    )
+    .returning({ id: schema.consultations.id });
+  if (rows.length === 0) throw new ConsultationError("not owned", "Nie znaleziono terminu.");
+}
+
+/** Podopieczny: reakcja na termin. Tylko własny i z dozwolonego statusu. Tenant-scope: traineeId. */
+export async function respondToOccurrence(
+  db: Db,
+  args: { traineeId: string; consultationId: string; action: TraineeAction; note?: string },
+): Promise<void> {
+  const [c] = await db
+    .select({ id: schema.consultations.id, status: schema.consultations.status })
+    .from(schema.consultations)
+    .where(
+      and(
+        eq(schema.consultations.id, args.consultationId),
+        eq(schema.consultations.traineeId, args.traineeId),
+      ),
+    )
+    .limit(1);
+  if (!c) throw new ConsultationError("not owned", "Nie znaleziono terminu.");
+  if (!canTraineeAct(c.status, args.action)) {
+    throw new ConsultationError("bad status", "Tego terminu nie można już zmienić.");
+  }
+  const nextStatus =
+    args.action === "confirm"
+      ? "confirmed"
+      : args.action === "decline"
+        ? "cancelled"
+        : "change_requested";
+  await db
+    .update(schema.consultations)
+    .set({
+      status: nextStatus,
+      traineeNote: args.action === "request_change" ? (args.note ?? null) : null,
+    })
+    .where(eq(schema.consultations.id, args.consultationId));
+}
+
+/** Przełącza status punktu „do poprawy" (tylko właściciel-trener). */
 export async function setActionItemStatus(
   db: Db,
   args: { trainerId: string; itemId: string; status: schema.ConsultationItemStatus },
@@ -281,7 +424,6 @@ export async function setActionItemStatus(
     )
     .limit(1);
   if (!owned) throw new ConsultationError("item not owned", "Nie znaleziono punktu.");
-
   await db
     .update(schema.consultationActionItems)
     .set({ status: args.status, resolvedAt: args.status === "resolved" ? new Date() : null })
@@ -303,4 +445,119 @@ export async function deleteConsultation(
     )
     .returning({ id: schema.consultations.id });
   return rows.length > 0;
+}
+
+/** Dane jednego terminu potrzebne do zbudowania zdarzenia Google. Tenant-scope: trainerId. */
+export interface ConsultationSyncRow {
+  id: string;
+  title: string;
+  summary: string;
+  scheduledAtISO: string;
+  durationMin: number;
+  status: schema.ConsultationStatus;
+  googleEventId: string | null;
+  attendeeEmail: string;
+}
+
+export async function getSyncRow(
+  db: Db,
+  args: { trainerId: string; consultationId: string },
+): Promise<ConsultationSyncRow | null> {
+  const [r] = await db
+    .select({
+      id: schema.consultations.id,
+      title: schema.consultations.title,
+      summary: schema.consultations.summary,
+      scheduledAt: schema.consultations.scheduledAt,
+      durationMin: schema.consultations.durationMin,
+      status: schema.consultations.status,
+      googleEventId: schema.consultations.googleEventId,
+      attendeeEmail: schema.users.email,
+    })
+    .from(schema.consultations)
+    .innerJoin(schema.users, eq(schema.users.id, schema.consultations.traineeId))
+    .where(
+      and(
+        eq(schema.consultations.id, args.consultationId),
+        eq(schema.consultations.trainerId, args.trainerId),
+      ),
+    )
+    .limit(1);
+  if (!r) return null;
+  return {
+    id: r.id,
+    title: r.title,
+    summary: r.summary,
+    scheduledAtISO: r.scheduledAt.toISOString(),
+    durationMin: r.durationMin,
+    status: r.status,
+    googleEventId: r.googleEventId,
+    attendeeEmail: r.attendeeEmail,
+  };
+}
+
+/** Żywe (planned/confirmed/change_requested) nadchodzące terminy pary bez google_event_id — do backfillu. Tenant-scope: trainerId. */
+export async function listUnsyncedForSync(
+  db: Db,
+  args: { trainerId: string; traineeId: string; nowISO: string },
+): Promise<ConsultationSyncRow[]> {
+  const rows = await db
+    .select({
+      id: schema.consultations.id,
+      title: schema.consultations.title,
+      summary: schema.consultations.summary,
+      scheduledAt: schema.consultations.scheduledAt,
+      durationMin: schema.consultations.durationMin,
+      status: schema.consultations.status,
+      googleEventId: schema.consultations.googleEventId,
+      attendeeEmail: schema.users.email,
+    })
+    .from(schema.consultations)
+    .innerJoin(schema.users, eq(schema.users.id, schema.consultations.traineeId))
+    .where(
+      and(
+        eq(schema.consultations.trainerId, args.trainerId),
+        eq(schema.consultations.traineeId, args.traineeId),
+        gt(schema.consultations.scheduledAt, new Date(args.nowISO)),
+        // Żywe statusy (planned/confirmed/change_requested) — spójne z `LIVE_STATUSES`
+        // i z guardem `syncUpsertOne` (który pomija tylko cancelled/documented).
+        inArray(schema.consultations.status, [...LIVE_STATUSES]),
+        isNull(schema.consultations.googleEventId),
+      ),
+    )
+    .orderBy(asc(schema.consultations.scheduledAt));
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    summary: r.summary,
+    scheduledAtISO: r.scheduledAt.toISOString(),
+    durationMin: r.durationMin,
+    status: r.status,
+    googleEventId: r.googleEventId,
+    attendeeEmail: r.attendeeEmail,
+  }));
+}
+
+/** Zapisuje google_event_id (i opcjonalnie meetingUrl z Meet). Tenant-scope: trainerId. */
+export async function setGoogleEventId(
+  db: Db,
+  args: {
+    trainerId: string;
+    consultationId: string;
+    googleEventId: string | null;
+    meetingUrl?: string | null;
+  },
+): Promise<void> {
+  await db
+    .update(schema.consultations)
+    .set({
+      googleEventId: args.googleEventId,
+      ...(args.meetingUrl !== undefined ? { meetingUrl: args.meetingUrl } : {}),
+    })
+    .where(
+      and(
+        eq(schema.consultations.id, args.consultationId),
+        eq(schema.consultations.trainerId, args.trainerId),
+      ),
+    );
 }

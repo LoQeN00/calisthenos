@@ -23,9 +23,9 @@ który wymusza rolę i liczy odznaki nawigacji. Desktop-first. Mapowanie URL w
 | `podopieczni.$traineeId.rozwoj.umiejetnosc.$skillId.tsx` | `…/rozwoj/umiejetnosc/:skillId` | loader, action, default | Drill-in umiejętności: drabina wariantów (`VariationLadder`) + wykres/KPI bieżącego wariantu; akcje `set-start`, `advance`. Tenant-scope przez `findTraineeOfTrainer` (→404). |
 | `podopieczni.$traineeId.rozwoj.cwiczenie.$exerciseId.tsx` | `…/rozwoj/cwiczenie/:exerciseId` | loader, default | Szczegóły progresji ćwiczenia podopiecznego: przełącznik zakresu, KPI + wykresy (`ExerciseProgressionPanel`). Tenant-scope przez `findTraineeOfTrainer` (→404). |
 | `podopieczni.$traineeId.rozwoj.porownanie.tsx` | `…/rozwoj/porownanie` | loader, default | Porównanie kilku ćwiczeń podopiecznego znormalizowanych do „% od startu okresu" (`?ex=`, `?zakres=`): `ComparisonChart` + legenda, stan <2 ćwiczeń. Tenant-scope przez `findTraineeOfTrainer` (→404). |
-| `podopieczni.$traineeId.konsultacje._index.tsx` | `…/konsultacje` | loader, default | Lista konsultacji podopiecznego (cap 200, bez paginacji): szukajka + sort + filtr otwartych (URL params, `<ListControls>`); data, tytuł, liczniki punktów; przycisk "Nowa konsultacja". |
-| `podopieczni.$traineeId.konsultacje.nowa.tsx` | `…/konsultacje/nowa` | loader, action, default | Formularz nowej konsultacji; po sukcesie redirect do listy. |
-| `podopieczni.$traineeId.konsultacje.$konsultacjaId.tsx` | `…/konsultacje/:konsultacjaId` | loader, action, default | Szczegóły konsultacji: tryb view (lista punktów z przełącznikiem statusu, usuwanie) i tryb edit (`?edit=1`). Akcje: `delete`, `toggle-item`, `update`. |
+| `podopieczni.$traineeId.konsultacje._index.tsx` | `…/konsultacje` | loader, action, default | Panel harmonogramu cyklicznego (`<ScheduleForm>`: częstotliwość/dzień/godzina/czas/link) + listy „Nadchodzące terminy" i „Do udokumentowania / minione" ze statusami + chip „Synchronizuj z Google". Loader materializuje terminy (`ensureOccurrences`). Akcje: `save-schedule` (backfill Google po zapisie — `syncBackfillPair`), `deactivate-schedule`, `sync-google` (ręczny backfill). Best-effort sync — nie blokuje akcji. |
+| `podopieczni.$traineeId.konsultacje.nowa.tsx` | `…/konsultacje/nowa` | loader, action, default | Termin ad-hoc poza serią (`<ConsultationForm>`): „Zaplanuj" → `planned`, „Zapisz jako odbytą" → `documented` (`createAdhocConsultation`); po sukcesie redirect do listy. Google: `syncUpsertOne` po zapisaniu ad-hoc `planned`. |
+| `podopieczni.$traineeId.konsultacje.$konsultacjaId.tsx` | `…/konsultacje/:konsultacjaId` | loader, action, default | Szczegóły terminu: status, termin (`fmtDateTime`), link, notatka „prośby o zmianę"; tryb dokumentowania (`?document=1`, `<ConsultationForm>`) + przełóż/odwołaj/toggle punktu/usuń. Akcje: `document` (brak Google — dokumentacja nie zmienia zdarzenia), `reschedule` → `syncUpsertOne` (patch daty), `cancel`/`delete` → `syncCancelOne`. Scope po `trainerId`+`traineeId`. |
 | `podopieczni.$traineeId.progresja._index.tsx` | `…/progresja` (301) | loader | Shim przekierowujący na `…/rozwoj`. |
 | `podopieczni.$traineeId.progresja.$exerciseId.tsx` | `…/progresja/:exerciseId` (301) | loader | Shim przekierowujący na `…/rozwoj/cwiczenie/:exerciseId`. |
 | `podopieczni.$traineeId.progresja.porownanie.tsx` | `…/progresja/porownanie` (301) | loader | Shim przekierowujący na `…/rozwoj/porownanie`. |
@@ -34,10 +34,18 @@ który wymusza rolę i liczy odznaki nawigacji. Desktop-first. Mapowanie URL w
 | `umiejetnosci._index.tsx` | `/trener/umiejetnosci` | loader, default | **Authoring umiejętności** (bez zmian): lista umiejętności trenera z liczbą wariantów; przycisk "Nowa umiejętność". |
 | `umiejetnosci.nowa.tsx` | `/trener/umiejetnosci/nowa` | loader, action, default | Formularz nowej umiejętności (nazwa, opis); akcja `createSkill` → redirect do szczegółów. |
 | `umiejetnosci.$skillId.tsx` | `/trener/umiejetnosci/:skillId` | loader, action, default | Edycja umiejętności: aktualizacja nazwy/opisu, zarządzanie wariantami (dodaj/usuń/reorder przez drag-or-arrows), sekcja „Wymaga:" (prerekwizyty — dodaj/usuń); archiwizacja. Akcje: `update`, `add-variation`, `remove-variation`, `reorder`, `add-prerequisite`, `remove-prerequisite`. |
+| `konsultacje.tsx` | `/trener/konsultacje` | loader, default | **Zbiorczy kalendarz konsultacji** (z menu): siatka miesiąca ze WSZYSTKIMI terminami trenera (wszyscy podopieczni, bez cancelled) — kropki na dniach, wybór dnia → lista terminów (godzina, podopieczny, status, link do szczegółów per-podopieczny). Read-only; do doboru wolnego slotu. Nawigacja miesięcy `?m=YYYY-MM`. |
+| `integracje.google.tsx` | `/trener/integracje/google` | loader, action, default | Zarządzanie połączeniem Google Calendar: stan połączenia (`getConnectionStatus`), link „Połącz z Google" (intent `connect` → generuje nonce + `signState` + cookie + redirect do OAuth consent) albo „Rozłącz" (intent `disconnect` → `deleteConnection` + best-effort `revokeToken`). Wbudowane banery błędów (denied/state/exchange) z query params. Wymaga `googleConfigured()`. |
+| `integracje.google.callback.tsx` | `/trener/integracje/google/callback` | loader, default | Callback OAuth2 Google: weryfikacja `state` (HMAC-SHA256 + TTL) + nonce z cookie (anty-CSRF), wymiana `code` → tokeny (`exchangeCode`), zapis zaszyfrowanych tokenów (`upsertConnection`), przekierowanie do `integracje/google?ok=1` lub `?error=…`. Zawsze przekierowuje, nigdy nie renderuje treści. |
 
 Główne moduły wołane stąd: `lib/auth` (`requireUser`), `lib/plans`, `lib/workouts`,
 `lib/categories`, `lib/trainees`, `lib/stats`, `lib/body-photos`, `lib/files`,
-`lib/file-uploads`, `lib/format`, `components/pagination`.
+`lib/file-uploads`, `lib/format`, `lib/consultations`, `lib/consultation-schedules`,
+`lib/consultation-types`, `lib/consultation-status`, `lib/consultation-form.server`,
+`lib/google/sync`, `lib/google/connections`, `lib/google/oauth`,
+`components/pagination`, `components/consultation-form`, `components/schedule-form`,
+`components/month-calendar`, `components/consultation-row`,
+`components/consultation-status-badge`, `components/consultation-alert`.
 
 ---
 Konwencja i zasady aktualizacji dokumentacji: [`../../../CLAUDE.md`](../../../CLAUDE.md).

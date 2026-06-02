@@ -1,32 +1,63 @@
 import { z } from "zod";
+import type { ConsultationStatus } from "~/lib/db/schema";
 
-/**
- * Walidacja formularza konsultacji (server-side). Route buduje zwykły obiekt z
- * FormData i waliduje przez `ConsultationFormSchema`. Czysta logika — testowana
- * jednostkowo bez DB.
- */
+const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Niepoprawna data.");
+// datetime-local z <input type="datetime-local"> ma format "YYYY-MM-DDTHH:MM".
+const dateTimeLocal = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, "Niepoprawna data/godzina.");
+const timeString = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Niepoprawna godzina.");
+// Link spotkania trafia do `<a href>` widzianego przez podopiecznego — ograniczamy
+// do http(s), by URL `javascript:`/`data:` nie mógł wykonać skryptu w jego sesji.
+const meetingUrl = z
+  .string()
+  .trim()
+  .url("Niepoprawny URL.")
+  .max(500)
+  .refine((u) => /^https?:\/\//i.test(u), "Link musi zaczynać się od http:// lub https://");
+
+// ---------------- Punkty „do poprawy" ----------------
 
 export const ConsultationItemStatusSchema = z.enum(["open", "resolved"]);
 export type ConsultationItemStatusForm = z.infer<typeof ConsultationItemStatusSchema>;
 
-const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Niepoprawna data.");
-
 export const ActionItemFormSchema = z.object({
-  // Server ignoruje id przy zapisie (rows są wycierane i pisane od nowa).
   id: z.string().optional(),
   body: z.string().trim().min(1, "Treść punktu nie może być pusta.").max(2000),
   status: ConsultationItemStatusSchema.default("open"),
 });
 export type ActionItemForm = z.infer<typeof ActionItemFormSchema>;
 
-export const ConsultationFormSchema = z
+// ---------------- Harmonogram ----------------
+
+export const ScheduleFormSchema = z
   .object({
-    heldOn: dateString,
-    periodFrom: dateString.nullable().optional(),
-    periodTo: dateString.nullable().optional(),
+    cadence: z.enum(["weekly", "biweekly", "monthly"]),
+    weekday: z.coerce.number().int().min(0).max(6).nullable().optional(),
+    dayOfMonth: z.coerce.number().int().min(1).max(28).nullable().optional(),
+    timeOfDay: timeString,
+    durationMin: z.coerce.number().int().positive().max(600),
+    startsOn: dateString,
+    defaultMeetingUrl: meetingUrl.nullable().optional(),
+  })
+  .refine((s) => (s.cadence === "monthly" ? s.dayOfMonth != null : s.weekday != null), {
+    message: "Wskaż dzień zgodny z częstotliwością.",
+    path: ["cadence"],
+  });
+export type ScheduleForm = z.infer<typeof ScheduleFormSchema>;
+
+// ---------------- Dokumentacja / termin ad-hoc ----------------
+
+export const ConsultationDocFormSchema = z
+  .object({
+    scheduledAt: dateTimeLocal,
+    durationMin: z.coerce.number().int().positive().max(600).default(45),
+    meetingUrl: meetingUrl.nullable().optional(),
     title: z.string().trim().min(1, "Tytuł jest wymagany.").max(160),
     summary: z.string().max(10000).default(""),
-    items: z.array(ActionItemFormSchema).max(50).optional().default([]),
+    periodFrom: dateString.nullable().optional(),
+    periodTo: dateString.nullable().optional(),
+    items: z.array(ActionItemFormSchema).max(50).default([]),
   })
   .refine((c) => (c.periodFrom == null) === (c.periodTo == null), {
     message: "Podaj oba końce okresu albo żaden.",
@@ -36,4 +67,22 @@ export const ConsultationFormSchema = z
     message: "Początek okresu nie może być po końcu.",
     path: ["periodTo"],
   });
-export type ConsultationForm = z.infer<typeof ConsultationFormSchema>;
+export type ConsultationDocForm = z.infer<typeof ConsultationDocFormSchema>;
+
+// ---------------- Akcja podopiecznego ----------------
+
+export const TraineeActionSchema = z.enum(["confirm", "decline", "request_change"]);
+export type TraineeAction = z.infer<typeof TraineeActionSchema>;
+
+// ---------------- Czyste guardy przejść (TDD) ----------------
+
+export function canTraineeAct(status: ConsultationStatus, _action: TraineeAction): boolean {
+  return status === "planned" || status === "confirmed";
+}
+export function canTrainerReschedule(status: ConsultationStatus): boolean {
+  return status === "planned" || status === "confirmed" || status === "change_requested";
+}
+export const canTrainerCancel = canTrainerReschedule;
+export function canDocument(status: ConsultationStatus): boolean {
+  return status !== "cancelled";
+}

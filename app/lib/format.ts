@@ -30,6 +30,22 @@ export function fmtDateShort(iso: string): string {
   return `${d.getDate()} ${MONTH_SHORT_PL[d.getMonth()]}`;
 }
 
+/** Data + godzina w UTC (v1 = jedna strefa aplikacji). */
+export function fmtDateTime(iso: string): string {
+  const d = parseDate(iso);
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mm = String(d.getUTCMinutes()).padStart(2, "0");
+  return `${d.getUTCDate()} ${MONTH_SHORT_PL[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${hh}:${mm}`;
+}
+
+/** Sama godzina w UTC. */
+export function fmtTime(iso: string): string {
+  const d = parseDate(iso);
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mm = String(d.getUTCMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
 export function daysAgo(iso: string): string {
   const d = parseDate(iso);
   const now = new Date();
@@ -49,6 +65,32 @@ export function todayISO(): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+/**
+ * Zakres miesiąca "YYYY-MM" jako ISO UTC [from, to] + rozbicie na rok/miesiąc(0-idx).
+ * Współdzielone przez kalendarze konsultacji (loadery), żeby trener i podopieczny
+ * liczyli okno miesiąca identycznie.
+ */
+export function monthRangeUTC(m: string): {
+  fromISO: string;
+  toISO: string;
+  year: number;
+  month0: number;
+} {
+  const [y, mo] = m.split("-").map((x) => Number(x));
+  const year = y ?? 1970;
+  const month0 = (mo ?? 1) - 1;
+  const from = new Date(Date.UTC(year, month0, 1, 0, 0, 0));
+  const to = new Date(Date.UTC(year, month0 + 1, 0, 23, 59, 59));
+  return { fromISO: from.toISOString(), toISO: to.toISOString(), year, month0 };
+}
+
+/** Przesuwa "YYYY-MM" o `delta` miesięcy (do nawigacji ‹ ›). */
+export function shiftMonth(m: string, delta: number): string {
+  const [y, mo] = m.split("-").map((x) => Number(x));
+  const d = new Date(Date.UTC(y ?? 1970, (mo ?? 1) - 1 + delta, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
 /**

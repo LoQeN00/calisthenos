@@ -35,6 +35,8 @@
     "@visx/scale": "^3.12.0",
     "@visx/shape": "^3.12.0",
     "@visx/tooltip": "^3.12.0",
+    "@googleapis/calendar": "^9.7.0",
+    "google-auth-library": "^9.14.0",
     "drizzle-orm": "^0.36.0",
     "file-type": "^19.6.0",
     "isbot": "^5.1.0",

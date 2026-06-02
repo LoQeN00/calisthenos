@@ -2,17 +2,18 @@ import { and, eq } from "drizzle-orm";
 import {
   Form,
   Link,
+  type ActionFunctionArgs,
+  type LoaderFunctionArgs,
   redirect,
   useActionData,
   useLoaderData,
-  type ActionFunctionArgs,
-  type LoaderFunctionArgs,
 } from "react-router";
 import { ConsultationForm } from "~/components/consultation-form";
 import { requireUser } from "~/lib/auth";
-import { ConsultationError, createConsultation } from "~/lib/consultations";
-import { parseConsultationFormData } from "~/lib/consultation-form.server";
-import { ConsultationFormSchema } from "~/lib/consultation-types";
+import { parseConsultationDocFormData } from "~/lib/consultation-form.server";
+import { ConsultationDocFormSchema } from "~/lib/consultation-types";
+import { ConsultationError, createAdhocConsultation } from "~/lib/consultations";
+import { syncUpsertOne } from "~/lib/google/sync";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import { todayISO } from "~/lib/format";
@@ -32,28 +33,38 @@ export async function loader(args: LoaderFunctionArgs) {
     )
     .limit(1);
   if (!trainee) throw new Response("not found", { status: 404 });
-  return { trainee, today: todayISO() };
+  return { trainee, defaultScheduledAt: `${todayISO()}T18:00` };
 }
 
 export async function action(args: ActionFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
   const fd = await args.request.formData();
-  const parsed = ConsultationFormSchema.safeParse(parseConsultationFormData(fd));
+  const documented = fd.get("intent") === "save-documented";
+  const parsed = ConsultationDocFormSchema.safeParse(parseConsultationDocFormData(fd));
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Niepoprawne dane." };
   }
+  let id: string;
   try {
-    await createConsultation(db, { trainerId: user.id, traineeId, form: parsed.data });
+    id = await createAdhocConsultation(db, {
+      trainerId: user.id,
+      traineeId,
+      form: parsed.data,
+      documented,
+    });
   } catch (e) {
     if (e instanceof ConsultationError) return { error: e.userMessage };
     throw e;
+  }
+  if (!documented) {
+    await syncUpsertOne(db, { trainerId: user.id, consultationId: id });
   }
   throw redirect(`/trener/podopieczni/${traineeId}/konsultacje`);
 }
 
 export default function TrenerNowaKonsultacja() {
-  const { trainee, today } = useLoaderData<typeof loader>();
+  const { trainee, defaultScheduledAt } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
 
   return (
@@ -65,7 +76,7 @@ export default function TrenerNowaKonsultacja() {
         <span className="sep">›</span>
         <Link to={`/trener/podopieczni/${trainee.id}/konsultacje`}>Konsultacje</Link>
         <span className="sep">›</span>
-        <span className="current">Nowa</span>
+        <span className="current">Nowy termin</span>
       </div>
 
       <div className="pagehead">
@@ -73,7 +84,10 @@ export default function TrenerNowaKonsultacja() {
           <div className="eyebrow" style={{ marginBottom: 6 }}>
             {trainee.displayName}
           </div>
-          <h1>Nowa konsultacja</h1>
+          <h1>Nowy termin</h1>
+          <div className="sub">
+            Pojedynczy termin poza serią — zaplanuj na przyszłość albo zapisz odbyte spotkanie.
+          </div>
         </div>
       </div>
 
@@ -95,7 +109,7 @@ export default function TrenerNowaKonsultacja() {
 
       <div className="card" style={{ maxWidth: 760 }}>
         <Form method="post">
-          <ConsultationForm defaultHeldOn={today} />
+          <ConsultationForm defaultScheduledAt={defaultScheduledAt} />
 
           <div
             style={{
@@ -105,13 +119,17 @@ export default function TrenerNowaKonsultacja() {
               display: "flex",
               gap: 10,
               justifyContent: "flex-end",
+              flexWrap: "wrap",
             }}
           >
             <Link to={`/trener/podopieczni/${trainee.id}/konsultacje`} className="btn btn-ghost">
               Anuluj
             </Link>
-            <button type="submit" className="btn btn-primary">
-              Zapisz konsultację
+            <button type="submit" name="intent" value="save-documented" className="btn">
+              Zapisz jako odbytą
+            </button>
+            <button type="submit" name="intent" value="save-planned" className="btn btn-primary">
+              Zaplanuj
             </button>
           </div>
         </Form>

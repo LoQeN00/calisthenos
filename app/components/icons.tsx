@@ -102,6 +102,12 @@ export const Icons = {
       <path d="M3 9h18M8 3v4M16 3v4" />
     </>,
   ),
+  Video: makeIcon(
+    <>
+      <rect x="3" y="6" width="13" height="12" rx="2" />
+      <path d="m16 10 5-3v10l-5-3z" />
+    </>,
+  ),
   Clock: makeIcon(
     <>
       <circle cx="12" cy="12" r="9" />

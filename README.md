@@ -116,6 +116,46 @@ Set the volume mount inside the service config — uploads live at `DATA_DIR`.
 
 ---
 
+## Integracja Google (opcjonalna)
+
+Trener może połączyć konto Google Calendar — konsultacje są wtedy automatycznie
+synchronizowane jako zdarzenia z Meet linkiem. Aplikacja działa w pełni bez tej
+integracji (wyłączona, gdy brakuje zmiennych).
+
+### Konfiguracja Google Cloud
+
+1. Utwórz projekt w [Google Cloud Console](https://console.cloud.google.com/).
+2. **OAuth consent screen** → External; dodaj scope `https://www.googleapis.com/auth/calendar.events` oraz `openid` i `email` (potrzebne do etykiety konta po połączeniu).
+3. **Credentials → OAuth 2.0 Client ID** → typ: Web; dodaj **Authorized redirect URI**:
+   ```
+   ${BASE_URL}/trener/integracje/google/callback
+   ```
+4. Skopiuj `Client ID` i `Client Secret`.
+
+### Klucz szyfrowania tokenów
+
+Tokeny OAuth są szyfrowane at-rest (AES-256-GCM). Wygeneruj klucz:
+
+```bash
+openssl rand -base64 32
+```
+
+### Zmienne środowiskowe
+
+Dodaj do `.env` (lokalnie) lub do ustawień serwisu na Railway:
+
+| Zmienna | Wartość |
+|---|---|
+| `GOOGLE_CLIENT_ID` | Client ID z Google Cloud |
+| `GOOGLE_CLIENT_SECRET` | Client Secret z Google Cloud |
+| `GOOGLE_REDIRECT_URI` | `${BASE_URL}/trener/integracje/google/callback` |
+| `GOOGLE_TOKEN_ENC_KEY` | wynik `openssl rand -base64 32` |
+
+Bez tych zmiennych aplikacja działa normalnie — widok `/trener/integracje/google`
+informuje o braku konfiguracji i nie pokazuje przycisku „Połącz".
+
+---
+
 ## Useful commands
 
 ```bash

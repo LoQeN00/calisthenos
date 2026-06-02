@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLoaderData, type LoaderFunctionArgs } from "react-r
 import { Icons } from "~/components/icons";
 import { UserMenu } from "~/components/user-menu";
 import { requireUser } from "~/lib/auth";
-import { countOpenItemsForTrainee } from "~/lib/consultations";
+import { countPendingForTrainee } from "~/lib/consultations";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 
@@ -34,7 +34,7 @@ export async function loader(args: LoaderFunctionArgs) {
     sessionsCount = Number(row?.c ?? 0);
   }
 
-  const openItems = await countOpenItemsForTrainee(db, user.id);
+  const pending = await countPendingForTrainee(db, user.id);
 
   return {
     user,
@@ -42,7 +42,7 @@ export async function loader(args: LoaderFunctionArgs) {
       sessions: sessionsCount,
       history: Number(logCountRow?.c ?? 0),
       photos: Number(photoCountRow?.c ?? 0),
-      consultations: openItems,
+      consultations: pending,
     },
   };
 }

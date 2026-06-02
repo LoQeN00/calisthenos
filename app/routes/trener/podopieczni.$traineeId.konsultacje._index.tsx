@@ -1,66 +1,154 @@
 import { and, eq } from "drizzle-orm";
-import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
-import { ListControls } from "~/components/list-controls";
+import {
+  type ActionFunctionArgs,
+  Form,
+  type LoaderFunctionArgs,
+  Link,
+  useActionData,
+  useLoaderData,
+} from "react-router";
+import { ConfirmSubmitButton } from "~/components/confirm-provider";
+import { ConsultationAlert } from "~/components/consultation-alert";
+import { ConsultationRow } from "~/components/consultation-row";
 import { Icons } from "~/components/icons";
+import { ScheduleForm } from "~/components/schedule-form";
 import { requireUser } from "~/lib/auth";
-import { listConsultationsForTrainee, type ConsultationSort } from "~/lib/consultations";
+import { parseScheduleFormData } from "~/lib/consultation-form.server";
+import { isGoogleSyncActive, syncBackfillPair } from "~/lib/google/sync";
+import {
+  ScheduleError,
+  deactivateSchedule,
+  ensureOccurrences,
+  getActiveSchedule,
+  upsertSchedule,
+} from "~/lib/consultation-schedules";
+import { consultationPresentation } from "~/lib/consultation-status";
+import { ScheduleFormSchema } from "~/lib/consultation-types";
+import { listOccurrencesForTrainer } from "~/lib/consultations";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
-import { fmtDate, pluralizePl, type PlForms } from "~/lib/format";
-import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
+import { fmtDateTime, todayISO } from "~/lib/format";
 
-const spec: ListControlsSpec = {
-  sortOptions: [
-    { key: "date_desc", label: "Najnowsze" },
-    { key: "date_asc", label: "Najstarsze" },
-    { key: "most_open", label: "Najwięcej otwartych" },
-  ],
-  defaultSort: "date_desc",
-  filterGroups: [
-    {
-      param: "open",
-      label: "Punkty",
-      options: [
-        { value: "all", label: "Wszystkie" },
-        { value: "with_open", label: "Z otwartymi" },
-      ],
-      defaultValue: "all",
-    },
-  ],
-  searchable: true,
+const CADENCE_LABEL: Record<schema.ConsultationCadence, string> = {
+  weekly: "co tydzień",
+  biweekly: "co 2 tygodnie",
+  monthly: "co miesiąc",
 };
 
-export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
-  const traineeId = args.params.traineeId ?? "";
-  const [trainee] = await db
+async function loadTrainee(traineeId: string, trainerId: string) {
+  const [t] = await db
     .select({ id: schema.users.id, displayName: schema.users.displayName })
     .from(schema.users)
     .where(
       and(
         eq(schema.users.id, traineeId),
-        eq(schema.users.trainerId, user.id),
+        eq(schema.users.trainerId, trainerId),
         eq(schema.users.role, "trainee"),
       ),
     )
     .limit(1);
-  if (!trainee) throw new Response("not found", { status: 404 });
-  const url = new URL(args.request.url);
-  const controls = parseListControls(url.searchParams, spec);
-  const open = (controls.filters.open ?? "all") as "all" | "with_open";
-  const consultations = await listConsultationsForTrainee(db, traineeId, {
-    limit: 200,
-    sort: controls.sort as ConsultationSort,
-    q: controls.q,
-    open,
-  });
-  return { trainee, consultations, spec, controls };
+  return t ?? null;
 }
 
-const KONSULTACJA: PlForms = { one: "konsultacja", few: "konsultacje", many: "konsultacji" };
+export async function loader(args: LoaderFunctionArgs) {
+  const user = await requireUser(args.request, db, { role: "trainer" });
+  const traineeId = args.params.traineeId ?? "";
+  const trainee = await loadTrainee(traineeId, user.id);
+  if (!trainee) throw new Response("not found", { status: 404 });
+
+  const schedule = await getActiveSchedule(db, { trainerId: user.id, traineeId });
+  if (schedule) await ensureOccurrences(db, schedule.id, todayISO());
+  const raw = await listOccurrencesForTrainer(db, { trainerId: user.id, traineeId });
+  // Normalizujemy timestamptz → ISO string (komponent operuje na stringach UTC).
+  const occurrences = raw.map((o) => ({
+    id: o.id,
+    scheduledAt: o.scheduledAt.toISOString(),
+    durationMin: o.durationMin,
+    status: o.status,
+    title: o.title,
+  }));
+  const googleActive = await isGoogleSyncActive(db, user.id);
+  return { trainee, schedule, occurrences, googleActive };
+}
+
+export async function action(args: ActionFunctionArgs) {
+  const user = await requireUser(args.request, db, { role: "trainer" });
+  const traineeId = args.params.traineeId ?? "";
+  const fd = await args.request.formData();
+  const intent = fd.get("intent");
+  try {
+    if (intent === "deactivate-schedule") {
+      await deactivateSchedule(db, { trainerId: user.id, traineeId, fromISO: todayISO() });
+      return { success: "Harmonogram wyłączony." };
+    }
+    if (intent === "save-schedule") {
+      const parsed = ScheduleFormSchema.safeParse(parseScheduleFormData(fd));
+      if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Niepoprawne dane." };
+      await upsertSchedule(db, {
+        trainerId: user.id,
+        traineeId,
+        form: parsed.data,
+        fromISO: todayISO(),
+      });
+      const r = await syncBackfillPair(db, { trainerId: user.id, traineeId, nowISO: new Date().toISOString() });
+      return { success: `Harmonogram zapisany.${r.attempted ? ` Zsynchronizowano z Google: ${r.synced}/${r.attempted}.` : ""}` };
+    }
+    if (intent === "sync-google") {
+      const r = await syncBackfillPair(db, { trainerId: user.id, traineeId, nowISO: new Date().toISOString() });
+      return { success: r.attempted ? `Zsynchronizowano: ${r.synced}/${r.attempted}.` : "Brak terminów do synchronizacji." };
+    }
+    return null;
+  } catch (e) {
+    if (e instanceof ScheduleError) return { error: e.userMessage };
+    throw e;
+  }
+}
 
 export default function TrenerKonsultacjeIndex() {
-  const { trainee, consultations, spec, controls } = useLoaderData<typeof loader>();
+  const { trainee, schedule, occurrences, googleActive } = useLoaderData<typeof loader>();
+  const actionData = useActionData<typeof action>();
+  const now = Date.now();
+
+  const upcoming = occurrences.filter(
+    (o) =>
+      o.status !== "documented" &&
+      o.status !== "cancelled" &&
+      new Date(o.scheduledAt).getTime() >= now,
+  );
+  const past = occurrences.filter(
+    (o) =>
+      o.status === "documented" ||
+      (o.status !== "cancelled" && new Date(o.scheduledAt).getTime() < now),
+  );
+  // Najnowsze pozycje minione na górze.
+  past.sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime());
+
+  const listUrl = `/trener/podopieczni/${trainee.id}/konsultacje`;
+
+  function rows(items: typeof occurrences) {
+    return (
+      <div className="list">
+        {items.map((o) => {
+          const meta = consultationPresentation({
+            status: o.status,
+            scheduledAtISO: o.scheduledAt,
+            nowMs: now,
+            viewer: "trainer",
+          });
+          return (
+            <ConsultationRow
+              key={o.id}
+              to={`${listUrl}/${o.id}`}
+              lead={fmtDateTime(o.scheduledAt)}
+              title={o.title}
+              label={meta.label}
+              tone={meta.tone}
+            />
+          );
+        })}
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -79,97 +167,118 @@ export default function TrenerKonsultacjeIndex() {
           </div>
           <h1>Konsultacje</h1>
           <div className="sub">
-            {consultations.length === 0
-              ? "Brak konsultacji."
-              : `${consultations.length} ${pluralizePl(consultations.length, KONSULTACJA)}`}
+            {schedule
+              ? `Harmonogram: ${CADENCE_LABEL[schedule.cadence]} · ${schedule.timeOfDay.slice(0, 5)}`
+              : "Brak aktywnego harmonogramu."}
           </div>
         </div>
-        <Link to={`/trener/podopieczni/${trainee.id}/konsultacje/nowa`} className="btn btn-primary">
-          <Icons.Plus /> Nowa konsultacja
+        <Link to={`${listUrl}/nowa`} className="btn btn-primary">
+          <Icons.Plus /> Nowy termin
         </Link>
       </div>
 
-      <ListControls spec={spec} state={controls} searchPlaceholder="Szukaj po tytule…" />
+      <ConsultationAlert data={actionData} />
 
-      {consultations.length === 0 ? (
-        <div className="empty">
-          <h3>Brak konsultacji</h3>
-          <div>Nie dodano jeszcze żadnej konsultacji dla tego podopiecznego.</div>
+      {/* Panel harmonogramu */}
+      <div className="card" style={{ marginBottom: 22, maxWidth: 760 }}>
+        <div className="row between" style={{ alignItems: "center", marginBottom: 16 }}>
+          <div className="row" style={{ alignItems: "center", gap: 12 }}>
+            <h2 style={{ fontSize: 17, margin: 0 }}>
+              <Icons.Calendar style={{ marginRight: 8, color: "var(--muted)" }} />
+              Harmonogram cykliczny
+            </h2>
+            {googleActive && (
+              <span className="badge" style={{ fontSize: 11 }}>
+                Google: połączony
+              </span>
+            )}
+          </div>
+          <div className="row" style={{ gap: 8, alignItems: "center" }}>
+            {googleActive && (
+              <Form method="post">
+                <input type="hidden" name="intent" value="sync-google" />
+                <button type="submit" className="btn btn-sm btn-ghost">
+                  Synchronizuj z Google
+                </button>
+              </Form>
+            )}
+            {schedule && (
+              <Form method="post">
+                <input type="hidden" name="intent" value="deactivate-schedule" />
+                <ConfirmSubmitButton
+                  className="btn btn-sm btn-ghost"
+                  style={{ color: "var(--danger)" }}
+                  confirmOptions={{
+                    title: "Wyłączyć harmonogram?",
+                    message:
+                      "Generowanie nowych terminów zatrzyma się, a przyszłe niepotwierdzone terminy zostaną odwołane. Potwierdzone i udokumentowane zostają.",
+                    destructive: true,
+                    confirmText: "Wyłącz harmonogram",
+                  }}
+                >
+                  Wyłącz
+                </ConfirmSubmitButton>
+              </Form>
+            )}
+          </div>
         </div>
-      ) : (
-        <div className="list">
+        <Form method="post">
+          <input type="hidden" name="intent" value="save-schedule" />
+          <ScheduleForm
+            defaultStartsOn={todayISO()}
+            defaultValue={
+              schedule
+                ? {
+                    cadence: schedule.cadence,
+                    weekday: schedule.weekday,
+                    dayOfMonth: schedule.dayOfMonth,
+                    timeOfDay: schedule.timeOfDay,
+                    durationMin: schedule.durationMin,
+                    startsOn: schedule.startsOn,
+                    defaultMeetingUrl: schedule.defaultMeetingUrl,
+                  }
+                : null
+            }
+          />
           <div
-            className="list-head list-row"
             style={{
-              gridTemplateColumns: "100px 1fr auto auto",
-              gap: 14,
+              marginTop: 20,
+              paddingTop: 16,
+              borderTop: "1px solid var(--line)",
+              display: "flex",
+              justifyContent: "flex-end",
             }}
           >
-            <span>Data</span>
-            <span>Tytuł</span>
-            <span>Punkty</span>
-            <span />
+            <button type="submit" className="btn btn-primary">
+              {schedule ? "Zaktualizuj harmonogram" : "Zapisz harmonogram"}
+            </button>
           </div>
-          {consultations.map((c) => (
-            <Link
-              key={c.id}
-              to={`/trener/podopieczni/${trainee.id}/konsultacje/${c.id}`}
-              className="list-row"
-              style={{
-                gridTemplateColumns: "100px 1fr auto auto",
-                gap: 14,
-              }}
-            >
-              <div className="mono text-xs muted">{fmtDate(c.heldOn)}</div>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 500 }}>{c.title}</div>
-                {c.periodFrom && c.periodTo && (
-                  <div className="text-xs muted" style={{ marginTop: 2 }}>
-                    <span className="mono">{fmtDate(c.periodFrom)}</span>
-                    {" — "}
-                    <span className="mono">{fmtDate(c.periodTo)}</span>
-                  </div>
-                )}
-              </div>
-              <ItemCountBadge open={c.openItemCount} total={c.totalItemCount} />
-              <Icons.Chev style={{ color: "var(--muted-2)" }} />
-            </Link>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+        </Form>
+      </div>
 
-function ItemCountBadge({ open, total }: { open: number; total: number }) {
-  if (total === 0) {
-    return (
-      <span className="mono text-xs muted" style={{ minWidth: 80, textAlign: "right" }}>
-        —
-      </span>
-    );
-  }
-  if (open > 0) {
-    return (
-      <span
-        className="mono text-xs"
-        style={{
-          color: "var(--warn)",
-          fontWeight: 600,
-          minWidth: 80,
-          textAlign: "right",
-        }}
-      >
-        {open} do poprawy
-      </span>
-    );
-  }
-  return (
-    <span
-      className="mono text-xs"
-      style={{ color: "var(--ok)", fontWeight: 600, minWidth: 80, textAlign: "right" }}
-    >
-      wszystko poprawione
-    </span>
+      {/* Nadchodzące terminy */}
+      <div style={{ maxWidth: 760 }}>
+        <h2 style={{ fontSize: 17, margin: "0 0 12px" }}>Nadchodzące terminy</h2>
+        {upcoming.length === 0 ? (
+          <div className="empty">
+            <h3>Brak nadchodzących terminów</h3>
+            <div>Ustaw harmonogram powyżej albo dodaj pojedynczy termin.</div>
+          </div>
+        ) : (
+          rows(upcoming)
+        )}
+
+        {/* Do udokumentowania / minione */}
+        <h2 style={{ fontSize: 17, margin: "28px 0 12px" }}>Do udokumentowania / minione</h2>
+        {past.length === 0 ? (
+          <div className="empty">
+            <h3>Brak minionych terminów</h3>
+            <div>Tu pojawią się terminy po ich dacie oraz udokumentowane spotkania.</div>
+          </div>
+        ) : (
+          rows(past)
+        )}
+      </div>
+    </div>
   );
 }

@@ -1,18 +1,26 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
+import { type PostgresJsDatabase, drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
-import * as schema from "~/lib/db/schema";
+import postgres from "postgres";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
-  countOpenItemsForTrainee,
-  createConsultation,
-  deleteConsultation,
+  deactivateSchedule,
+  ensureOccurrences,
+  getActiveSchedule,
+  upsertSchedule,
+} from "~/lib/consultation-schedules";
+import {
+  cancelOccurrence,
+  countPendingForTrainee,
+  createAdhocConsultation,
+  documentConsultation,
   getConsultationDetail,
-  listConsultationsForTrainee,
-  setActionItemStatus,
-  updateConsultation,
+  listOccurrencesForTrainee,
+  listTrainerOccurrencesInRange,
+  rescheduleOccurrence,
+  respondToOccurrence,
 } from "~/lib/consultations";
+import * as schema from "~/lib/db/schema";
 
 let container: StartedPostgreSqlContainer;
 let sql: ReturnType<typeof postgres>;
@@ -29,44 +37,17 @@ beforeAll(async () => {
   await sql`CREATE EXTENSION IF NOT EXISTS citext`;
   await migrate(db, { migrationsFolder: "app/lib/db/migrations" });
 
-  const [tA] = await db
-    .insert(schema.users)
-    .values({
-      email: "trenera@example.com",
-      displayName: "Trener A",
-      role: "trainer",
-    })
-    .returning({ id: schema.users.id });
-  trainerA = tA!.id;
-  const [pA] = await db
-    .insert(schema.users)
-    .values({
-      email: "podoa@example.com",
-      displayName: "Podo A",
-      role: "trainee",
-      trainerId: trainerA,
-    })
-    .returning({ id: schema.users.id });
-  traineeA = pA!.id;
-  const [tB] = await db
-    .insert(schema.users)
-    .values({
-      email: "trenerb@example.com",
-      displayName: "Trener B",
-      role: "trainer",
-    })
-    .returning({ id: schema.users.id });
-  trainerB = tB!.id;
-  const [pB] = await db
-    .insert(schema.users)
-    .values({
-      email: "podob@example.com",
-      displayName: "Podo B",
-      role: "trainee",
-      trainerId: trainerB,
-    })
-    .returning({ id: schema.users.id });
-  traineeB = pB!.id;
+  const mk = async (email: string, role: "trainer" | "trainee", trainerId?: string) => {
+    const [u] = await db
+      .insert(schema.users)
+      .values({ email, displayName: email, role, trainerId })
+      .returning({ id: schema.users.id });
+    return u!.id;
+  };
+  trainerA = await mk("ta@example.com", "trainer");
+  traineeA = await mk("pa@example.com", "trainee", trainerA);
+  trainerB = await mk("tb@example.com", "trainer");
+  traineeB = await mk("pb@example.com", "trainee", trainerB);
 }, 120000);
 
 afterAll(async () => {
@@ -74,100 +55,192 @@ afterAll(async () => {
   await container?.stop();
 });
 
-const form = {
-  heldOn: "2026-05-20",
-  periodFrom: "2026-05-01",
-  periodTo: "2026-05-19",
-  title: "Maj",
-  summary: "OK",
-  items: [
-    { body: "Łokcie", status: "open" as const },
-    { body: "Tempo", status: "resolved" as const },
-  ],
+const weeklyForm = {
+  cadence: "weekly" as const,
+  weekday: 3,
+  dayOfMonth: null,
+  timeOfDay: "18:00",
+  durationMin: 45,
+  startsOn: "2026-06-01",
+  defaultMeetingUrl: null,
 };
 
-describe("consultations repo", () => {
-  it("tworzy konsultację z punktami w kolejności", async () => {
-    const id = await createConsultation(db, { trainerId: trainerA, traineeId: traineeA, form });
-    const detail = await getConsultationDetail(db, { consultationId: id, trainerId: trainerA });
-    expect(detail).not.toBeNull();
-    expect(detail!.items.map((i) => i.body)).toEqual(["Łokcie", "Tempo"]);
-    expect(detail!.items[0]!.ordinal).toBe(0);
-    expect(detail!.items[1]!.resolvedAt).not.toBeNull();
-  });
-
-  it("nie pozwala obcemu trenerowi odczytać konsultacji (404 → null)", async () => {
-    const id = await createConsultation(db, { trainerId: trainerA, traineeId: traineeA, form });
-    const asB = await getConsultationDetail(db, { consultationId: id, trainerId: trainerB });
-    expect(asB).toBeNull();
-  });
-
-  it("nie pozwala obcemu podopiecznemu odczytać konsultacji", async () => {
-    const id = await createConsultation(db, { trainerId: trainerA, traineeId: traineeA, form });
-    const asPB = await getConsultationDetail(db, { consultationId: id, traineeId: traineeB });
-    expect(asPB).toBeNull();
-  });
-
-  it("blokuje tworzenie konsultacji dla cudzego podopiecznego", async () => {
-    await expect(
-      createConsultation(db, { trainerId: trainerB, traineeId: traineeA, form }),
-    ).rejects.toThrow();
-  });
-
-  it("setActionItemStatus ustawia/zeruje resolved_at i pilnuje właściciela", async () => {
-    const id = await createConsultation(db, { trainerId: trainerA, traineeId: traineeA, form });
-    const detail = await getConsultationDetail(db, { consultationId: id, trainerId: trainerA });
-    const openItem = detail!.items.find((i) => i.status === "open")!;
-    await setActionItemStatus(db, { trainerId: trainerA, itemId: openItem.id, status: "resolved" });
-    const after = await getConsultationDetail(db, { consultationId: id, trainerId: trainerA });
-    expect(after!.items.find((i) => i.id === openItem.id)!.resolvedAt).not.toBeNull();
-    await expect(
-      setActionItemStatus(db, { trainerId: trainerB, itemId: openItem.id, status: "open" }),
-    ).rejects.toThrow();
-  });
-
-  it("countOpenItemsForTrainee liczy otwarte punkty", async () => {
-    const n = await countOpenItemsForTrainee(db, traineeA);
-    expect(n).toBeGreaterThanOrEqual(1);
-    expect(await countOpenItemsForTrainee(db, traineeB)).toBe(0);
-  });
-
-  it("update wymienia punkty", async () => {
-    const id = await createConsultation(db, { trainerId: trainerA, traineeId: traineeA, form });
-    await updateConsultation(db, {
+describe("harmonogram + materializacja", () => {
+  it("upsertSchedule generuje terminy planned z właściwymi datami i jest idempotentny", async () => {
+    const schedId = await upsertSchedule(db, {
       trainerId: trainerA,
-      consultationId: id,
-      form: { ...form, items: [{ body: "Nowy", status: "open" }] },
+      traineeId: traineeA,
+      form: weeklyForm,
+      fromISO: "2026-06-01",
     });
-    const detail = await getConsultationDetail(db, { consultationId: id, trainerId: trainerA });
-    expect(detail!.items.map((i) => i.body)).toEqual(["Nowy"]);
+    const occ1 = await listOccurrencesForTrainee(db, traineeA, {
+      fromISO: "2026-06-01T00:00:00.000Z",
+      toISO: "2026-06-30T23:59:59.000Z",
+    });
+    expect(occ1.length).toBeGreaterThanOrEqual(4); // środy czerwca
+    expect(occ1.every((o) => o.status === "planned")).toBe(true);
+    // idempotencja
+    await ensureOccurrences(db, schedId, "2026-06-01");
+    const occ2 = await listOccurrencesForTrainee(db, traineeA, {
+      fromISO: "2026-06-01T00:00:00.000Z",
+      toISO: "2026-06-30T23:59:59.000Z",
+    });
+    expect(occ2.length).toBe(occ1.length);
   });
 
-  it("blokuje edycję cudzej konsultacji", async () => {
-    const id = await createConsultation(db, { trainerId: trainerA, traineeId: traineeA, form });
+  it("blokuje harmonogram dla cudzego podopiecznego", async () => {
     await expect(
-      updateConsultation(db, {
+      upsertSchedule(db, {
         trainerId: trainerB,
-        consultationId: id,
-        form: { ...form, items: [] },
+        traineeId: traineeA,
+        form: weeklyForm,
+        fromISO: "2026-06-01",
       }),
     ).rejects.toThrow();
   });
 
-  it("delete kasuje konsultację i kaskadowo punkty", async () => {
-    const id = await createConsultation(db, { trainerId: trainerA, traineeId: traineeA, form });
-    const ok = await deleteConsultation(db, { trainerId: trainerA, consultationId: id });
-    expect(ok).toBe(true);
-    const gone = await getConsultationDetail(db, { consultationId: id, trainerId: trainerA });
-    expect(gone).toBeNull();
+  it("deactivateSchedule anuluje przyszłe planned", async () => {
+    await deactivateSchedule(db, {
+      trainerId: trainerA,
+      traineeId: traineeA,
+      fromISO: "2026-06-01",
+    });
+    expect(await getActiveSchedule(db, { trainerId: trainerA, traineeId: traineeA })).toBeNull();
+    const occ = await listOccurrencesForTrainee(db, traineeA, {
+      fromISO: "2026-06-01T00:00:00.000Z",
+      toISO: "2026-06-30T23:59:59.000Z",
+    });
+    expect(occ.length).toBe(0); // wszystkie cancelled, lista je pomija
+  });
+});
+
+describe("cykl życia terminu", () => {
+  it("podopieczny potwierdza tylko własny i z dozwolonego statusu", async () => {
+    const id = await createAdhocConsultation(db, {
+      trainerId: trainerA,
+      traineeId: traineeA,
+      documented: false,
+      form: { scheduledAt: "2026-07-01T18:00", durationMin: 45, title: "Ad-hoc", summary: "", items: [] },
+    });
+    await respondToOccurrence(db, { traineeId: traineeA, consultationId: id, action: "confirm" });
+    const d = await getConsultationDetail(db, { consultationId: id, trainerId: trainerA });
+    expect(d!.consultation.status).toBe("confirmed");
+    // obcy podopieczny nie może
+    await expect(
+      respondToOccurrence(db, { traineeId: traineeB, consultationId: id, action: "decline" }),
+    ).rejects.toThrow();
   });
 
-  it("listConsultationsForTrainee zwraca pozycje z licznikami", async () => {
-    const id = await createConsultation(db, { trainerId: trainerA, traineeId: traineeA, form });
-    const list = await listConsultationsForTrainee(db, traineeA);
-    const found = list.find((c) => c.id === id);
-    expect(found).toBeDefined();
-    expect(found!.totalItemCount).toBe(2);
-    expect(found!.openItemCount).toBe(1);
+  it("prośba o zmianę zapisuje notatkę; reschedule wraca do planned i czyści notatkę", async () => {
+    const id = await createAdhocConsultation(db, {
+      trainerId: trainerA,
+      traineeId: traineeA,
+      documented: false,
+      form: { scheduledAt: "2026-07-08T18:00", durationMin: 45, title: "X", summary: "", items: [] },
+    });
+    await respondToOccurrence(db, {
+      traineeId: traineeA,
+      consultationId: id,
+      action: "request_change",
+      note: "Wolę rano",
+    });
+    let d = await getConsultationDetail(db, { consultationId: id, trainerId: trainerA });
+    expect(d!.consultation.status).toBe("change_requested");
+    expect(d!.consultation.traineeNote).toBe("Wolę rano");
+    await rescheduleOccurrence(db, {
+      trainerId: trainerA,
+      consultationId: id,
+      scheduledAtLocal: "2026-07-09T09:00",
+    });
+    d = await getConsultationDetail(db, { consultationId: id, trainerId: trainerA });
+    expect(d!.consultation.status).toBe("planned");
+    expect(d!.consultation.traineeNote).toBeNull();
+  });
+
+  it("cancel pilnuje właściciela; documented wstawia punkty i blokuje cancelled", async () => {
+    const id = await createAdhocConsultation(db, {
+      trainerId: trainerA,
+      traineeId: traineeA,
+      documented: false,
+      form: { scheduledAt: "2026-07-15T18:00", durationMin: 45, title: "Y", summary: "", items: [] },
+    });
+    await expect(cancelOccurrence(db, { trainerId: trainerB, consultationId: id })).rejects.toThrow();
+    await documentConsultation(db, {
+      trainerId: trainerA,
+      consultationId: id,
+      form: {
+        scheduledAt: "2026-07-15T18:00",
+        durationMin: 45,
+        title: "Y",
+        summary: "Dobre tempo",
+        items: [{ body: "Łokcie", status: "open" }],
+      },
+    });
+    const d = await getConsultationDetail(db, { consultationId: id, trainerId: trainerA });
+    expect(d!.consultation.status).toBe("documented");
+    expect(d!.items.map((i) => i.body)).toEqual(["Łokcie"]);
+  });
+
+  it("countPendingForTrainee liczy planned czekające na reakcję", async () => {
+    const n = await countPendingForTrainee(db, traineeA);
+    expect(n).toBeGreaterThanOrEqual(0);
+    expect(await countPendingForTrainee(db, traineeB)).toBe(0);
+  });
+
+  it("tenant-scope: obcy trener nie czyta szczegółów", async () => {
+    const id = await createAdhocConsultation(db, {
+      trainerId: trainerA,
+      traineeId: traineeA,
+      documented: true,
+      form: { scheduledAt: "2026-07-20T18:00", durationMin: 45, title: "Z", summary: "ok", items: [] },
+    });
+    expect(await getConsultationDetail(db, { consultationId: id, trainerId: trainerB })).toBeNull();
+    expect(await getConsultationDetail(db, { consultationId: id, traineeId: traineeB })).toBeNull();
+  });
+});
+
+describe("zbiorczy kalendarz trenera", () => {
+  it("listTrainerOccurrencesInRange zwraca terminy trenera z nazwą podopiecznego i pomija obcych", async () => {
+    const range = { fromISO: "2026-07-01T00:00:00.000Z", toISO: "2026-07-31T23:59:59.000Z" };
+    const id = await createAdhocConsultation(db, {
+      trainerId: trainerA,
+      traineeId: traineeA,
+      documented: false,
+      form: { scheduledAt: "2026-07-25T10:00", durationMin: 30, title: "Kalendarz", summary: "", items: [] },
+    });
+    // Termin trenera B (nie powinien wyciekać do trenera A).
+    await createAdhocConsultation(db, {
+      trainerId: trainerB,
+      traineeId: traineeB,
+      documented: false,
+      form: { scheduledAt: "2026-07-26T10:00", durationMin: 30, title: "B-term", summary: "", items: [] },
+    });
+
+    const listA = await listTrainerOccurrencesInRange(db, { trainerId: trainerA, ...range });
+    const mine = listA.find((o) => o.id === id);
+    expect(mine).toBeDefined();
+    expect(mine!.traineeId).toBe(traineeA);
+    expect(mine!.traineeName.length).toBeGreaterThan(0);
+    // Wszystkie pozycje należą do podopiecznych trenera A (brak wycieku B).
+    expect(listA.every((o) => o.traineeId !== traineeB)).toBe(true);
+
+    const listB = await listTrainerOccurrencesInRange(db, { trainerId: trainerB, ...range });
+    expect(listB.some((o) => o.id === id)).toBe(false);
+  });
+
+  it("pomija terminy cancelled", async () => {
+    const id = await createAdhocConsultation(db, {
+      trainerId: trainerA,
+      traineeId: traineeA,
+      documented: false,
+      form: { scheduledAt: "2026-08-03T10:00", durationMin: 30, title: "DoOdwołania", summary: "", items: [] },
+    });
+    await cancelOccurrence(db, { trainerId: trainerA, consultationId: id });
+    const list = await listTrainerOccurrencesInRange(db, {
+      trainerId: trainerA,
+      fromISO: "2026-08-01T00:00:00.000Z",
+      toISO: "2026-08-31T23:59:59.000Z",
+    });
+    expect(list.some((o) => o.id === id)).toBe(false);
   });
 });

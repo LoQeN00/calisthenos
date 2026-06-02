@@ -62,6 +62,20 @@ const NAV_ITEMS = [
     icon: "Trend" as const,
     tailKey: null,
   },
+  {
+    to: "/trener/konsultacje",
+    label: "Konsultacje",
+    end: false,
+    icon: "Consult" as const,
+    tailKey: null,
+  },
+  {
+    to: "/trener/integracje/google",
+    label: "Integracje",
+    end: false,
+    icon: "Link" as const,
+    tailKey: null,
+  },
 ];
 
 export default function TrenerLayout() {

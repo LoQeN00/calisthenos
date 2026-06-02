@@ -18,6 +18,9 @@ export default [
       route("umiejetnosci", "routes/trener/umiejetnosci._index.tsx"),
       route("umiejetnosci/nowa", "routes/trener/umiejetnosci.nowa.tsx"),
       route("umiejetnosci/:skillId", "routes/trener/umiejetnosci.$skillId.tsx"),
+      route("konsultacje", "routes/trener/konsultacje.tsx"),
+      route("integracje/google", "routes/trener/integracje.google.tsx"),
+      route("integracje/google/callback", "routes/trener/integracje.google.callback.tsx"),
       route("podopieczni", "routes/trener/podopieczni._index.tsx"),
       route("podopieczni/:traineeId", "routes/trener/podopieczni.$traineeId.tsx"),
       route(

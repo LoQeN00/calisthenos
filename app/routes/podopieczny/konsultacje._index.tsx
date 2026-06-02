@@ -1,53 +1,132 @@
-import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
-import { ListControls } from "~/components/list-controls";
+import { useState } from "react";
+import {
+  type ActionFunctionArgs,
+  type LoaderFunctionArgs,
+  Link,
+  useActionData,
+  useLoaderData,
+} from "react-router";
+import { ConsultationAlert } from "~/components/consultation-alert";
+import { ConsultationRow } from "~/components/consultation-row";
+import { StatusBadge } from "~/components/consultation-status-badge";
 import { Icons } from "~/components/icons";
+import { type DaySummary, MonthCalendar } from "~/components/month-calendar";
+import { TraineeOccurrenceActions } from "~/components/trainee-occurrence-actions";
 import { requireUser } from "~/lib/auth";
-import { listConsultationsForTrainee, type ConsultationSort } from "~/lib/consultations";
+import { consultationPresentation, mostUrgentTone } from "~/lib/consultation-status";
+import { TraineeActionSchema } from "~/lib/consultation-types";
+import {
+  ConsultationError,
+  type OccurrenceListItem,
+  getConsultationDetail,
+  listOccurrencesForTrainee,
+  nextUpcomingForTrainee,
+  respondToOccurrence,
+} from "~/lib/consultations";
+import { syncCancelOne } from "~/lib/google/sync";
 import { db } from "~/lib/db/client";
-import { fmtDate, pluralizePl, type PlForms } from "~/lib/format";
-import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
-
-const PUNKT: PlForms = { one: "punkt", few: "punkty", many: "punktów" };
-
-const spec: ListControlsSpec = {
-  sortOptions: [
-    { key: "date_desc", label: "Najnowsze" },
-    { key: "date_asc", label: "Najstarsze" },
-    { key: "most_open", label: "Najwięcej otwartych" },
-  ],
-  defaultSort: "date_desc",
-  filterGroups: [
-    {
-      param: "open",
-      label: "Punkty",
-      options: [
-        { value: "all", label: "Wszystkie" },
-        { value: "with_open", label: "Z otwartymi" },
-      ],
-      defaultValue: "all",
-    },
-  ],
-  searchable: true,
-};
+import { fmtDateTime, fmtTime, monthRangeUTC, shiftMonth, todayISO } from "~/lib/format";
 
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainee" });
   const url = new URL(args.request.url);
-  const controls = parseListControls(url.searchParams, spec);
-  const open = (controls.filters.open ?? "all") as "all" | "with_open";
-  // Konsultacji jest zwykle kilka–kilkanaście; 200 to bezpieczny sufit bez paginacji.
-  const consultations = await listConsultationsForTrainee(db, user.id, {
-    limit: 200,
-    sort: controls.sort as ConsultationSort,
-    q: controls.q,
-    open,
-  });
-  return { consultations, spec, controls };
+  const m = url.searchParams.get("m") ?? todayISO().slice(0, 7);
+  const range = monthRangeUTC(m);
+  const occurrences = await listOccurrencesForTrainee(db, user.id, range);
+  const nextRow = await nextUpcomingForTrainee(db, user.id, new Date().toISOString());
+  const next = nextRow
+    ? {
+        id: nextRow.id,
+        scheduledAt: nextRow.scheduledAt.toISOString(),
+        durationMin: nextRow.durationMin,
+        status: nextRow.status,
+        title: nextRow.title,
+        meetingUrl: nextRow.meetingUrl,
+      }
+    : null;
+  return { occurrences, next, m, year: range.year, month0: range.month0, today: todayISO() };
 }
 
-export default function TraineeKonsultacjeList() {
-  const { consultations, spec, controls } = useLoaderData<typeof loader>();
-  const total = consultations.length;
+export async function action(args: ActionFunctionArgs) {
+  const user = await requireUser(args.request, db, { role: "trainee" });
+  const fd = await args.request.formData();
+  const consultationId = String(fd.get("consultationId") ?? "");
+  const parsedAction = TraineeActionSchema.safeParse(String(fd.get("action") ?? ""));
+  if (!parsedAction.success) return { error: "Nieznana akcja." };
+  const note = String(fd.get("note") ?? "").trim() || undefined;
+  try {
+    await respondToOccurrence(db, {
+      traineeId: user.id,
+      consultationId,
+      action: parsedAction.data,
+      note,
+    });
+    if (parsedAction.data === "decline") {
+      // Termin doczytany w scope podopiecznego → trainerId jest zaufany (nie z requestu).
+      const detail = await getConsultationDetail(db, { consultationId, traineeId: user.id });
+      if (detail?.consultation.googleEventId) {
+        await syncCancelOne(db, { trainerId: detail.consultation.trainerId, consultationId });
+      }
+    }
+    return { success: "Zapisano." };
+  } catch (e) {
+    if (e instanceof ConsultationError) return { error: e.userMessage };
+    throw e;
+  }
+}
+
+export default function PodopiecznyKonsultacjeKalendarz() {
+  const { occurrences, next, m, year, month0, today } = useLoaderData<typeof loader>();
+  const actionData = useActionData<typeof action>();
+  const now = Date.now();
+
+  // Grupuj terminy po dniu miesiąca (UTC).
+  const byDay = new Map<number, OccurrenceListItem[]>();
+  for (const o of occurrences) {
+    const day = new Date(o.scheduledAt).getUTCDate();
+    const arr = byDay.get(day) ?? [];
+    arr.push(o);
+    byDay.set(day, arr);
+  }
+
+  // Podsumowanie per dzień (kolor kropki = najważniejszy ton).
+  const days = new Map<number, DaySummary>();
+  for (const [day, occs] of byDay) {
+    const tone = mostUrgentTone(
+      occs.map(
+        (o) =>
+          consultationPresentation({
+            status: o.status,
+            scheduledAtISO: o.scheduledAt,
+            nowMs: now,
+            viewer: "trainee",
+          }).tone,
+      ),
+    );
+    if (tone) days.set(day, { tone, count: occs.length });
+  }
+
+  const todayDay = today.slice(0, 7) === m ? new Date(`${today}T00:00:00.000Z`).getUTCDate() : null;
+  const [selected, setSelected] = useState<number | null>(null);
+
+  // Agenda miesiąca: nadchodzące (z pominięciem przypiętego „najbliższego”) i minione.
+  const upcoming = occurrences
+    .filter((o) => o.status !== "documented" && new Date(o.scheduledAt).getTime() >= now)
+    .filter((o) => o.id !== next?.id);
+  const past = occurrences
+    .filter((o) => o.status === "documented" || new Date(o.scheduledAt).getTime() < now)
+    .sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime());
+
+  const selectedOccs = selected != null ? (byDay.get(selected) ?? []) : [];
+  const nextMeta = next
+    ? consultationPresentation({
+        status: next.status,
+        scheduledAtISO: next.scheduledAt,
+        nowMs: now,
+        viewer: "trainee",
+      })
+    : null;
+  const nextCanAct = next?.status === "planned" || next?.status === "confirmed";
 
   return (
     <div>
@@ -57,47 +136,198 @@ export default function TraineeKonsultacjeList() {
             Podopieczny
           </div>
           <h1>Konsultacje</h1>
-          <div className="sub">
-            {total === 0
-              ? "Brak konsultacji."
-              : "Ustalenia z Twoich spotkań z trenerem."}
-          </div>
+          <div className="sub">Twój kalendarz spotkań z trenerem.</div>
         </div>
       </div>
 
-      <ListControls spec={spec} state={controls} searchPlaceholder="Szukaj po tytule…" />
+      <ConsultationAlert data={actionData} />
 
-      {total === 0 ? (
-        <div className="empty">
-          <h3>Brak konsultacji</h3>
-          <div>Pojawią się tu po pierwszym udokumentowanym spotkaniu.</div>
-        </div>
-      ) : (
-        <div className="list">
-          {consultations.map((c) => (
-            <Link
-              key={c.id}
-              to={`/podopieczny/konsultacje/${c.id}`}
-              className="list-row"
-              style={{ gridTemplateColumns: "76px 1fr auto", gap: 14 }}
-            >
-              <div className="mono text-xs muted">{fmtDate(c.heldOn)}</div>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 500 }}>{c.title}</div>
-                {c.openItemCount > 0 && (
-                  <div className="text-xs" style={{ marginTop: 4 }}>
-                    <span
-                      className="mono text-xs"
-                      style={{ color: "var(--warn)" }}
-                    >
-                      {c.openItemCount} {pluralizePl(c.openItemCount, PUNKT)} do poprawy
-                    </span>
-                  </div>
-                )}
+      {/* Najbliższy termin — przypięty, z szybkimi akcjami */}
+      {next && nextMeta && (
+        <div
+          className="card"
+          style={{ marginBottom: 18, borderColor: "var(--ink)", background: "var(--accent-soft)" }}
+        >
+          <div className="row between" style={{ alignItems: "center", marginBottom: 8 }}>
+            <div className="eyebrow">Najbliższy termin</div>
+            <StatusBadge label={nextMeta.label} tone={nextMeta.tone} />
+          </div>
+          <div className="row between" style={{ alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+            <div>
+              <Link
+                to={`/podopieczny/konsultacje/${next.id}`}
+                style={{ fontSize: 16, fontWeight: 600 }}
+              >
+                {next.title}
+              </Link>
+              <div className="mono text-xs muted" style={{ marginTop: 2 }}>
+                {fmtDateTime(next.scheduledAt)} · {next.durationMin} min
               </div>
-              <Icons.Chev style={{ color: "var(--muted-2)" }} />
-            </Link>
-          ))}
+            </div>
+            {next.meetingUrl && (
+              <a
+                href={next.meetingUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="btn btn-sm"
+                style={{ flexShrink: 0 }}
+              >
+                <Icons.Video /> Dołącz
+              </a>
+            )}
+          </div>
+          {nextCanAct && (
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
+              <TraineeOccurrenceActions consultationId={next.id} compact />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Kalendarz miesiąca */}
+      <MonthCalendar
+        year={year}
+        month0={month0}
+        todayDay={todayDay}
+        days={days}
+        selected={selected}
+        onSelect={(d) => setSelected((cur) => (cur === d ? null : d))}
+        prevHref={`?m=${shiftMonth(m, -1)}`}
+        nextHref={`?m=${shiftMonth(m, 1)}`}
+      />
+
+      <div style={{ marginTop: 18 }}>
+        {selected != null ? (
+          // Wybrany dzień — karty z akcjami
+          <div>
+            <div className="row between" style={{ alignItems: "center", marginBottom: 12 }}>
+              <h2 style={{ fontSize: 17, margin: 0 }}>
+                {selectedOccs.length === 1 ? "1 termin" : `${selectedOccs.length} terminy`}
+              </h2>
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                onClick={() => setSelected(null)}
+              >
+                <Icons.ChevLeft /> Wszystkie terminy
+              </button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {selectedOccs.map((o) => (
+                <DayOccurrenceCard key={o.id} occ={o} now={now} />
+              ))}
+            </div>
+          </div>
+        ) : (
+          // Agenda miesiąca
+          <>
+            <h2 style={{ fontSize: 17, margin: "0 0 12px" }}>Nadchodzące terminy</h2>
+            {upcoming.length === 0 ? (
+              <div className="empty">
+                <h3>{next ? "To wszystkie nadchodzące terminy" : "Brak nadchodzących terminów"}</h3>
+                <div>
+                  {next
+                    ? "Kolejne terminy pojawią się tutaj, gdy trener je zaplanuje."
+                    : "Trener jeszcze nie zaplanował spotkań w tym miesiącu."}
+                </div>
+              </div>
+            ) : (
+              <div className="list">
+                {upcoming.map((o) => {
+                  const meta = consultationPresentation({
+                    status: o.status,
+                    scheduledAtISO: o.scheduledAt,
+                    nowMs: now,
+                    viewer: "trainee",
+                  });
+                  return (
+                    <ConsultationRow
+                      key={o.id}
+                      to={`/podopieczny/konsultacje/${o.id}`}
+                      lead={fmtDateTime(o.scheduledAt)}
+                      title={o.title}
+                      sub={`${o.durationMin} min`}
+                      label={meta.label}
+                      tone={meta.tone}
+                    />
+                  );
+                })}
+              </div>
+            )}
+
+            {past.length > 0 && (
+              <>
+                <h2 style={{ fontSize: 17, margin: "28px 0 12px" }}>Minione</h2>
+                <div className="list">
+                  {past.map((o) => {
+                    const meta = consultationPresentation({
+                      status: o.status,
+                      scheduledAtISO: o.scheduledAt,
+                      nowMs: now,
+                      viewer: "trainee",
+                    });
+                    return (
+                      <ConsultationRow
+                        key={o.id}
+                        to={`/podopieczny/konsultacje/${o.id}`}
+                        lead={fmtDateTime(o.scheduledAt)}
+                        title={o.title}
+                        sub={`${o.durationMin} min`}
+                        label={meta.label}
+                        tone={meta.tone}
+                      />
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DayOccurrenceCard({ occ, now }: { occ: OccurrenceListItem; now: number }) {
+  const meta = consultationPresentation({
+    status: occ.status,
+    scheduledAtISO: occ.scheduledAt,
+    nowMs: now,
+    viewer: "trainee",
+  });
+  const canAct = occ.status === "planned" || occ.status === "confirmed";
+
+  return (
+    <div className="card">
+      <div className="row between" style={{ alignItems: "flex-start", gap: 10 }}>
+        <div>
+          <Link to={`/podopieczny/konsultacje/${occ.id}`} style={{ fontSize: 15, fontWeight: 600 }}>
+            {occ.title}
+          </Link>
+          <div className="mono text-xs muted" style={{ marginTop: 2 }}>
+            {fmtTime(occ.scheduledAt)} · {occ.durationMin} min
+          </div>
+        </div>
+        <StatusBadge label={meta.label} tone={meta.tone} />
+      </div>
+
+      {occ.meetingUrl && (
+        <div style={{ marginTop: 10 }}>
+          <a
+            href={occ.meetingUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="row"
+            style={{ gap: 6, display: "inline-flex", alignItems: "center", fontSize: 13 }}
+          >
+            <Icons.Video /> Link spotkania
+          </a>
+        </div>
+      )}
+
+      {canAct && (
+        <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
+          <TraineeOccurrenceActions consultationId={occ.id} compact />
         </div>
       )}
     </div>

@@ -7,7 +7,9 @@ export interface ConsultationFormItem {
 }
 
 export interface ConsultationFormDefaultValue {
-  heldOn: string;
+  scheduledAt: string;
+  durationMin?: number;
+  meetingUrl?: string | null;
   periodFrom?: string | null;
   periodTo?: string | null;
   title: string;
@@ -17,7 +19,8 @@ export interface ConsultationFormDefaultValue {
 
 interface ConsultationFormProps {
   defaultValue?: ConsultationFormDefaultValue;
-  defaultHeldOn?: string;
+  /** Domyślny moment spotkania (datetime-local "YYYY-MM-DDTHH:MM"). */
+  defaultScheduledAt?: string;
 }
 
 /**
@@ -25,7 +28,7 @@ interface ConsultationFormProps {
  * Nie renderuje własnego <Form> — rodzic owija go w <Form method="post">
  * i dodaje własny przycisk submit + hidden intent.
  */
-export function ConsultationForm({ defaultValue, defaultHeldOn }: ConsultationFormProps) {
+export function ConsultationForm({ defaultValue, defaultScheduledAt }: ConsultationFormProps) {
   const [items, setItems] = useState<ConsultationFormItem[]>(defaultValue?.items ?? []);
 
   function addItem() {
@@ -40,23 +43,57 @@ export function ConsultationForm({ defaultValue, defaultHeldOn }: ConsultationFo
     setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, body } : it)));
   }
 
-  const heldOnDefault = defaultValue?.heldOn ?? defaultHeldOn ?? "";
+  const scheduledAtDefault = defaultValue?.scheduledAt ?? defaultScheduledAt ?? "";
   const periodFromDefault = defaultValue?.periodFrom ?? "";
   const periodToDefault = defaultValue?.periodTo ?? "";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-      {/* Data spotkania */}
+      {/* Termin spotkania + czas trwania */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+          gap: 12,
+          maxWidth: 460,
+        }}
+      >
+        <div className="field">
+          <label htmlFor="cf-scheduledAt">Termin spotkania</label>
+          <input
+            id="cf-scheduledAt"
+            className="input"
+            type="datetime-local"
+            name="scheduledAt"
+            required
+            defaultValue={scheduledAtDefault}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="cf-durationMin">Czas trwania (min)</label>
+          <input
+            id="cf-durationMin"
+            className="input"
+            type="number"
+            name="durationMin"
+            min={1}
+            max={600}
+            defaultValue={defaultValue?.durationMin ?? 45}
+          />
+        </div>
+      </div>
+
+      {/* Link spotkania */}
       <div className="field">
-        <label htmlFor="cf-heldOn">Data spotkania</label>
+        <label htmlFor="cf-meetingUrl">Link spotkania (opcjonalnie)</label>
         <input
-          id="cf-heldOn"
+          id="cf-meetingUrl"
           className="input"
-          type="date"
-          name="heldOn"
-          required
-          defaultValue={heldOnDefault}
-          style={{ maxWidth: 220 }}
+          type="url"
+          name="meetingUrl"
+          maxLength={500}
+          defaultValue={defaultValue?.meetingUrl ?? ""}
+          placeholder="https://meet.google.com/…"
         />
       </div>
 

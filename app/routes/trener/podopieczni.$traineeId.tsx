@@ -21,9 +21,10 @@ import {
   TagDistributionCard,
 } from "~/components/trainee-health";
 import { requireUser } from "~/lib/auth";
+import { countPendingForTrainee, nextUpcomingForTrainee } from "~/lib/consultations";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
-import { daysAgo, fmtDate, pluralizePl, type PlForms } from "~/lib/format";
+import { daysAgo, fmtDate, fmtDateTime, pluralizePl, type PlForms } from "~/lib/format";
 import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
 import { deletePlan, PlanRepoError } from "~/lib/plans";
 import {
@@ -99,18 +100,31 @@ export async function loader(args: LoaderFunctionArgs) {
 
   const video = (controls.filters.video ?? "all") as "all" | "with" | "without";
 
-  const [totalLogs, health, heatmap, plateau, planUsage, planTotals, videoCov, photoCov, tagDist] =
-    await Promise.all([
-      countLogsForTrainee(db, traineeId, { q: controls.q, video }),
-      getHealthStats(db, traineeId),
-      getActivityHeatmap(db, traineeId, 12),
-      getPlateauExercises(db, traineeId),
-      getActivePlanSessionUsage(db, traineeId),
-      getCurrentPlanTotals(db, traineeId),
-      getVideoCoverage(db, traineeId, 30),
-      getBodyPhotoCoverage(db, traineeId),
-      getTagDistribution(db, traineeId, 30),
-    ]);
+  const [
+    totalLogs,
+    health,
+    heatmap,
+    plateau,
+    planUsage,
+    planTotals,
+    videoCov,
+    photoCov,
+    tagDist,
+    nextConsultation,
+    pendingConsultations,
+  ] = await Promise.all([
+    countLogsForTrainee(db, traineeId, { q: controls.q, video }),
+    getHealthStats(db, traineeId),
+    getActivityHeatmap(db, traineeId, 12),
+    getPlateauExercises(db, traineeId),
+    getActivePlanSessionUsage(db, traineeId),
+    getCurrentPlanTotals(db, traineeId),
+    getVideoCoverage(db, traineeId, 30),
+    getBodyPhotoCoverage(db, traineeId),
+    getTagDistribution(db, traineeId, 30),
+    nextUpcomingForTrainee(db, traineeId, new Date().toISOString()),
+    countPendingForTrainee(db, traineeId),
+  ]);
 
   const totalLogPages = Math.max(1, Math.ceil(totalLogs / LOGS_PAGE_SIZE));
   const safeLogsPage = Math.min(logsPage, totalLogPages);
@@ -141,6 +155,8 @@ export async function loader(args: LoaderFunctionArgs) {
     videoCov,
     photoCov,
     tagDist,
+    nextConsultation,
+    pendingConsultations,
   };
 }
 
@@ -214,6 +230,8 @@ export default function TrenerPodopiecznyDetail() {
     videoCov,
     photoCov,
     tagDist,
+    nextConsultation,
+    pendingConsultations,
   } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
 
@@ -240,6 +258,27 @@ export default function TrenerPodopiecznyDetail() {
               · łącznie <span className="mono">{totalLogs}</span> {pluralizePl(totalLogs, SESJA)}
             </div>
           )}
+          {nextConsultation && (
+            <div className="sub" style={{ marginTop: 4 }}>
+              <Icons.Consult style={{ marginRight: 6, color: "var(--muted)" }} />
+              Najbliższa konsultacja{" "}
+              <span style={{ color: "var(--ink-2)" }} className="mono">
+                {fmtDateTime(
+                  typeof nextConsultation.scheduledAt === "string"
+                    ? nextConsultation.scheduledAt
+                    : new Date(nextConsultation.scheduledAt).toISOString(),
+                )}
+              </span>
+              {pendingConsultations > 0 && (
+                <>
+                  {" · "}
+                  <span style={{ color: "var(--warn)" }} className="mono">
+                    {pendingConsultations} do potwierdzenia
+                  </span>
+                </>
+              )}
+            </div>
+          )}
         </div>
         <div className="row" style={{ gap: 8 }}>
           <Link to={`/trener/podopieczni/${trainee.id}/rozwoj`} className="btn">
@@ -250,6 +289,21 @@ export default function TrenerPodopiecznyDetail() {
           </Link>
           <Link to={`/trener/podopieczni/${trainee.id}/konsultacje`} className="btn">
             <Icons.Consult /> Konsultacje
+            {pendingConsultations > 0 && (
+              <span
+                className="mono text-xs"
+                style={{
+                  marginLeft: 6,
+                  color: "var(--warn)",
+                  fontWeight: 600,
+                  background: "var(--surface-2)",
+                  padding: "1px 7px",
+                  borderRadius: 999,
+                }}
+              >
+                {pendingConsultations}
+              </span>
+            )}
           </Link>
           {draftPlan == null && (
             <Link to={`/trener/plany/nowy?traineeId=${trainee.id}`} className="btn btn-primary">
