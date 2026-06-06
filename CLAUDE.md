@@ -36,6 +36,7 @@ Setup lokalny, deploy na Railway, lista komend i posture bezpieczeństwa:
 | ORM / DB | **Drizzle ORM** + **PostgreSQL 16** |
 | Auth | Własna, sesje w cookie (`__Host-`), hasła **Argon2id** (`@node-rs/argon2`) |
 | Pliki | Wolumen na dysku przez interfejs `FileStorage` (lokalnie / Railway volume), URL-e podpisywane HMAC |
+| Płatności | **Stripe Connect** (Express) — subskrypcje (Checkout/Customer Portal, destination charges na konto trenera) + webhook z weryfikacją podpisu; opcjonalne (działa bez kluczy), brak danych kart u nas |
 | PWA | `vite-plugin-pwa` (cache statyków, instalowalność; brak offline-sync) |
 | Wykresy | **visx** (SVG, SSR-friendly, tree-shakeable) |
 | Walidacja | **Zod** |
@@ -60,6 +61,7 @@ Każdy wpis linkuje do `README.md` danego katalogu — tam jest opis plików.
   - [`app/lib/db/`](app/lib/db/README.md) — klient Drizzle, schemat, migracje
     - [`app/lib/db/migrations/`](app/lib/db/migrations/README.md) — migracje SQL (generowane)
   - [`app/lib/google/`](app/lib/google/README.md) — OAuth2 + Google Calendar/Meet sync (wychodząca, best-effort, opcjonalna)
+  - [`app/lib/stripe/`](app/lib/stripe/README.md) — płatności Stripe Connect (klient, połączenia konta, status subskrypcji; opcjonalna)
   - [`app/lib/storage/`](app/lib/storage/README.md) — interfejs `FileStorage` + impl. lokalna
 - [`app/styles/`](app/styles/README.md) — globalne tokeny CSS
 

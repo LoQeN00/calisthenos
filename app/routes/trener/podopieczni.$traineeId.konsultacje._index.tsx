@@ -14,7 +14,7 @@ import { Icons } from "~/components/icons";
 import { ScheduleForm } from "~/components/schedule-form";
 import { requireUser } from "~/lib/auth";
 import { parseScheduleFormData } from "~/lib/consultation-form.server";
-import { isGoogleSyncActive, syncBackfillPair } from "~/lib/google/sync";
+import { isGoogleSyncActive, syncBackfillPair, syncCancelStaleSchedule } from "~/lib/google/sync";
 import {
   ScheduleError,
   deactivateSchedule,
@@ -79,6 +79,8 @@ export async function action(args: ActionFunctionArgs) {
   try {
     if (intent === "deactivate-schedule") {
       await deactivateSchedule(db, { trainerId: user.id, traineeId, fromISO: todayISO() });
+      // Posprzątaj zdarzenia Google odwołanych terminów (best-effort).
+      await syncCancelStaleSchedule(db, { trainerId: user.id, traineeId, fromISO: todayISO() });
       return { success: "Harmonogram wyłączony." };
     }
     if (intent === "save-schedule") {
@@ -90,6 +92,9 @@ export async function action(args: ActionFunctionArgs) {
         form: parsed.data,
         fromISO: todayISO(),
       });
+      // Skasuj zdarzenia Google terminów odwołanych przez zmianę harmonogramu,
+      // zanim zsynchronizujemy nowe (oba zbiory są rozłączne). Best-effort.
+      await syncCancelStaleSchedule(db, { trainerId: user.id, traineeId, fromISO: todayISO() });
       const r = await syncBackfillPair(db, { trainerId: user.id, traineeId, nowISO: new Date().toISOString() });
       return { success: `Harmonogram zapisany.${r.attempted ? ` Zsynchronizowano z Google: ${r.synced}/${r.attempted}.` : ""}` };
     }

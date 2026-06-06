@@ -14,6 +14,9 @@ const EnvSchema = z.object({
   GOOGLE_REDIRECT_URI: z.string().url().optional(),
   // base64 32 bajtów (klucz AES-256-GCM do szyfrowania tokenów at-rest).
   GOOGLE_TOKEN_ENC_KEY: z.string().optional(),
+  // Płatności Stripe (opcjonalne — aplikacja działa bez nich).
+  STRIPE_SECRET_KEY: z.string().optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
@@ -38,4 +41,15 @@ export function googleConfigured(): boolean {
   return Boolean(
     e.GOOGLE_CLIENT_ID && e.GOOGLE_CLIENT_SECRET && e.GOOGLE_REDIRECT_URI && e.GOOGLE_TOKEN_ENC_KEY,
   );
+}
+
+/** True, gdy sekrety Stripe są ustawione (klucz API + sekret webhooka). */
+export function stripeConfigured(): boolean {
+  const e = getEnv();
+  return Boolean(e.STRIPE_SECRET_KEY && e.STRIPE_WEBHOOK_SECRET);
+}
+
+/** True, gdy klucz API Stripe jest ustawiony (wystarczający do Connect/Checkout). */
+export function stripeApiConfigured(): boolean {
+  return Boolean(getEnv().STRIPE_SECRET_KEY);
 }

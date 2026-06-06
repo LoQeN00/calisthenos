@@ -22,6 +22,8 @@ import {
 } from "~/components/trainee-health";
 import { requireUser } from "~/lib/auth";
 import { countPendingForTrainee, nextUpcomingForTrainee } from "~/lib/consultations";
+import { syncCancelAllForPair } from "~/lib/google/sync";
+import { cleanupSubscriptionForTrainee } from "~/lib/stripe/subscriptions";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import { daysAgo, fmtDate, fmtDateTime, pluralizePl, type PlForms } from "~/lib/format";
@@ -185,6 +187,11 @@ export async function action(args: ActionFunctionArgs) {
 
   if (intent === "delete-trainee") {
     try {
+      // Sprzątanie efektów zewnętrznych PRZED kaskadą DB — po usunięciu wiersza
+      // pary znika powiązanie ze Stripe/Google. Oba wywołania są best-effort
+      // (błędy połykane w środku) i nie blokują usunięcia konta.
+      await cleanupSubscriptionForTrainee(db, user.id, traineeId);
+      await syncCancelAllForPair(db, { trainerId: user.id, traineeId });
       const { displayName } = await deleteTraineeFully(db, user.id, traineeId);
       throw redirect(`/trener/podopieczni?usuniety=${encodeURIComponent(displayName)}`);
     } catch (e) {
@@ -304,6 +311,9 @@ export default function TrenerPodopiecznyDetail() {
                 {pendingConsultations}
               </span>
             )}
+          </Link>
+          <Link to={`/trener/podopieczni/${trainee.id}/platnosci`} className="btn">
+            <Icons.Card /> Płatności
           </Link>
           {draftPlan == null && (
             <Link to={`/trener/plany/nowy?traineeId=${trainee.id}`} className="btn btn-primary">
@@ -525,7 +535,8 @@ export default function TrenerPodopiecznyDetail() {
               </div>
               <div className="text-xs muted">
                 Konto, wszystkie plany, historia treningów, zdjęcia sylwetki i nagrania video
-                zostaną <strong>nieodwracalnie skasowane</strong>.
+                zostaną <strong>nieodwracalnie skasowane</strong>. Aktywna subskrypcja Stripe
+                zostanie anulowana, a nadchodzące spotkania usunięte z Twojego Kalendarza Google.
               </div>
             </div>
             <Form method="post" style={{ flexShrink: 0 }}>
@@ -535,7 +546,7 @@ export default function TrenerPodopiecznyDetail() {
                 confirmOptions={{
                   title: `Usunąć podopiecznego „${trainee.displayName}"?`,
                   message:
-                    "Wszystkie dane tej osoby (plany, sesje, video, zdjęcia) zostaną nieodwracalnie skasowane. Tej operacji nie da się cofnąć.",
+                    "Wszystkie dane tej osoby (plany, sesje, video, zdjęcia) zostaną nieodwracalnie skasowane, subskrypcja Stripe anulowana, a nadchodzące spotkania usunięte z Kalendarza Google. Tej operacji nie da się cofnąć.",
                   destructive: true,
                   confirmText: "Usuń podopiecznego",
                 }}

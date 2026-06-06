@@ -6,7 +6,7 @@ który wymusza rolę i liczy odznaki nawigacji. Desktop-first. Mapowanie URL w
 
 | Plik | URL | Eksporty | Co robi (loader / action) |
 |---|---|---|---|
-| `_layout.tsx` | `/trener` (layout) | loader, default | Wymaga roli trenera; liczy podopiecznych/ćwiczenia/plany do nawigacji. Topbar + sidenav + `<Outlet/>`. |
+| `_layout.tsx` | `/trener` (layout) | loader, default | Wymaga roli trenera; liczy podopiecznych/ćwiczenia/plany do nawigacji. Topbar + sidenav (z pozycją „Płatności" → `integracje/stripe`) + `<Outlet/>`. |
 | `_index.tsx` | `/trener` | loader, default | Pulpit: lista klientów, 6 ostatnich sesji, liczniki aktywnych planów/draftów/sesji 7-dniowych. |
 | `biblioteka._index.tsx` | `/trener/biblioteka` | loader, action, default | Lista ćwiczeń z sort + filtr jednostki + szukajka (URL params, `<ListControls>`, paginacja 24); podpisuje URL-e demo. Akcje: dodaj/usuń kategorię. |
 | `biblioteka.nowe.tsx` | `/trener/biblioteka/nowe` | loader, action, default | Formularz nowego ćwiczenia (nazwa, jednostka REPS/SEC, opis, checkbox „Zbieraj RPE", tagi, demo wideo); upload przez `uploadFile`. |
@@ -14,10 +14,11 @@ który wymusza rolę i liczy odznaki nawigacji. Desktop-first. Mapowanie URL w
 | `plany._index.tsx` | `/trener/plany` | loader, action, default | Lista planów z szukajka + sort + filtr statusu (URL params, `<ListControls>`, paginacja 20); akcja `delete-plan` (archiwizuje gdy są logi, inaczej kasuje). |
 | `plany.nowy.tsx` | `/trener/plany/nowy` | loader, action, default | Nowy pusty plan dla wybranego podopiecznego; odbija do istniejącego draftu jeśli jest. |
 | `plany.$planId.tsx` | `/trener/plany/:planId` | loader, action, default | **Edytor planów** — serce panelu. Tryby: view-active / edit-draft / view-archived. Akcje: `save`, `publish`, `delete` (na draftcie bez logów = twarde usunięcie, więc pełni też rolę „odrzuć"). Bloki single/superset/dropset, leniwe tworzenie draftu z aktywnego, dirty-tracking + `beforeunload`. |
-| `podopieczni._index.tsx` | `/trener/podopieczni` | loader, action, default | Lista podopiecznych z szukajka + sort + filtr planu (URL params, `<ListControls>`, paginacja 30); akcja tworzy zaproszenie i zwraca URL (14 dni). |
-| `podopieczni.$traineeId.tsx` | `/trener/podopieczni/:traineeId` | loader, action, default | Widok klienta: health tiles, heatmapa aktywności, plateau, plan usage + totals, coverage (video/zdjęcia), rozkład tagów; plany (aktywny/draft), logi z szukajka + sort + filtr wideo (URL params, `<ListControls>`, paginacja 20); akcja `delete-trainee`. |
+| `podopieczni._index.tsx` | `/trener/podopieczni` | loader, action, default | Lista podopiecznych z szukajka + sort + filtr planu (URL params, `<ListControls>`, paginacja 30); akcja tworzy zaproszenie i zwraca URL (14 dni). Formularz zaproszenia ma opcjonalne pole „Kwota miesięczna" (widoczne gdy Stripe skonfigurowany) — kwota jedzie z zaproszeniem. |
+| `podopieczni.$traineeId.tsx` | `/trener/podopieczni/:traineeId` | loader, action, default | Widok klienta: health tiles, heatmapa aktywności, plateau, plan usage + totals, coverage (video/zdjęcia), rozkład tagów; plany (aktywny/draft), logi z szukajka + sort + filtr wideo (URL params, `<ListControls>`, paginacja 20); akcja `delete-trainee`. Linki do pod-stron klienta: Rozwój, Sylwetka, Konsultacje, **Płatności** (`…/platnosci`). |
 | `podopieczni.$traineeId.log.$logId.tsx` | `…/log/:logId` | loader, default | Szczegóły wpisu treningowego z podpisanymi URL-ami wideo per-seria. |
 | `podopieczni.$traineeId.sylwetka.tsx` | `…/sylwetka` | loader, default | Galeria zdjęć sylwetki + pary "przed/po"; podpisane URL-e. |
+| `podopieczni.$traineeId.platnosci.tsx` | `…/platnosci` | loader, action, default | Płatności pary: status subskrypcji + bieżąca kwota (`getSubscriptionForPair`, `subscriptionPresentation`), formularz ustalania miesięcznej kwoty (intent `set-amount` → `parsePlnToGrosze`+`MonthlyAmountSchema`→`setMonthlyAmount`; przy aktywnej subskrypcji komunikat „zmiana wejdzie w życie od następnego odnowienia"), historia płatności (`listPaymentsForPair`, link do faktury) i „Zakończ subskrypcję" (intent `cancel`, tylko gdy active/past_due). Akcje `pause`/`resume` (Wstrzymaj/Wznów subskrypcję podopiecznego). Tenant-scope przez `assertTraineeOwnedBy` (→404). |
 | `podopieczni.$traineeId.statystyki.tsx` | `…/statystyki` (301) | loader | Shim przekierowujący na `/trener/podopieczni/:traineeId`. |
 | `podopieczni.$traineeId.rozwoj._index.tsx` | `…/rozwoj` | loader, default | **Strona główna Rozwoju** podopiecznego: drzewo umiejętności (`SkillTreeView`) + lista „Pozostałe ćwiczenia" z sort + filtr tagów (`<ListControls>`), tryb porównania. Tenant-scope przez `findTraineeOfTrainer` (→404). |
 | `podopieczni.$traineeId.rozwoj.umiejetnosc.$skillId.tsx` | `…/rozwoj/umiejetnosc/:skillId` | loader, action, default | Drill-in umiejętności: drabina wariantów (`VariationLadder`) + wykres/KPI bieżącego wariantu; akcje `set-start`, `advance`. Tenant-scope przez `findTraineeOfTrainer` (→404). |
@@ -37,12 +38,15 @@ który wymusza rolę i liczy odznaki nawigacji. Desktop-first. Mapowanie URL w
 | `konsultacje.tsx` | `/trener/konsultacje` | loader, default | **Zbiorczy kalendarz konsultacji** (z menu): siatka miesiąca ze WSZYSTKIMI terminami trenera (wszyscy podopieczni, bez cancelled) — kropki na dniach, wybór dnia → lista terminów (godzina, podopieczny, status, link do szczegółów per-podopieczny). Read-only; do doboru wolnego slotu. Nawigacja miesięcy `?m=YYYY-MM`. |
 | `integracje.google.tsx` | `/trener/integracje/google` | loader, action, default | Zarządzanie połączeniem Google Calendar: stan połączenia (`getConnectionStatus`), link „Połącz z Google" (intent `connect` → generuje nonce + `signState` + cookie + redirect do OAuth consent) albo „Rozłącz" (intent `disconnect` → `deleteConnection` + best-effort `revokeToken`). Wbudowane banery błędów (denied/state/exchange) z query params. Wymaga `googleConfigured()`. |
 | `integracje.google.callback.tsx` | `/trener/integracje/google/callback` | loader, default | Callback OAuth2 Google: weryfikacja `state` (HMAC-SHA256 + TTL) + nonce z cookie (anty-CSRF), wymiana `code` → tokeny (`exchangeCode`), zapis zaszyfrowanych tokenów (`upsertConnection`), przekierowanie do `integracje/google?ok=1` lub `?error=…`. Zawsze przekierowuje, nigdy nie renderuje treści. |
+| `integracje.stripe.tsx` | `/trener/integracje/stripe` | loader, action, default | Zarządzanie połączeniem Stripe (płatności): stan połączenia (`getConnectionStatus`), przycisk „Połącz ze Stripe" / „Dokończ konfigurację" (intent `connect` → `ensureExpressAccount` + redirect do `createOnboardingLink`). Banery z query params `?return=1` / `?refresh=1` (powrót/wygaśnięcie linka onboardingu). Wymaga `stripeApiConfigured()`. |
 
 Główne moduły wołane stąd: `lib/auth` (`requireUser`), `lib/plans`, `lib/workouts`,
 `lib/categories`, `lib/trainees`, `lib/stats`, `lib/body-photos`, `lib/files`,
 `lib/file-uploads`, `lib/format`, `lib/consultations`, `lib/consultation-schedules`,
 `lib/consultation-types`, `lib/consultation-status`, `lib/consultation-form.server`,
 `lib/google/sync`, `lib/google/connections`, `lib/google/oauth`,
+`lib/stripe/connections`, `lib/stripe/subscriptions`, `lib/stripe/status`,
+`lib/money`, `lib/payments`,
 `components/pagination`, `components/consultation-form`, `components/schedule-form`,
 `components/month-calendar`, `components/consultation-row`,
 `components/consultation-status-badge`, `components/consultation-alert`.

@@ -156,6 +156,69 @@ informuje o braku konfiguracji i nie pokazuje przycisku „Połącz".
 
 ---
 
+## Płatności (Stripe) (opcjonalna)
+
+Trener łączy własne konto Stripe (Connect Express) i ustala podopiecznemu
+miesięczną kwotę prowadzenia. Podopieczny opłaca subskrypcję przez **Stripe
+Checkout**, zarządza nią w **Customer Portal**, a historia płatności jest
+aktualizowana webhookiem. Funkcja jest **opcjonalna** — bez kluczy aplikacja
+działa normalnie (widoki płatności informują o braku konfiguracji). **Żadne dane
+kart nie są przechowywane u nas** — Checkout i Portal są hostowane przez Stripe.
+
+> **Najpierw uruchom migrację** (płatności dodają tabele Stripe):
+> ```bash
+> npm run db:migrate
+> ```
+
+### Zmienne środowiskowe
+
+| Zmienna | Wartość |
+|---|---|
+| `STRIPE_SECRET_KEY` | klucz tajny platformy (w trybie testowym `sk_test_…`) |
+| `STRIPE_WEBHOOK_SECRET` | sekret podpisu webhooka (`whsec_…`) — patrz niżej |
+
+Połączenia kont trenerów i onboarding działają w **trybie testowym** Stripe
+(test mode) — używaj kluczy `sk_test_…` i kart testowych Stripe.
+
+### Webhook lokalnie (Stripe CLI)
+
+Zainstaluj [Stripe CLI](https://stripe.com/docs/stripe-cli), zaloguj się
+(`stripe login`) i przekieruj zdarzenia na lokalny endpoint:
+
+```bash
+stripe listen --forward-to localhost:3000/webhooks/stripe
+```
+
+`stripe listen` wypisze sekret podpisu (`whsec_…`) — wpisz go do
+`STRIPE_WEBHOOK_SECRET` w `.env` i zrestartuj dev server.
+
+### Konfiguracja w panelu Stripe (właściciel)
+
+- **Smart Retries (dunning):** ustaw 8 prób w ciągu 2 tygodni, stan końcowy `cancel` — Billing → Revenue recovery → Retries.
+- **Customer Portal:** włącz aktualizację metody płatności i anulowanie subskrypcji.
+- (Opcjonalnie) włącz wbudowane e-maile Stripe o nieudanej płatności.
+
+### SCA / zgodność (EU/PL)
+
+- Stripe Checkout wymusza 3D Secure na pierwszej płatności i ustanawia zgodę na płatności cykliczne. Nie zapisujemy karty poza Checkout (brak SetupIntent). Odnowienia o stałej kwocie/interwale są zwolnione z SCA; zmiana kwoty lub proracja może ponownie wymagać 3DS — dlatego zmiana ceny aktywnej subskrypcji wchodzi w życie od następnego odnowienia.
+- **Nota prawna:** obowiązki VAT/e-faktur w PL (platforma jako merchant-of-record) oraz wymagane prawem powiadomienia o nadchodzącym obciążeniu wymagają potwierdzenia z księgową/prawnikiem — poza zakresem implementacji.
+
+### Dostęp = opłacona subskrypcja (gating)
+
+- Podopieczny ma dostęp do aplikacji **tylko z aktywną subskrypcją**. Po rejestracji
+  z zaproszenia trafia na pełnoekranowy ekran aktywacji (`/podopieczny/aktywuj`,
+  poza layoutem) i bez opłacenia nie wchodzi do panelu. Gating jest **ciągły** —
+  wygaśnięcie subskrypcji odbiera dostęp (kolejna nawigacja → ekran aktywacji).
+- Statusy dające dostęp: **active, paused, past_due** (grace — pojedyncza nieudana
+  płatność w oknie dunningu nie wyrzuca od razu; dostęp znika przy `canceled`/`unpaid`).
+- **Gating działa tylko, gdy płatność jest realnie możliwa** (Stripe skonfigurowany
+  + trener `chargesEnabled` + ustalona kwota). Gdy trener nie skonfigurował płatności —
+  podopieczny ma pełny dostęp (nie zamykamy go w pułapce). Pauza zachowuje dostęp.
+- Predykat: `app/lib/stripe/access.ts` (`paymentRequired`, `hasAppAccess`), egzekwowany
+  w loaderze `app/routes/podopieczny/_layout.tsx`.
+
+---
+
 ## Useful commands
 
 ```bash

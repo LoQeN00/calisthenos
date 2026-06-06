@@ -60,9 +60,7 @@ export function Heatmap({ days, cellSize = 12, cellGap = 3 }: HeatmapProps) {
                 ry={2}
                 fill={colorForCount(day.count)}
               >
-                <title>
-                  {day.date}: {day.count === 0 ? "brak" : `${day.count} sesji`}
-                </title>
+                <title>{`${day.date}: ${day.count === 0 ? "brak" : `${day.count} sesji`}`}</title>
               </rect>
             );
           })}

@@ -6,6 +6,7 @@ export default [
   route("wyloguj", "routes/wyloguj.tsx"),
   route("zaproszenie/:token", "routes/zaproszenie.$token.tsx"),
   route("files/:fileId", "routes/files.$fileId.tsx"),
+  route("webhooks/stripe", "routes/webhooks.stripe.tsx"),
   ...prefix("trener", [
     layout("routes/trener/_layout.tsx", [
       index("routes/trener/_index.tsx"),
@@ -21,6 +22,7 @@ export default [
       route("konsultacje", "routes/trener/konsultacje.tsx"),
       route("integracje/google", "routes/trener/integracje.google.tsx"),
       route("integracje/google/callback", "routes/trener/integracje.google.callback.tsx"),
+      route("integracje/stripe", "routes/trener/integracje.stripe.tsx"),
       route("podopieczni", "routes/trener/podopieczni._index.tsx"),
       route("podopieczni/:traineeId", "routes/trener/podopieczni.$traineeId.tsx"),
       route(
@@ -28,6 +30,10 @@ export default [
         "routes/trener/podopieczni.$traineeId.log.$logId.tsx",
       ),
       route("podopieczni/:traineeId/sylwetka", "routes/trener/podopieczni.$traineeId.sylwetka.tsx"),
+      route(
+        "podopieczni/:traineeId/platnosci",
+        "routes/trener/podopieczni.$traineeId.platnosci.tsx",
+      ),
       route(
         "podopieczni/:traineeId/statystyki",
         "routes/trener/podopieczni.$traineeId.statystyki.tsx",
@@ -101,10 +107,14 @@ export default [
       route("sylwetka", "routes/podopieczny/sylwetka.tsx"),
       route("konsultacje", "routes/podopieczny/konsultacje._index.tsx"),
       route("konsultacje/:konsultacjaId", "routes/podopieczny/konsultacje.$konsultacjaId.tsx"),
+      route("platnosci", "routes/podopieczny/platnosci.tsx"),
       route("umiejetnosci", "routes/podopieczny/umiejetnosci.tsx"),
       route("umiejetnosci/:skillId", "routes/podopieczny/umiejetnosci.$skillId.tsx"),
     ]),
     // Wrapped lives OUTSIDE the sidenav layout so it can render full-screen.
     route("wrapped/:ym", "routes/podopieczny/wrapped.$ym.tsx"),
+    // Aktywacja subskrypcji — OUTSIDE the layout, bo to dokąd gate w _layout.tsx
+    // odsyła nieopłaconych podopiecznych (gdyby było w children → pętla redirectów).
+    route("aktywuj", "routes/podopieczny/aktywuj.tsx"),
   ]),
 ] satisfies RouteConfig;

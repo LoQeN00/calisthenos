@@ -23,6 +23,7 @@ export interface CreateInviteInput {
   displayName: string;
   email?: string | null;
   replacesUserId?: string | null;
+  monthlyAmountGrosze?: number | null;
 }
 
 export async function createInvite(db: Db, input: CreateInviteInput) {
@@ -36,6 +37,7 @@ export async function createInvite(db: Db, input: CreateInviteInput) {
       email: input.email ?? null,
       tokenHash: hash,
       replacesUserId: input.replacesUserId ?? null,
+      monthlyAmountGrosze: input.monthlyAmountGrosze ?? null,
       expiresAt,
     })
     .returning();

@@ -5,7 +5,7 @@ domenowej — czysta prezentacja + drobne interakcje (modale, providery kontekst
 
 | Plik | Eksporty | Rola |
 |---|---|---|
-| `icons.tsx` | `Icons` (40+ ikon: `Dashboard`, `Users`, `Library`, `Play`, `Check`, `Trash`, `Calendar`, `Body`, `Trend`…), `makeIcon` | Centralny zestaw ikon SVG line-style (`currentColor`, rozmiar przez `font-size`). |
+| `icons.tsx` | `Icons` (40+ ikon: `Dashboard`, `Users`, `Library`, `Play`, `Check`, `Trash`, `Calendar`, `Body`, `Trend`, `Card`…), `makeIcon` | Centralny zestaw ikon SVG line-style (`currentColor`, rozmiar przez `font-size`). |
 | `modal.tsx` | `Modal({ open, onClose, title, wide?, children })` | Dialog na natywnym `<dialog>`; blokada scrolla, ESC, backdrop. |
 | `confirm-provider.tsx` | `ConfirmProvider`, `useConfirm()`, `useAlert()`, `ConfirmSubmitButton` | Potwierdzenia/alerty przez kontekst; przycisk pytający przed submitem formularza. |
 | `toast-provider.tsx` | `ToastProvider`, `useToast()`, `ToastTone` | To'sty (success/error/info), auto-dismiss ~3s. |

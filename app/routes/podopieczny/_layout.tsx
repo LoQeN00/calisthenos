@@ -1,11 +1,15 @@
 import { and, count, eq } from "drizzle-orm";
-import { NavLink, Outlet, useLoaderData, type LoaderFunctionArgs } from "react-router";
+import { NavLink, Outlet, redirect, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { UserMenu } from "~/components/user-menu";
 import { requireUser } from "~/lib/auth";
 import { countPendingForTrainee } from "~/lib/consultations";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
+import { stripeApiConfigured } from "~/lib/env";
+import { hasAppAccess, paymentRequired } from "~/lib/stripe/access";
+import { getConnectionRow } from "~/lib/stripe/connections";
+import { getSubscriptionForPair } from "~/lib/stripe/subscriptions";
 
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainee" });
@@ -36,6 +40,33 @@ export async function loader(args: LoaderFunctionArgs) {
 
   const pending = await countPendingForTrainee(db, user.id);
 
+  // Payment gating + badge: fetch the pair's subscription + the trainer's Stripe
+  // connection once, then reuse for both the access gate and the nav badge.
+  let paymentsBadge = 0;
+  if (user.trainerId) {
+    const sub = await getSubscriptionForPair(db, user.trainerId, user.id);
+    const conn = await getConnectionRow(db, user.trainerId);
+
+    // Gate: only when payment is realistically possible (Stripe configured,
+    // trainer charges enabled, price set). Then require an access-granting status.
+    const required = paymentRequired({
+      stripeConfigured: stripeApiConfigured(),
+      chargesEnabled: Boolean(conn?.chargesEnabled),
+      hasPrice: Boolean(sub?.stripePriceId),
+    });
+    if (!hasAppAccess({ paymentRequired: required, status: sub?.status ?? null })) {
+      throw redirect("/podopieczny/aktywuj");
+    }
+
+    // Badge: flag when subscription needs attention (past_due, unpaid, or no
+    // subscription row yet but trainer has set a price — i.e. status 'none').
+    const needsAttention =
+      sub?.status === "past_due" ||
+      sub?.status === "unpaid" ||
+      (sub?.status === "none" && sub.stripePriceId != null);
+    if (needsAttention) paymentsBadge = 1;
+  }
+
   return {
     user,
     tails: {
@@ -43,6 +74,7 @@ export async function loader(args: LoaderFunctionArgs) {
       history: Number(logCountRow?.c ?? 0),
       photos: Number(photoCountRow?.c ?? 0),
       consultations: pending,
+      payments: paymentsBadge,
     },
   };
 }
@@ -83,6 +115,13 @@ const NAV_ITEMS = [
     end: false,
     icon: "Consult" as const,
     tailKey: "consultations" as const,
+  },
+  {
+    to: "/podopieczny/platnosci",
+    label: "Płatności",
+    end: false,
+    icon: "Card" as const,
+    tailKey: "payments" as const,
   },
 ];
 

@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { and, eq, gt, lt } from "drizzle-orm";
 import type { Db } from "../db/client";
 import * as schema from "../db/schema";
+import { errorMeta, logger } from "~/lib/logger";
 
 const SESSION_DURATION_DAYS = 30;
 const REFRESH_WHEN_DAYS_LEFT = 7;
@@ -80,10 +81,10 @@ export function maybePruneExpiredSessions(db: Db): void {
   lastPruneAt = now;
   pruneExpiredSessions(db)
     .then((n) => {
-      if (n > 0) console.log(`[sessions] pruned ${n} expired session(s)`);
+      if (n > 0) logger.info("sessions.pruned", { count: n });
     })
     .catch((err) => {
-      console.error("[sessions] prune failed:", err);
+      logger.error("sessions.prune_failed", errorMeta(err));
     });
 }
 

@@ -1,4 +1,4 @@
-import { and, asc, between, eq, gt, inArray, isNull, ne } from "drizzle-orm";
+import { and, asc, between, eq, gt, gte, inArray, isNotNull, isNull, ne } from "drizzle-orm";
 import type { ConsultationDocForm, TraineeAction } from "~/lib/consultation-types";
 import { canDocument, canTraineeAct, canTrainerReschedule } from "~/lib/consultation-types";
 import type { Db } from "~/lib/db/client";
@@ -560,4 +560,65 @@ export async function setGoogleEventId(
         eq(schema.consultations.trainerId, args.trainerId),
       ),
     );
+}
+
+export interface GoogleEventRef {
+  consultationId: string;
+  googleEventId: string;
+}
+
+/**
+ * Wszystkie terminy pary mające zdarzenie Google (dowolny status) — do sprzątnięcia
+ * zdarzeń przy usuwaniu podopiecznego. Tenant-scope: trainerId+traineeId.
+ */
+export async function listGoogleEventIdsForPair(
+  db: Db,
+  args: { trainerId: string; traineeId: string },
+): Promise<GoogleEventRef[]> {
+  const rows = await db
+    .select({
+      id: schema.consultations.id,
+      googleEventId: schema.consultations.googleEventId,
+    })
+    .from(schema.consultations)
+    .where(
+      and(
+        eq(schema.consultations.trainerId, args.trainerId),
+        eq(schema.consultations.traineeId, args.traineeId),
+        isNotNull(schema.consultations.googleEventId),
+      ),
+    );
+  return rows.flatMap((r) =>
+    r.googleEventId ? [{ consultationId: r.id, googleEventId: r.googleEventId }] : [],
+  );
+}
+
+/**
+ * Nadchodzące, ODWOŁANE terminy pary, które wciąż mają zdarzenie Google — do
+ * sprzątnięcia po dezaktywacji/zmianie harmonogramu (terminy stały się `cancelled`
+ * w DB, ale zdarzenie w kalendarzu zostało). `fromISO`: YYYY-MM-DD z route.
+ * Tenant-scope: trainerId+traineeId.
+ */
+export async function listCancelledGoogleEventIds(
+  db: Db,
+  args: { trainerId: string; traineeId: string; fromISO: string },
+): Promise<GoogleEventRef[]> {
+  const rows = await db
+    .select({
+      id: schema.consultations.id,
+      googleEventId: schema.consultations.googleEventId,
+    })
+    .from(schema.consultations)
+    .where(
+      and(
+        eq(schema.consultations.trainerId, args.trainerId),
+        eq(schema.consultations.traineeId, args.traineeId),
+        eq(schema.consultations.status, "cancelled"),
+        isNotNull(schema.consultations.googleEventId),
+        gte(schema.consultations.scheduledAt, new Date(`${args.fromISO}T00:00:00.000Z`)),
+      ),
+    );
+  return rows.flatMap((r) =>
+    r.googleEventId ? [{ consultationId: r.id, googleEventId: r.googleEventId }] : [],
+  );
 }

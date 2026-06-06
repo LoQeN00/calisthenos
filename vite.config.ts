@@ -41,6 +41,12 @@ export default defineConfig({
     }),
   ],
   server: { port: 3000 },
+  // `@node-rs/argon2` jest modułem natywnym, używanym WYŁĄCZNIE po stronie serwera
+  // (hashowanie haseł w `app/lib/auth`). RR7 poprawnie wycina go z bundla klienta w
+  // produkcji, ale skaner zależności dev-servera potrafi pójść po surowych importach
+  // i próbować zresolować jego gałąź `browser.js` (`@node-rs/argon2-wasm32-wasi`),
+  // co wywraca leniwe ładowanie modułu trasy. Wykluczamy go z optymalizacji klienta.
+  optimizeDeps: { exclude: ["@node-rs/argon2"] },
   resolve: {
     alias: { "~": fileURLToPath(new URL("./app", import.meta.url)) },
   },

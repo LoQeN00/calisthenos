@@ -11,6 +11,10 @@ import { z } from "zod";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import { buildSetCookie, consumeInvite, createSession, hashPassword, hashToken } from "~/lib/auth";
+import { enforceRateLimit, RATE_LIMITS, rateLimited, resetRateLimit } from "~/lib/rate-limit";
+import { stripeApiConfigured } from "~/lib/env";
+import { errorMeta, logger } from "~/lib/logger";
+import { setMonthlyAmount } from "~/lib/stripe/subscriptions";
 
 const AcceptSchema = z.object({
   displayName: z.string().min(1).max(80),
@@ -35,6 +39,9 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
+  const retry = enforceRateLimit(args.request, RATE_LIMITS.invite);
+  if (retry !== null) return rateLimited(retry);
+
   const token = args.params.token ?? "";
   const fd = await args.request.formData();
   const parsed = AcceptSchema.safeParse({
@@ -62,6 +69,7 @@ export async function action(args: ActionFunctionArgs) {
 
   const passwordHash = await hashPassword(parsed.data.password);
   let user: schema.User;
+  let resultKind: "created" | "replaced";
   try {
     const result = await consumeInvite(db, {
       token,
@@ -70,6 +78,7 @@ export async function action(args: ActionFunctionArgs) {
       newPasswordHash: passwordHash,
     });
     user = result.user;
+    resultKind = result.kind;
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "";
     if (/expired/i.test(msg)) return { error: "Zaproszenie wygasło." };
@@ -80,9 +89,20 @@ export async function action(args: ActionFunctionArgs) {
     userId: user.id,
     userAgentHint: args.request.headers.get("user-agent"),
   });
-  return redirect(user.role === "trainer" ? "/trener" : "/podopieczny", {
-    headers: { "Set-Cookie": buildSetCookie(id, expiresAt) },
-  });
+  resetRateLimit("invite", args.request);
+  const redirectTo = user.role === "trainer" ? "/trener" : "/podopieczny";
+  // Best-effort: zapisz kwotę miesięczną z zaproszenia. Po /podopieczny gate
+  // w layoutcie sam odeśle nieopłaconych do /podopieczny/aktywuj — nie ma już
+  // specjalnego celu ?onboarding=1.
+  if (resultKind === "created" && invite.monthlyAmountGrosze != null && stripeApiConfigured()) {
+    try {
+      await setMonthlyAmount(db, invite.trainerId, user.id, invite.monthlyAmountGrosze);
+    } catch (err) {
+      // Nie blokuj założenia konta. Trener ustawi kwotę później.
+      logger.error("onboarding.set_amount_failed", errorMeta(err));
+    }
+  }
+  return redirect(redirectTo, { headers: { "Set-Cookie": buildSetCookie(id, expiresAt) } });
 }
 
 export default function InviteAccept() {

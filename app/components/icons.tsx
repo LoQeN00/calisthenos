@@ -243,4 +243,10 @@ export const Icons = {
       <path d="M21 12H9" />
     </>,
   ),
+  Card: makeIcon(
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M3 10h18M7 15h4" />
+    </>,
+  ),
 };

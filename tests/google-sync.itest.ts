@@ -62,7 +62,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import * as schema from "~/lib/db/schema";
 import { encryptToken } from "~/lib/google/crypto";
-import { syncUpsertOne } from "~/lib/google/sync";
+import {
+  syncCancelAllForPair,
+  syncCancelStaleSchedule,
+  syncUpsertOne,
+} from "~/lib/google/sync";
+import { listCancelledGoogleEventIds, listGoogleEventIdsForPair } from "~/lib/consultations";
 
 // ---- Bootstrapstrapping (identyczny z consultations.itest.ts) ----
 
@@ -188,5 +193,109 @@ describe("syncUpsertOne — Google Calendar mock", () => {
     const row = await fetchConsultation(consultationId);
     expect(row).not.toBeNull();
     expect(row!.googleEventId).toBeNull();
+  });
+});
+
+// ---- Helper: konsultacja z dowolnym statusem + googleEventId + offsetem dni ----
+async function insertConsultation(args: {
+  status: schema.ConsultationStatus;
+  googleEventId: string | null;
+  daysFromNow: number;
+}): Promise<string> {
+  const [row] = await db
+    .insert(schema.consultations)
+    .values({
+      trainerId,
+      traineeId,
+      scheduledAt: new Date(Date.now() + args.daysFromNow * 24 * 3_600_000),
+      durationMin: 45,
+      status: args.status,
+      title: "X",
+      summary: "",
+      googleEventId: args.googleEventId,
+    })
+    .returning({ id: schema.consultations.id });
+  return row!.id;
+}
+
+describe("repo: listGoogleEventIdsForPair / listCancelledGoogleEventIds", () => {
+  it("listGoogleEventIdsForPair zwraca tylko terminy pary z googleEventId (dowolny status)", async () => {
+    const withEvent = await insertConsultation({
+      status: "confirmed",
+      googleEventId: "evt-pair-1",
+      daysFromNow: 5,
+    });
+    await insertConsultation({ status: "planned", googleEventId: null, daysFromNow: 6 });
+
+    const refs = await listGoogleEventIdsForPair(db, { trainerId, traineeId });
+    const ids = refs.map((r) => r.consultationId);
+    expect(ids).toContain(withEvent);
+    // żaden zwrócony ref nie ma null-owego eventu
+    expect(refs.every((r) => typeof r.googleEventId === "string")).toBe(true);
+  });
+
+  it("listCancelledGoogleEventIds bierze tylko nadchodzące, odwołane z googleEventId", async () => {
+    const fromISO = new Date().toISOString().slice(0, 10);
+    const cancelledFuture = await insertConsultation({
+      status: "cancelled",
+      googleEventId: "evt-cancel-future",
+      daysFromNow: 4,
+    });
+    // odwołany ale w PRZESZŁOŚCI — pomijany
+    await insertConsultation({
+      status: "cancelled",
+      googleEventId: "evt-cancel-past",
+      daysFromNow: -4,
+    });
+    // odwołany bez eventu — pomijany
+    await insertConsultation({ status: "cancelled", googleEventId: null, daysFromNow: 3 });
+
+    const refs = await listCancelledGoogleEventIds(db, { trainerId, traineeId, fromISO });
+    const ids = refs.map((r) => r.consultationId);
+    expect(ids).toContain(cancelledFuture);
+    expect(refs.every((r) => r.googleEventId !== null)).toBe(true);
+  });
+});
+
+describe("syncCancelAllForPair — usuwanie podopiecznego", () => {
+  it("kasuje zdarzenia Google wszystkich terminów pary z googleEventId", async () => {
+    deleteMock.mockClear();
+    await insertConsultation({ status: "planned", googleEventId: "evt-all-1", daysFromNow: 8 });
+    await insertConsultation({ status: "confirmed", googleEventId: "evt-all-2", daysFromNow: 9 });
+
+    await syncCancelAllForPair(db, { trainerId, traineeId });
+
+    // Sprawdź, że skasowano KONKRETNE eventy wstawione w tym teście (mogą dojść
+    // też eventy z wcześniejszych testów tej samej pary — stąd toContain, nie równość).
+    const deletedEventIds = (deleteMock.mock.calls as unknown as Array<[{ eventId: string }]>).map(
+      (c) => c[0]!.eventId,
+    );
+    expect(deletedEventIds).toContain("evt-all-1");
+    expect(deletedEventIds).toContain("evt-all-2");
+  });
+
+  it("best-effort: błąd delete nie rzuca", async () => {
+    deleteMock.mockClear();
+    deleteMock.mockRejectedValueOnce(Object.assign(new Error("boom"), { code: 500 }));
+    await insertConsultation({ status: "planned", googleEventId: "evt-all-err", daysFromNow: 10 });
+    await expect(syncCancelAllForPair(db, { trainerId, traineeId })).resolves.toBeUndefined();
+  });
+});
+
+describe("syncCancelStaleSchedule — sprzątanie po zmianie harmonogramu", () => {
+  it("kasuje zdarzenia nadchodzących odwołanych terminów i czyści googleEventId", async () => {
+    deleteMock.mockClear();
+    const fromISO = new Date().toISOString().slice(0, 10);
+    const stale = await insertConsultation({
+      status: "cancelled",
+      googleEventId: "evt-stale-1",
+      daysFromNow: 11,
+    });
+
+    await syncCancelStaleSchedule(db, { trainerId, traineeId, fromISO });
+
+    const row = await fetchConsultation(stale);
+    expect(row!.googleEventId).toBeNull(); // referencja wyczyszczona (wiersz zostaje)
+    expect(deleteMock).toHaveBeenCalled();
   });
 });

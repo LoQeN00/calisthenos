@@ -27,6 +27,7 @@ import { db } from "~/lib/db/client";
 import type { BodyPhotoView } from "~/lib/db/schema";
 import { signFileUrl } from "~/lib/files";
 import { todayISO } from "~/lib/format";
+import { errorMeta, logger } from "~/lib/logger";
 import { type ListControlsSpec, parseListControls } from "~/lib/list-params";
 import { getSideBySidePhotoPairs } from "~/lib/stats";
 
@@ -118,7 +119,7 @@ export async function action(args: ActionFunctionArgs) {
     try {
       await deleteBodyPhoto(db, photoId, user.id);
     } catch (e) {
-      console.error("[sylwetka] delete failed:", e);
+      logger.error("body_photo.delete_failed", errorMeta(e));
       return { error: "Nie udało się usunąć zdjęcia. Spróbuj ponownie." };
     }
     return { ok: true };

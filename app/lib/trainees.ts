@@ -15,11 +15,21 @@ export class TraineeDeleteError extends Error {
 /**
  * Permanently delete a trainee and everything they own.
  *
+ * NOTE — external side-effects are NOT handled here. Cancelling the Stripe
+ * subscription + deleting the Stripe customer (RODO) and removing the trainee's
+ * Google Calendar events happen in the calling route (`podopieczni.$traineeId.tsx`,
+ * intent `delete-trainee`) via `cleanupSubscriptionForTrainee` + `syncCancelAllForPair`,
+ * BEFORE this DB cascade — once the rows below are gone, the Stripe/Google links are
+ * lost. This function is purely the DB-cascade primitive.
+ *
  * Cascade map (from schema):
  * - plans.traineeId, workoutLogs.traineeId, bodyPhotos.traineeId, sessions.userId,
- *   consultations.traineeId → ON DELETE CASCADE. These cascade-delete automatically
- *   when the user is removed, dragging their children with them (plan
- *   sessions/blocks/items, workout exercise/set logs, consultation action items).
+ *   consultations.traineeId, consultation_schedules.traineeId,
+ *   coaching_subscriptions.traineeId, subscription_payments.traineeId
+ *   → ON DELETE CASCADE. These cascade-delete automatically when the user is removed,
+ *   dragging their children with them (plan sessions/blocks/items, workout
+ *   exercise/set logs, consultation action items). The Stripe rows go too — but the
+ *   live subscription at Stripe must already be cancelled by the route (see NOTE).
  * - `skill_advancements.trainee_id` → ON DELETE CASCADE. The trainee's advancement
  *   history goes with the user. `advanced_by` points to the *trainer* (who stays),
  *   so its RESTRICT does not block this cascade.

@@ -15,7 +15,8 @@ import { Modal } from "~/components/modal";
 import { Pagination, parsePage } from "~/components/pagination";
 import { createInvite, requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
-import { getEnv } from "~/lib/env";
+import { getEnv, stripeApiConfigured } from "~/lib/env";
+import { parsePlnToGrosze, MonthlyAmountSchema } from "~/lib/money";
 import { daysAgo, fmtDate, pluralizePl, type PlForms } from "~/lib/format";
 import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
 import { countClientsForTrainer, listClientsForTrainer, type ClientSort } from "~/lib/workouts";
@@ -81,7 +82,16 @@ export async function loader(args: LoaderFunctionArgs) {
     q: controls.q,
     plan,
   });
-  return { clients, spec, controls, page: safePage, totalPages, total, deletedName };
+  return {
+    clients,
+    spec,
+    controls,
+    page: safePage,
+    totalPages,
+    total,
+    deletedName,
+    stripeAvailable: stripeApiConfigured(),
+  };
 }
 
 export async function action(args: ActionFunctionArgs) {
@@ -96,10 +106,22 @@ export async function action(args: ActionFunctionArgs) {
     return { error: parsed.error.issues[0]?.message ?? "Sprawdź formularz." };
   }
 
+  const amountRaw = String(fd.get("monthlyAmount") ?? "").trim();
+  let monthlyAmountGrosze: number | null = null;
+  if (amountRaw !== "") {
+    const g = parsePlnToGrosze(amountRaw);
+    const parsedAmt = g === null ? null : MonthlyAmountSchema.safeParse(g);
+    if (!parsedAmt || !parsedAmt.success) {
+      return { error: "Kwota miesięczna jest nieprawidłowa (min. 2 zł)." };
+    }
+    monthlyAmountGrosze = parsedAmt.data;
+  }
+
   const { token } = await createInvite(db, {
     trainerId: user.id,
     displayName: parsed.data.displayName,
     email: parsed.data.email,
+    monthlyAmountGrosze,
   });
 
   const inviteUrl = `${getEnv().BASE_URL}/zaproszenie/${token}`;
@@ -113,7 +135,7 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function TrenerPodopieczniList() {
-  const { clients, spec, controls, page, totalPages, total, deletedName } =
+  const { clients, spec, controls, page, totalPages, total, deletedName, stripeAvailable } =
     useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -201,6 +223,22 @@ export default function TrenerPodopieczniList() {
                 className="input"
               />
             </div>
+            {stripeAvailable && (
+              <div className="field">
+                <label htmlFor="inv-amount">Kwota miesięczna (zł) — opcjonalnie</label>
+                <input
+                  id="inv-amount"
+                  name="monthlyAmount"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="np. 200"
+                  className="input"
+                />
+                <p className="text-xs muted" style={{ margin: "4px 0 0" }}>
+                  Podopieczny doda kartę przy dołączaniu. Zostaw puste, aby zaprosić bez płatności.
+                </p>
+              </div>
+            )}
             {actionData != null && "error" in actionData && actionData.error != null && (
               <p role="alert" style={{ color: "var(--danger)", fontSize: 13, margin: 0 }}>
                 {actionData.error}

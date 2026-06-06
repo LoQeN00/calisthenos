@@ -17,6 +17,7 @@ import {
   readSession,
   verifyPassword,
 } from "~/lib/auth";
+import { enforceRateLimit, RATE_LIMITS, rateLimited, resetRateLimit } from "~/lib/rate-limit";
 
 const LoginSchema = z.object({
   email: z.string().email().max(254),
@@ -37,6 +38,9 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
+  const retry = enforceRateLimit(args.request, RATE_LIMITS.login);
+  if (retry !== null) return rateLimited(retry);
+
   const formData = await args.request.formData();
   const parsed = LoginSchema.safeParse({
     email: formData.get("email"),
@@ -69,6 +73,7 @@ export async function action(args: ActionFunctionArgs) {
     userId: user.id,
     userAgentHint: args.request.headers.get("user-agent"),
   });
+  resetRateLimit("login", args.request);
   return redirect(user.role === "trainer" ? "/trener" : "/podopieczny", {
     headers: { "Set-Cookie": buildSetCookie(id, expiresAt) },
   });
