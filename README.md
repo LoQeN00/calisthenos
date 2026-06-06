@@ -175,7 +175,8 @@ kart nie są przechowywane u nas** — Checkout i Portal są hostowane przez Str
 | Zmienna | Wartość |
 |---|---|
 | `STRIPE_SECRET_KEY` | klucz tajny platformy (w trybie testowym `sk_test_…`) |
-| `STRIPE_WEBHOOK_SECRET` | sekret podpisu webhooka (`whsec_…`) — patrz niżej |
+| `STRIPE_WEBHOOK_SECRET` | sekret podpisu webhooka konta (`whsec_…`, scope „Your account") — patrz niżej |
+| `STRIPE_CONNECT_WEBHOOK_SECRET` | sekret podpisu webhooka kont połączonych (`whsec_…`, scope „Connected accounts") — patrz niżej |
 
 Połączenia kont trenerów i onboarding działają w **trybie testowym** Stripe
 (test mode) — używaj kluczy `sk_test_…` i kart testowych Stripe.
@@ -191,6 +192,23 @@ stripe listen --forward-to localhost:3000/webhooks/stripe
 
 `stripe listen` wypisze sekret podpisu (`whsec_…`) — wpisz go do
 `STRIPE_WEBHOOK_SECRET` w `.env` i zrestartuj dev server.
+
+### Webhooki na produkcji (panel Stripe → Workbench → Webhooks / Event destinations)
+
+Model Connect z destination charges wymaga **dwóch event destinations** na ten sam URL
+`https://<domena>/webhooks/stripe` (zdarzenia billingowe powstają na koncie platformy,
+a `account.updated` na kontach połączonych). Każdy destination ma własny sekret podpisu;
+aplikacja weryfikuje oba (`verifyAndParse`).
+
+1. **Destination „Your account"** — zdarzenia: `invoice.paid`, `invoice.payment_failed`,
+   `customer.subscription.created`, `customer.subscription.updated`,
+   `customer.subscription.deleted`, `checkout.session.completed`. Sekret → `STRIPE_WEBHOOK_SECRET`.
+2. **Destination „Connected accounts"** — zdarzenie: `account.updated`
+   (aktualizuje `chargesEnabled` trenera; Express weryfikuje asynchronicznie, więc to ono,
+   nie powrót z onboardingu, jest źródłem prawdy). Sekret → `STRIPE_CONNECT_WEBHOOK_SECRET`.
+
+Dla obu ustaw wersję API endpointu na **`2026-05-27.dahlia`** (spójną z SDK). Sekrety wpisz
+w env serwisu na Railway i zrestartuj.
 
 ### Konfiguracja w panelu Stripe (właściciel)
 

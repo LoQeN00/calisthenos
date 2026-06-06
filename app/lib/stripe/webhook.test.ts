@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { mapEvent } from "~/lib/stripe/webhook";
 
-// UWAGA o kształcie pól (zweryfikowane na stripe@19.3.0, apiVersion 2025-10-29.clover):
+// UWAGA o kształcie pól (zweryfikowane na stripe@22.2.0, apiVersion 2026-05-27.dahlia):
 // - Na obiekcie Invoice metadane subskrypcji żyją pod `parent.subscription_details.metadata`
 //   (NIE pod top-level `subscription_details.metadata`). `amount_paid`/`amount_due`,
 //   `status`, `status_transitions.paid_at`, `period_start`/`period_end`,

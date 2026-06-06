@@ -16,7 +16,11 @@ const EnvSchema = z.object({
   GOOGLE_TOKEN_ENC_KEY: z.string().optional(),
   // Płatności Stripe (opcjonalne — aplikacja działa bez nich).
   STRIPE_SECRET_KEY: z.string().optional(),
+  // Sekret webhooka konta platformy (zdarzenia billingowe: invoice/subscription/checkout).
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  // Sekret webhooka „Connected accounts" (zdarzenia kont połączonych: account.updated).
+  // Osobny destination w Stripe = osobny sekret; verifyAndParse próbuje oba.
+  STRIPE_CONNECT_WEBHOOK_SECRET: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

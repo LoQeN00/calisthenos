@@ -7,11 +7,31 @@ import { getStripe } from "~/lib/stripe/client";
 import { applyAccountUpdate } from "~/lib/stripe/connections";
 import { applySubscriptionUpdate, linkCheckoutResult } from "~/lib/stripe/subscriptions";
 
-/** Weryfikuje podpis i zwraca event. Rzuca, gdy podpis zły (caller → 400). */
+/**
+ * Weryfikuje podpis i zwraca event. Rzuca, gdy podpis zły (caller → 400).
+ *
+ * Dwa źródła zdarzeń = dwa sekrety: webhook konta platformy (billing:
+ * invoice/subscription/checkout) i webhook „Connected accounts" (`account.updated`).
+ * Każdy destination w Stripe ma własny sekret podpisu — próbujemy po kolei i zwracamy
+ * przy pierwszym poprawnym. Idempotencja po `event.id` (tabela `processed_webhook_events`)
+ * zabezpiecza, gdyby kiedyś oba destinations dostarczyły to samo zdarzenie.
+ */
 export function verifyAndParse(rawBody: string, signature: string): Stripe.Event {
-  const secret = getEnv().STRIPE_WEBHOOK_SECRET;
-  if (!secret) throw new Error("STRIPE_WEBHOOK_SECRET nie jest ustawiony");
-  return getStripe().webhooks.constructEvent(rawBody, signature, secret);
+  const e = getEnv();
+  const secrets = [e.STRIPE_WEBHOOK_SECRET, e.STRIPE_CONNECT_WEBHOOK_SECRET].filter(
+    (s): s is string => Boolean(s),
+  );
+  if (secrets.length === 0) throw new Error("Brak sekretu webhooka Stripe");
+  const stripe = getStripe();
+  let lastErr: unknown;
+  for (const secret of secrets) {
+    try {
+      return stripe.webhooks.constructEvent(rawBody, signature, secret);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("Nieprawidłowy podpis webhooka");
 }
 
 export type Change =
@@ -61,12 +81,12 @@ const secs = (s: number | null | undefined): Date | null =>
 /**
  * Czysta funkcja: event Stripe → zamierzona zmiana (lub null gdy nieobsługiwany).
  *
- * Ścieżki pól zweryfikowane na stripe@19.3.0 (apiVersion 2025-10-29.clover):
+ * Ścieżki pól zweryfikowane na stripe@22.2.0 (apiVersion 2026-05-27.dahlia):
  * - Invoice: metadane subskrypcji pod `parent.subscription_details.metadata`
  *   (nie top-level). `amount_paid`/`amount_due`, `status`, `status_transitions.paid_at`,
  *   `period_start`/`period_end`, `hosted_invoice_url` — top-level.
  * - Subscription: `current_period_end` żyje w `items.data[0].current_period_end`
- *   (przeniesione z top-level w nowszych wersjach API).
+ *   (przeniesione z top-level w nowszych wersjach API; nadal tak w dahlia).
  */
 export function mapEvent(event: Stripe.Event): Change | null {
   switch (event.type) {
@@ -76,7 +96,7 @@ export function mapEvent(event: Stripe.Event): Change | null {
       // Faktura bez id (np. proforma) → pomiń, 200 bez zapisu.
       if (!inv.id) return null;
       // Metadane pary żyją na fakturze pod parent.subscription_details.metadata
-      // (zweryfikowane na stripe@19, 2025-10-29.clover — NIE top-level).
+      // (zweryfikowane na stripe@22.2.0, 2026-05-27.dahlia — NIE top-level).
       const meta = inv.parent?.subscription_details?.metadata ?? {};
       return {
         kind: "invoice",
@@ -96,7 +116,7 @@ export function mapEvent(event: Stripe.Event): Change | null {
     case "customer.subscription.updated":
     case "customer.subscription.deleted": {
       const sub = event.data.object as Stripe.Subscription;
-      // current_period_end przeniesiono do items.data[0] (zweryfikowane na stripe@19).
+      // current_period_end przeniesiono do items.data[0] (zweryfikowane na stripe@22.2.0).
       const periodEnd = sub.items?.data?.[0]?.current_period_end;
       // pause_collection nie zmienia sub.status — wykrywamy wstrzymanie osobno.
       return {

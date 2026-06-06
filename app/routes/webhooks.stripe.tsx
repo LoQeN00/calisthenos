@@ -15,7 +15,10 @@ export async function action({ request }: ActionFunctionArgs) {
   const sig = request.headers.get("stripe-signature");
   if (!sig) return new Response("missing signature", { status: 400 });
 
-  if (!getEnv().STRIPE_WEBHOOK_SECRET) {
+  const env = getEnv();
+  // Wymagany choć jeden sekret (konto i/lub Connected accounts) — verifyAndParse
+  // próbuje oba i dopasowuje po podpisie.
+  if (!env.STRIPE_WEBHOOK_SECRET && !env.STRIPE_CONNECT_WEBHOOK_SECRET) {
     return new Response("webhook not configured", { status: 500 });
   }
 
