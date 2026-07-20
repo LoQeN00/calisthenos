@@ -14,7 +14,7 @@ domenowej — czysta prezentacja + drobne interakcje (modale, providery kontekst
 | `file-dropzone.tsx` | `FileDropzone({ name, label, kind: "video"\|"image", … })`, typ `FileKind` | Upload drag&drop z podglądem i walidacją MIME/rozmiaru. |
 | `copy-button.tsx` | `CopyButton({ value, variant?, label?, … })` | Kopiowanie do schowka z feedbackiem (Clipboard API + fallback). |
 | `exercise-fields.tsx` | `CategoryPicker({ categories, selected })` | Multi-select kategorii ćwiczeń (pigułki/checkboxy). |
-| `photo-card.tsx` | `PhotoCard({ id, url, takenOn, view, note, onOpen })`, `BODY_VIEW_LABELS` | Kafelek zdjęcia sylwetki 3:4 otwierający lightbox. |
+| `photo-card.tsx` | `PhotoCard({ id, url, takenOn, view, note, onOpen })`, `bodyViewLabel(t, view)` | Kafelek zdjęcia sylwetki 3:4 otwierający lightbox. Etykiety ujęć przez i18n (`photo.view.*` w `common`): `bodyViewLabel(t, view)` zwraca zlokalizowany napis (używane też przez `body-photo-compare` i `photo-lightbox`). |
 | `photo-lightbox.tsx` | `PhotoLightbox({ photos, currentId, onClose, onNavigate, deleteAction? })`, `LightboxPhoto` | Pełnoekranowy podgląd zdjęć: nawigacja strzałkami, pobieranie, opcjonalne usuwanie. |
 | `body-photo-compare.tsx` | `SideBySideSection({ pairs, onOpenPhoto })`, `ResolvedPair` | Porównanie "przed/po" zdjęć sylwetki wg widoku (front/side/back). |
 | `video-modal.tsx` | `VideoButton({ src, title, label?, size? })`, `VideoModal({ src, title, onClose })` | Przycisk + modal odtwarzania wideo. |

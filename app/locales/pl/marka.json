@@ -1,0 +1,191 @@
+{
+  "pulpit": {
+    "eyebrow": "Panel marki",
+    "title": "Pulpit marki",
+    "body": "Tu powstanie przegląd sieci ambasadorów i podopiecznych. Na razie konto prezesa służy do potwierdzenia, że hierarchia marki działa.",
+    "exercisesCard": "Markowe ćwiczenia",
+    "skillsCard": "Markowe umiejętności",
+    "manageExercises": "Zarządzaj ćwiczeniami",
+    "manageSkills": "Zarządzaj umiejętnościami"
+  },
+  "nav": {
+    "section": "Marka",
+    "dashboard": "Pulpit",
+    "library": "Biblioteka ćwiczeń",
+    "skills": "Umiejętności",
+    "ambassadors": "Ambasadorzy",
+    "regions": "Regiony",
+    "settings": "Ustawienia marki",
+    "soon": "wkrótce"
+  },
+  "biblioteka": {
+    "title": "Markowe ćwiczenia",
+    "eyebrow": "Katalog marki",
+    "ctaNew": "Nowe ćwiczenie",
+    "emptyTitle": "Nic nie znaleziono",
+    "emptyBody": "Dodaj pierwsze markowe ćwiczenie.",
+    "subEmpty": "Brak ćwiczeń.",
+    "subCount": "{{count}} ćwiczeń.",
+    "totalLabel": "ćwiczeń",
+    "searchPlaceholder": "Szukaj ćwiczenia…",
+    "sort": {
+      "name_asc": "Nazwa A–Z",
+      "name_desc": "Nazwa Z–A"
+    },
+    "filterUnit": {
+      "label": "Jednostka",
+      "all": "Wszystkie",
+      "reps": "Powtórzenia",
+      "sec": "Czas"
+    }
+  },
+  "bibliotekaForm": {
+    "eyebrow": "Katalog marki",
+    "newTitle": "Nowe markowe ćwiczenie",
+    "crumbsLibrary": "Biblioteka ćwiczeń",
+    "crumbNew": "Nowe",
+    "exerciseEyebrow": "Ćwiczenie · {{unit}}",
+    "fieldName": "Nazwa",
+    "namePlaceholder": "np. Pull-up",
+    "fieldUnit": "Jednostka",
+    "unitReps": "Powtórzenia",
+    "unitSec": "Sekundy",
+    "fieldDescription": "Opis",
+    "descriptionPlaceholder": "Wskazówki techniczne…",
+    "rpeTitle": "Zbieraj RPE",
+    "rpeHint": "Podopieczny oceni trudność serii 1–10.",
+    "demoLabel": "Demo wideo",
+    "demoReplaceLabel": "Podmień demo wideo",
+    "currentDemo": "Bieżące demo",
+    "saveNew": "Dodaj ćwiczenie",
+    "saveEdit": "Zapisz zmiany",
+    "cancel": "Anuluj",
+    "archive": "Archiwizuj",
+    "unarchive": "Przywróć",
+    "archived": "Zarchiwizowane",
+    "archiveConfirmTitle": "Zarchiwizować ćwiczenie?",
+    "archiveConfirmMessage": "Ćwiczenie zniknie z aktywnego katalogu marki.",
+    "archiveConfirmText": "Archiwizuj",
+    "errors": {
+      "nameRequired": "Podaj nazwę ćwiczenia.",
+      "formInvalid": "Formularz zawiera błędy.",
+      "exerciseIsVariant": "Nie można zarchiwizować — ćwiczenie jest wariantem umiejętności \"{{skill}}\"."
+    }
+  },
+  "umiejetnosci": {
+    "title": "Markowe umiejętności",
+    "eyebrow": "Katalog marki",
+    "new": "Nowa umiejętność",
+    "empty": "Brak markowych umiejętności. Dodaj pierwszą.",
+    "variationsCount": "{{count}} wariant(ów)",
+    "treeTitle": "Drzewo umiejętności marki"
+  },
+  "ambasadorzy": {
+    "eyebrow": "Sieć marki",
+    "title": "Ambasadorzy",
+    "empty": "Brak ambasadorów. Zaproś pierwszego.",
+    "total": "{{count}} ambasadorów",
+    "totalWord": "ambasadorów",
+    "invite": "Zaproś ambasadora",
+    "searchPlaceholder": "Szukaj ambasadora…",
+    "sort": { "name_asc": "Nazwa A–Z", "name_desc": "Nazwa Z–A" },
+    "filterStatus": {
+      "label": "Status",
+      "all": "Wszyscy",
+      "active": "Aktywni",
+      "suspended": "Wstrzymani"
+    },
+    "table": {
+      "ambassador": "Ambasador",
+      "region": "Region",
+      "trainees": "Podopieczni",
+      "status": "Status",
+      "since": "od {{date}}",
+      "active": "Aktywny",
+      "suspended": "Wstrzymany",
+      "noRegion": "—"
+    },
+    "form": {
+      "title": "Zaproś ambasadora",
+      "name": "Imię i nazwisko",
+      "namePlaceholder": "np. Anna Trener",
+      "email": "E-mail",
+      "emailPlaceholder": "anna@example.com",
+      "region": "Region",
+      "regionPlaceholder": "Wybierz region…",
+      "cancel": "Anuluj",
+      "generate": "Generuj link",
+      "fallbackError": "Formularz zawiera błędy."
+    },
+    "inviteCard": {
+      "generated": "Link zaproszenia",
+      "instructions": "Wyślij ten link ambasadorowi — sam ustawi hasło.",
+      "copy": "Kopiuj link",
+      "tokenNote": "Link ważny 14 dni, jednorazowy."
+    },
+    "validation": {
+      "nameRequired": "Podaj imię i nazwisko.",
+      "emailRequired": "Podaj e-mail.",
+      "emailInvalid": "Niepoprawny e-mail.",
+      "regionRequired": "Wybierz region.",
+      "regionInvalid": "Wybrany region nie należy do tej organizacji."
+    },
+    "profil": {
+      "eyebrow": "Ambasador",
+      "crumbs": "Ambasadorzy",
+      "trainees": "Aktywni podopieczni",
+      "logs7d": "Treningi (7 dni)",
+      "logs30d": "Treningi (30 dni)",
+      "mrr": "MRR",
+      "statusActive": "Aktywny",
+      "statusSuspended": "Wstrzymany",
+      "deactivate": "Dezaktywuj ambasadora",
+      "reactivate": "Reaktywuj ambasadora",
+      "deactivateConfirmTitle": "Dezaktywować ambasadora?",
+      "deactivateConfirmMessage": "Trener straci dostęp, jego podopieczni zostaną wstrzymani, a ich subskrypcje spauzowane.",
+      "deactivateConfirmText": "Dezaktywuj",
+      "actionError": "Operacja nie powiodła się.",
+      "saved": "Zapisano."
+    }
+  },
+  "umiejetnosciForm": {
+    "newTitle": "Nowa markowa umiejętność",
+    "crumbs": "Umiejętności",
+    "crumbNew": "Nowa",
+    "fieldName": "Nazwa",
+    "namePlaceholder": "np. Pull-up",
+    "fieldDescription": "Opis",
+    "save": "Zapisz",
+    "saved": "Zmiany zapisane.",
+    "cancel": "Anuluj",
+    "variations": "Warianty",
+    "variationsEmpty": "Brak wariantów.",
+    "addVariation": "Dodaj wariant",
+    "addVariationPlaceholder": "Wybierz ćwiczenie…",
+    "removeVariation": "Usuń",
+    "moveUp": "W górę",
+    "moveDown": "W dół",
+    "confirmRemoveVariationTitle": "Usunąć wariant {{name}}?",
+    "confirmRemoveVariationMessage": "Wariant zostanie trwale usunięty z umiejętności.",
+    "confirmRemoveVariationConfirm": "Usuń",
+    "confirmRemovePrereqTitle": "Usunąć prerekwizyt?",
+    "confirmRemovePrereqMessage": "Połączenie zostanie usunięte z drzewa.",
+    "confirmRemovePrereqConfirm": "Usuń",
+    "prereqs": "Wymaga",
+    "prereqIntro": "Umiejętności, które podopieczny musi opanować przed tą.",
+    "prereqEmpty": "Brak prerekwizytów.",
+    "prereqNoneToAdd": "Brak dostępnych umiejętności do dodania jako prerekwizyt.",
+    "addPrereq": "Dodaj prerekwizyt",
+    "addPrereqPlaceholder": "Wybierz umiejętność…",
+    "removePrereq": "Usuń",
+    "archive": "Archiwizuj umiejętność",
+    "archiveConfirmTitle": "Zarchiwizować umiejętność?",
+    "archiveConfirmMessage": "Umiejętność i jej powiązania prerekwizytów zostaną odpięte.",
+    "archiveConfirmText": "Archiwizuj",
+    "errors": {
+      "nameRequired": "Podaj nazwę umiejętności.",
+      "formInvalid": "Formularz zawiera błędy.",
+      "generic": "Operacja nie powiodła się."
+    }
+  }
+}

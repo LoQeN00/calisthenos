@@ -9,13 +9,16 @@ import {
   type LoaderFunctionArgs,
 } from "react-router";
 import { eq } from "drizzle-orm";
+import { useTranslation } from "react-i18next";
 import { requireUser } from "~/lib/auth";
+import { langToIntlLocale, type Lang } from "~/i18n/config";
+import { tDyn } from "~/i18n/translate";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import { fmtDate, fmtDateTime } from "~/lib/format";
 import { fmtMoney } from "~/lib/money";
 import { listPaymentsForTrainee } from "~/lib/payments";
-import { invoiceStatusLabel, subscriptionPresentation } from "~/lib/stripe/status";
+import { invoiceStatusLabelKey, subscriptionPresentation } from "~/lib/stripe/status";
 import {
   createCheckoutSession,
   createPortalSession,
@@ -92,6 +95,9 @@ export default function PodopiecznyPlatnosci() {
   const { sub, payments, presentation, onboarding, trainerName } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [searchParams] = useSearchParams();
+  const { t, i18n } = useTranslation("platnosci");
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
+  const subCurrency = sub?.currency ?? "pln";
 
   const isActive = sub?.status === "active";
   const isPastDue = sub?.status === "past_due";
@@ -117,21 +123,21 @@ export default function PodopiecznyPlatnosci() {
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Podopieczny
+            {t("eyebrow")}
           </div>
-          <h1>Płatności</h1>
-          <div className="sub">Twoja subskrypcja treningowa.</div>
+          <h1>{t("title")}</h1>
+          <div className="sub">{t("subtitle")}</div>
         </div>
       </div>
 
       {searchParams.get("ok") === "1" && (
         <div className="alert alert-success" style={{ marginBottom: 16 }}>
-          Subskrypcja aktywowana — dziękujemy!
+          {t("alert.activated")}
         </div>
       )}
       {searchParams.get("canceled") === "1" && (
         <div className="alert" style={{ marginBottom: 16 }}>
-          Płatność anulowana.
+          {t("alert.canceled")}
         </div>
       )}
       {actionData != null && "error" in actionData && actionData.error != null && (
@@ -144,57 +150,59 @@ export default function PodopiecznyPlatnosci() {
         <div className="card" style={{ maxWidth: 560, marginBottom: 20 }}>
           {sub?.amountGrosze ? (
             <>
-              <h2 style={{ fontSize: 18, margin: "0 0 8px" }}>Witaj! 👋</h2>
+              <h2 style={{ fontSize: 18, margin: "0 0 8px" }}>{t("onboarding.heading")}</h2>
               <p style={{ margin: "0 0 12px" }}>
-                Twój trener ustalił abonament <strong>{fmtMoney(sub.amountGrosze)}</strong>{" "}
-                miesięcznie. Dodaj kartę, aby aktywować.
+                {t("onboarding.withPricePrefix")}{" "}
+                <strong>{fmtMoney(sub.amountGrosze, locale, subCurrency)}</strong>{" "}
+                {t("onboarding.withPriceSuffix")}
               </p>
             </>
           ) : (
             <>
-              <h2 style={{ fontSize: 18, margin: "0 0 8px" }}>Witaj! 👋</h2>
-              <p style={{ margin: "0 0 12px" }}>
-                Płatności skonfigurujesz tutaj, gdy trener ustali kwotę.
-              </p>
+              <h2 style={{ fontSize: 18, margin: "0 0 8px" }}>{t("onboarding.heading")}</h2>
+              <p style={{ margin: "0 0 12px" }}>{t("onboarding.noPrice")}</p>
             </>
           )}
           <Link to="/podopieczny" className="muted" style={{ fontSize: 14 }}>
-            Zrobię to później
+            {t("onboarding.later")}
           </Link>
         </div>
       )}
 
       {/* Status card */}
       <div className="card" style={{ maxWidth: 560, marginBottom: 20 }}>
-        <h2 style={{ fontSize: 17, margin: "0 0 12px" }}>Subskrypcja</h2>
+        <h2 style={{ fontSize: 17, margin: "0 0 12px" }}>{t("subscription.heading")}</h2>
 
         <p style={{ margin: "0 0 8px", display: "flex", alignItems: "center", gap: 8 }}>
-          <span className="muted">Status:</span>
+          <span className="muted">{t("subscription.statusLabel")}</span>
           <span
             className="badge"
             style={{ color: TONE_COLOR[presentation.tone], whiteSpace: "nowrap" }}
           >
             <span className="badge-dot" style={{ background: TONE_COLOR[presentation.tone] }} />
-            {presentation.label}
+            {tDyn(t, presentation.labelKey)}
           </span>
         </p>
 
         {isPastDue && (
           <div className="alert alert-error" style={{ margin: "0 0 12px" }}>
-            Ostatnia płatność się nie powiodła. Zaktualizuj metodę płatności, aby utrzymać
-            subskrypcję.
+            {t("subscription.pastDueAlert")}
           </div>
         )}
 
         {sub?.amountGrosze ? (
           <p style={{ margin: "0 0 8px" }}>
-            Kwota: <strong>{fmtMoney(sub.amountGrosze)}</strong> / miesięcznie
+            {t("subscription.amountLabel")}{" "}
+            <strong>{fmtMoney(sub.amountGrosze, locale, subCurrency)}</strong>{" "}
+            {t("subscription.perMonth")}
           </p>
         ) : null}
 
         {isActive && sub?.currentPeriodEnd ? (
           <p className="muted" style={{ margin: "0 0 16px", fontSize: 13 }}>
-            Opłacone do: {fmtDate(sub.currentPeriodEnd.toISOString())}
+            {t("subscription.paidUntil", {
+              date: fmtDate(sub.currentPeriodEnd.toISOString(), locale),
+            })}
           </p>
         ) : (
           <div style={{ marginBottom: 16 }} />
@@ -202,7 +210,7 @@ export default function PodopiecznyPlatnosci() {
 
         {trainerHasNoPrice ? (
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-            Trener nie ustalił jeszcze kwoty.
+            {t("subscription.noPriceYet")}
           </p>
         ) : canSubscribe ? (
           <>
@@ -212,24 +220,27 @@ export default function PodopiecznyPlatnosci() {
                 style={{ margin: "0 0 12px", background: "var(--surface-2, transparent)" }}
               >
                 <p style={{ margin: "0 0 6px" }}>
-                  Prowadzenie treningowe u <strong>{trainerName ?? "Twojego trenera"}</strong>
+                  {t("subscription.offerTrainerPrefix")}{" "}
+                  <strong>{trainerName ?? t("subscription.yourTrainer")}</strong>
                 </p>
                 <p style={{ margin: "0 0 4px" }}>
-                  Teraz zapłacisz: <strong>{fmtMoney(sub.amountGrosze)}</strong>
+                  {t("subscription.payNowLabel")}{" "}
+                  <strong>{fmtMoney(sub.amountGrosze, locale, subCurrency)}</strong>
                 </p>
                 <p className="muted" style={{ margin: "0 0 8px", fontSize: 13 }}>
-                  Następnie: <strong>{fmtMoney(sub.amountGrosze)}</strong> miesięcznie
+                  {t("subscription.thenPrefix")}{" "}
+                  <strong>{fmtMoney(sub.amountGrosze, locale, subCurrency)}</strong>{" "}
+                  {t("subscription.thenSuffix")}
                 </p>
                 <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-                  Subskrypcja odnawia się automatycznie. Możesz ją anulować w każdej chwili w panelu
-                  płatności (poniżej, po aktywacji).
+                  {t("subscription.autoRenew")}
                 </p>
               </div>
             ) : null}
             <Form method="post">
               <input type="hidden" name="intent" value="subscribe" />
               <button type="submit" className="btn btn-primary">
-                Subskrybuj
+                {t("subscription.subscribe")}
               </button>
             </Form>
           </>
@@ -239,7 +250,7 @@ export default function PodopiecznyPlatnosci() {
           <Form method="post" style={{ marginTop: canSubscribe ? 12 : 0 }}>
             <input type="hidden" name="intent" value="portal" />
             <button type="submit" className="btn btn-ghost">
-              Zarządzaj płatnościami
+              {t("subscription.managePayments")}
             </button>
           </Form>
         )}
@@ -248,7 +259,7 @@ export default function PodopiecznyPlatnosci() {
           <Form method="post" style={{ marginTop: 12 }}>
             <input type="hidden" name="intent" value="pause" />
             <button type="submit" className="btn btn-ghost">
-              Wstrzymaj subskrypcję
+              {t("subscription.pause")}
             </button>
           </Form>
         )}
@@ -256,12 +267,12 @@ export default function PodopiecznyPlatnosci() {
         {isPaused && (
           <>
             <p className="muted" style={{ margin: "0 0 12px", fontSize: 13 }}>
-              Subskrypcja wstrzymana — nie pobieramy płatności.
+              {t("subscription.pausedNote")}
             </p>
             <Form method="post">
               <input type="hidden" name="intent" value="resume" />
               <button type="submit" className="btn btn-primary">
-                Wznów subskrypcję
+                {t("subscription.resume")}
               </button>
             </Form>
           </>
@@ -270,10 +281,10 @@ export default function PodopiecznyPlatnosci() {
 
       {/* Payment history */}
       <div className="card" style={{ maxWidth: 560 }}>
-        <h2 style={{ fontSize: 17, margin: "0 0 12px" }}>Historia płatności</h2>
+        <h2 style={{ fontSize: 17, margin: "0 0 12px" }}>{t("history.heading")}</h2>
         {payments.length === 0 ? (
           <p className="muted" style={{ margin: 0 }}>
-            Brak płatności.
+            {t("history.empty")}
           </p>
         ) : (
           <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
@@ -289,20 +300,23 @@ export default function PodopiecznyPlatnosci() {
                 }}
               >
                 <span>
-                  <strong>{fmtMoney(p.amountGrosze)}</strong>{" "}
+                  <strong>{fmtMoney(p.amountGrosze, locale, p.currency ?? "pln")}</strong>{" "}
                   <span className="muted" style={{ fontSize: 13 }}>
-                    {invoiceStatusLabel(p.status)}
+                    {(() => {
+                      const k = invoiceStatusLabelKey(p.status);
+                      return k ? tDyn(t, k) : p.status;
+                    })()}
                   </span>
                   {p.paidAt && (
                     <span className="muted" style={{ fontSize: 13 }}>
                       {" · "}
-                      {fmtDateTime(p.paidAt.toISOString())}
+                      {fmtDateTime(p.paidAt.toISOString(), locale)}
                     </span>
                   )}
                 </span>
                 {p.hostedInvoiceUrl && (
                   <a href={p.hostedInvoiceUrl} target="_blank" rel="noreferrer noopener">
-                    Faktura
+                    {t("history.invoice")}
                   </a>
                 )}
               </li>

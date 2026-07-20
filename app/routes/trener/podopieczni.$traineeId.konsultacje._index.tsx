@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import { useTranslation } from "react-i18next";
 import {
   type ActionFunctionArgs,
   Form,
@@ -12,6 +13,8 @@ import { ConsultationAlert } from "~/components/consultation-alert";
 import { ConsultationRow } from "~/components/consultation-row";
 import { Icons } from "~/components/icons";
 import { ScheduleForm } from "~/components/schedule-form";
+import { type Lang, langToIntlLocale } from "~/i18n/config";
+import { tDyn } from "~/i18n/translate";
 import { requireUser } from "~/lib/auth";
 import { parseScheduleFormData } from "~/lib/consultation-form.server";
 import { isGoogleSyncActive, syncBackfillPair, syncCancelStaleSchedule } from "~/lib/google/sync";
@@ -29,10 +32,10 @@ import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import { fmtDateTime, todayISO } from "~/lib/format";
 
-const CADENCE_LABEL: Record<schema.ConsultationCadence, string> = {
-  weekly: "co tydzień",
-  biweekly: "co 2 tygodnie",
-  monthly: "co miesiąc",
+const CADENCE_KEY: Record<schema.ConsultationCadence, string> = {
+  weekly: "cadence.weekly",
+  biweekly: "cadence.biweekly",
+  monthly: "cadence.monthly",
 };
 
 async function loadTrainee(traineeId: string, trainerId: string) {
@@ -81,11 +84,12 @@ export async function action(args: ActionFunctionArgs) {
       await deactivateSchedule(db, { trainerId: user.id, traineeId, fromISO: todayISO() });
       // Posprzątaj zdarzenia Google odwołanych terminów (best-effort).
       await syncCancelStaleSchedule(db, { trainerId: user.id, traineeId, fromISO: todayISO() });
-      return { success: "Harmonogram wyłączony." };
+      return { successKey: "akcje.scheduleDeactivated" };
     }
     if (intent === "save-schedule") {
       const parsed = ScheduleFormSchema.safeParse(parseScheduleFormData(fd));
-      if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Niepoprawne dane." };
+      if (!parsed.success)
+        return { errorRaw: parsed.error.issues[0]?.message, errorKey: "akcje.invalidData" };
       await upsertSchedule(db, {
         trainerId: user.id,
         traineeId,
@@ -96,15 +100,19 @@ export async function action(args: ActionFunctionArgs) {
       // zanim zsynchronizujemy nowe (oba zbiory są rozłączne). Best-effort.
       await syncCancelStaleSchedule(db, { trainerId: user.id, traineeId, fromISO: todayISO() });
       const r = await syncBackfillPair(db, { trainerId: user.id, traineeId, nowISO: new Date().toISOString() });
-      return { success: `Harmonogram zapisany.${r.attempted ? ` Zsynchronizowano z Google: ${r.synced}/${r.attempted}.` : ""}` };
+      return r.attempted
+        ? { successKey: "akcje.scheduleSavedSynced", params: { synced: r.synced, attempted: r.attempted } }
+        : { successKey: "akcje.scheduleSaved" };
     }
     if (intent === "sync-google") {
       const r = await syncBackfillPair(db, { trainerId: user.id, traineeId, nowISO: new Date().toISOString() });
-      return { success: r.attempted ? `Zsynchronizowano: ${r.synced}/${r.attempted}.` : "Brak terminów do synchronizacji." };
+      return r.attempted
+        ? { successKey: "akcje.synced", params: { synced: r.synced, attempted: r.attempted } }
+        : { successKey: "akcje.nothingToSync" };
     }
     return null;
   } catch (e) {
-    if (e instanceof ScheduleError) return { error: e.userMessage };
+    if (e instanceof ScheduleError) return { errorRaw: e.userMessage };
     throw e;
   }
 }
@@ -112,7 +120,24 @@ export async function action(args: ActionFunctionArgs) {
 export default function TrenerKonsultacjeIndex() {
   const { trainee, schedule, occurrences, googleActive } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const { t, i18n } = useTranslation("trenerKonsultacje");
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
   const now = Date.now();
+
+  // action() zwraca klucze i18n (errorKey/successKey + params) albo gotowy
+  // komunikat z warstwy lib (errorRaw — ScheduleError/Zod, których nie tłumaczymy).
+  const alert: { error?: string; success?: string } | null = actionData
+    ? {
+        error:
+          ("errorKey" in actionData && actionData.errorKey
+            ? tDyn(t, actionData.errorKey)
+            : undefined) ?? ("errorRaw" in actionData ? actionData.errorRaw : undefined),
+        success:
+          "successKey" in actionData && actionData.successKey
+            ? tDyn(t, actionData.successKey, "params" in actionData ? actionData.params : undefined)
+            : undefined,
+      }
+    : null;
 
   const upcoming = occurrences.filter(
     (o) =>
@@ -144,9 +169,9 @@ export default function TrenerKonsultacjeIndex() {
             <ConsultationRow
               key={o.id}
               to={`${listUrl}/${o.id}`}
-              lead={fmtDateTime(o.scheduledAt)}
+              lead={fmtDateTime(o.scheduledAt, locale)}
               title={o.title}
-              label={meta.label}
+              label={tDyn(t, meta.labelKey)}
               tone={meta.tone}
             />
           );
@@ -158,11 +183,11 @@ export default function TrenerKonsultacjeIndex() {
   return (
     <div>
       <div className="crumbs">
-        <Link to="/trener/podopieczni">Podopieczni</Link>
+        <Link to="/trener/podopieczni">{t("lista.crumbTrainees")}</Link>
         <span className="sep">›</span>
         <Link to={`/trener/podopieczni/${trainee.id}`}>{trainee.displayName}</Link>
         <span className="sep">›</span>
-        <span className="current">Konsultacje</span>
+        <span className="current">{t("lista.crumbCurrent")}</span>
       </div>
 
       <div className="pagehead">
@@ -170,19 +195,22 @@ export default function TrenerKonsultacjeIndex() {
           <div className="eyebrow" style={{ marginBottom: 6 }}>
             {trainee.displayName}
           </div>
-          <h1>Konsultacje</h1>
+          <h1>{t("lista.title")}</h1>
           <div className="sub">
             {schedule
-              ? `Harmonogram: ${CADENCE_LABEL[schedule.cadence]} · ${schedule.timeOfDay.slice(0, 5)}`
-              : "Brak aktywnego harmonogramu."}
+              ? t("lista.scheduleSummary", {
+                  cadence: tDyn(t, CADENCE_KEY[schedule.cadence]),
+                  time: schedule.timeOfDay.slice(0, 5),
+                })
+              : t("lista.noActiveSchedule")}
           </div>
         </div>
         <Link to={`${listUrl}/nowa`} className="btn btn-primary">
-          <Icons.Plus /> Nowy termin
+          <Icons.Plus /> {t("lista.newOccurrence")}
         </Link>
       </div>
 
-      <ConsultationAlert data={actionData} />
+      <ConsultationAlert data={alert} />
 
       {/* Panel harmonogramu */}
       <div className="card" style={{ marginBottom: 22, maxWidth: 760 }}>
@@ -190,11 +218,11 @@ export default function TrenerKonsultacjeIndex() {
           <div className="row" style={{ alignItems: "center", gap: 12 }}>
             <h2 style={{ fontSize: 17, margin: 0 }}>
               <Icons.Calendar style={{ marginRight: 8, color: "var(--muted)" }} />
-              Harmonogram cykliczny
+              {t("lista.scheduleCardTitle")}
             </h2>
             {googleActive && (
               <span className="badge" style={{ fontSize: 11 }}>
-                Google: połączony
+                {t("lista.googleConnected")}
               </span>
             )}
           </div>
@@ -203,7 +231,7 @@ export default function TrenerKonsultacjeIndex() {
               <Form method="post">
                 <input type="hidden" name="intent" value="sync-google" />
                 <button type="submit" className="btn btn-sm btn-ghost">
-                  Synchronizuj z Google
+                  {t("lista.syncWithGoogle")}
                 </button>
               </Form>
             )}
@@ -214,14 +242,13 @@ export default function TrenerKonsultacjeIndex() {
                   className="btn btn-sm btn-ghost"
                   style={{ color: "var(--danger)" }}
                   confirmOptions={{
-                    title: "Wyłączyć harmonogram?",
-                    message:
-                      "Generowanie nowych terminów zatrzyma się, a przyszłe niepotwierdzone terminy zostaną odwołane. Potwierdzone i udokumentowane zostają.",
+                    title: t("lista.deactivateConfirmTitle"),
+                    message: t("lista.deactivateConfirmMessage"),
                     destructive: true,
-                    confirmText: "Wyłącz harmonogram",
+                    confirmText: t("lista.deactivateConfirmText"),
                   }}
                 >
-                  Wyłącz
+                  {t("lista.deactivate")}
                 </ConfirmSubmitButton>
               </Form>
             )}
@@ -255,7 +282,7 @@ export default function TrenerKonsultacjeIndex() {
             }}
           >
             <button type="submit" className="btn btn-primary">
-              {schedule ? "Zaktualizuj harmonogram" : "Zapisz harmonogram"}
+              {schedule ? t("lista.scheduleUpdate") : t("lista.scheduleSave")}
             </button>
           </div>
         </Form>
@@ -263,22 +290,22 @@ export default function TrenerKonsultacjeIndex() {
 
       {/* Nadchodzące terminy */}
       <div style={{ maxWidth: 760 }}>
-        <h2 style={{ fontSize: 17, margin: "0 0 12px" }}>Nadchodzące terminy</h2>
+        <h2 style={{ fontSize: 17, margin: "0 0 12px" }}>{t("lista.upcomingTitle")}</h2>
         {upcoming.length === 0 ? (
           <div className="empty">
-            <h3>Brak nadchodzących terminów</h3>
-            <div>Ustaw harmonogram powyżej albo dodaj pojedynczy termin.</div>
+            <h3>{t("lista.upcomingEmptyTitle")}</h3>
+            <div>{t("lista.upcomingEmptyBody")}</div>
           </div>
         ) : (
           rows(upcoming)
         )}
 
         {/* Do udokumentowania / minione */}
-        <h2 style={{ fontSize: 17, margin: "28px 0 12px" }}>Do udokumentowania / minione</h2>
+        <h2 style={{ fontSize: 17, margin: "28px 0 12px" }}>{t("lista.pastTitle")}</h2>
         {past.length === 0 ? (
           <div className="empty">
-            <h3>Brak minionych terminów</h3>
-            <div>Tu pojawią się terminy po ich dacie oraz udokumentowane spotkania.</div>
+            <h3>{t("lista.pastEmptyTitle")}</h3>
+            <div>{t("lista.pastEmptyBody")}</div>
           </div>
         ) : (
           rows(past)

@@ -1,4 +1,5 @@
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
+import { useTranslation } from "react-i18next";
 import { ListControls } from "~/components/list-controls";
 import { Icons } from "~/components/icons";
 import { Pagination, parsePage } from "~/components/pagination";
@@ -11,23 +12,24 @@ import { countLogsForTrainee, listLogsForTrainee, type LogSort } from "~/lib/wor
 const PAGE_SIZE = 20;
 const SESJA: PlForms = { one: "sesja", few: "sesje", many: "sesji" };
 
-const spec: ListControlsSpec = {
+/** Spec used server-side for parseListControls — labels not needed here. */
+const SPEC_BASE: ListControlsSpec = {
   sortOptions: [
-    { key: "date_desc", label: "Najnowsze" },
-    { key: "date_asc", label: "Najstarsze" },
-    { key: "hardest", label: "Najtrudniejsze" },
-    { key: "easiest", label: "Najłatwiejsze" },
-    { key: "sets_desc", label: "Najwięcej serii" },
+    { key: "date_desc", label: "" },
+    { key: "date_asc", label: "" },
+    { key: "hardest", label: "" },
+    { key: "easiest", label: "" },
+    { key: "sets_desc", label: "" },
   ],
   defaultSort: "date_desc",
   filterGroups: [
     {
       param: "video",
-      label: "Wideo",
+      label: "",
       options: [
-        { value: "all", label: "Wszystkie" },
-        { value: "with", label: "Z wideo" },
-        { value: "without", label: "Bez wideo" },
+        { value: "all", label: "" },
+        { value: "with", label: "" },
+        { value: "without", label: "" },
       ],
       defaultValue: "all",
     },
@@ -39,7 +41,7 @@ export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainee" });
   const url = new URL(args.request.url);
   const page = parsePage(url.searchParams);
-  const controls = parseListControls(url.searchParams, spec);
+  const controls = parseListControls(url.searchParams, SPEC_BASE);
 
   const video = (controls.filters.video ?? "all") as "all" | "with" | "without";
   const total = await countLogsForTrainee(db, user.id, { q: controls.q, video });
@@ -54,34 +56,61 @@ export async function loader(args: LoaderFunctionArgs) {
     q: controls.q,
     video,
   });
-  return { logs, spec, controls, page: safePage, totalPages, total };
+  return { logs, controls, page: safePage, totalPages, total };
 }
 
 export default function TraineeHistoryList() {
-  const { logs, spec, controls, page, totalPages, total } = useLoaderData<typeof loader>();
+  const { logs, controls, page, totalPages, total } = useLoaderData<typeof loader>();
+  const { t } = useTranslation("podopieczny");
+
+  /** Spec with translated labels — built at render time. */
+  const spec: ListControlsSpec = {
+    ...SPEC_BASE,
+    sortOptions: [
+      { key: "date_desc", label: t("historia.list.sortOptions.date_desc") },
+      { key: "date_asc", label: t("historia.list.sortOptions.date_asc") },
+      { key: "hardest", label: t("historia.list.sortOptions.hardest") },
+      { key: "easiest", label: t("historia.list.sortOptions.easiest") },
+      { key: "sets_desc", label: t("historia.list.sortOptions.sets_desc") },
+    ],
+    filterGroups: [
+      {
+        param: "video",
+        label: t("historia.list.filterVideo.label"),
+        options: [
+          { value: "all", label: t("historia.list.filterVideo.all") },
+          { value: "with", label: t("historia.list.filterVideo.with") },
+          { value: "without", label: t("historia.list.filterVideo.without") },
+        ],
+        defaultValue: "all",
+      },
+    ],
+  };
 
   return (
     <div>
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Podopieczny
+            {t("historia.list.eyebrow")}
           </div>
-          <h1>Historia treningów</h1>
+          <h1>{t("historia.list.title")}</h1>
           <div className="sub">
-            {total === 0
-              ? "Jeszcze nic nie zarejestrowano."
-              : `${total} ${pluralizePl(total, SESJA)} łącznie.`}
+            {total === 0 ? t("historia.list.empty") : t("historia.list.total", { count: total })}
           </div>
         </div>
       </div>
 
-      <ListControls spec={spec} state={controls} searchPlaceholder="Szukaj po nazwie sesji…" />
+      <ListControls
+        spec={spec}
+        state={controls}
+        searchPlaceholder={t("historia.list.searchPlaceholder")}
+      />
 
       {total === 0 ? (
         <div className="empty">
-          <h3>Brak sesji</h3>
-          <div>Zarejestruj pierwszą z pulpitu.</div>
+          <h3>{t("historia.list.emptyState.title")}</h3>
+          <div>{t("historia.list.emptyState.subtitle")}</div>
         </div>
       ) : (
         <div className="list">
@@ -96,10 +125,19 @@ export default function TraineeHistoryList() {
               <div>
                 <div style={{ fontSize: 14, fontWeight: 500 }}>{log.sessionName}</div>
                 <div className="text-xs muted" style={{ marginTop: 2 }}>
-                  <span className="mono">{log.exerciseCount}</span> ćwiczeń ·{" "}
-                  <span className="mono">{log.setCount}</span> serii · śr.{" "}
-                  {log.avgDifficulty == null ? "—" : <><span className="mono">{log.avgDifficulty}</span>/10</>}
-                  {log.hasVideo && " · video"}
+                  <span className="mono">{log.exerciseCount}</span>{" "}
+                  {t("historia.list.row.exercises", { count: log.exerciseCount })} ·{" "}
+                  <span className="mono">{log.setCount}</span>{" "}
+                  {t("historia.list.row.sets", { count: log.setCount })} ·{" "}
+                  {t("historia.list.row.avg")}{" "}
+                  {log.avgDifficulty == null ? (
+                    "—"
+                  ) : (
+                    <>
+                      <span className="mono">{log.avgDifficulty}</span>/10
+                    </>
+                  )}
+                  {log.hasVideo && ` · ${t("historia.list.row.video")}`}
                 </div>
               </div>
               <Icons.Chev style={{ color: "var(--muted-2)" }} />

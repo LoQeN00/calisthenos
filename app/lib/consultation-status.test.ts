@@ -19,7 +19,7 @@ describe("consultationPresentation", () => {
           nowMs: NOW,
           viewer,
         }),
-      ).toEqual({
+      ).toMatchObject({
         label: "potwierdzony",
         tone: "confirmed",
       });
@@ -30,7 +30,7 @@ describe("consultationPresentation", () => {
           nowMs: NOW,
           viewer,
         }),
-      ).toEqual({
+      ).toMatchObject({
         label: "prośba o zmianę",
         tone: "change",
       });
@@ -41,7 +41,7 @@ describe("consultationPresentation", () => {
           nowMs: NOW,
           viewer,
         }),
-      ).toEqual({
+      ).toMatchObject({
         label: "odwołany",
         tone: "cancelled",
       });
@@ -52,14 +52,14 @@ describe("consultationPresentation", () => {
           nowMs: NOW,
           viewer,
         }),
-      ).toEqual({
+      ).toMatchObject({
         label: "udokumentowany",
         tone: "done",
       });
     }
   });
 
-  it("podopieczny: planned (przyszły i miniony) zawsze „do potwierdzenia”", () => {
+  it('podopieczny: planned (przyszły i miniony) zawsze "do potwierdzenia"', () => {
     for (const at of [FUTURE, PAST]) {
       expect(
         consultationPresentation({
@@ -68,11 +68,11 @@ describe("consultationPresentation", () => {
           nowMs: NOW,
           viewer: "trainee",
         }),
-      ).toEqual({ label: "do potwierdzenia", tone: "pending" });
+      ).toMatchObject({ label: "do potwierdzenia", tone: "pending" });
     }
   });
 
-  it("trener: planned przyszły = „zaplanowany”, miniony = „do udokumentowania”", () => {
+  it('trener: planned przyszły = "zaplanowany", miniony = "do udokumentowania"', () => {
     expect(
       consultationPresentation({
         status: "planned",
@@ -80,7 +80,7 @@ describe("consultationPresentation", () => {
         nowMs: NOW,
         viewer: "trainer",
       }),
-    ).toEqual({ label: "zaplanowany", tone: "scheduled" });
+    ).toMatchObject({ label: "zaplanowany", tone: "scheduled" });
     expect(
       consultationPresentation({
         status: "planned",
@@ -88,7 +88,72 @@ describe("consultationPresentation", () => {
         nowMs: NOW,
         viewer: "trainer",
       }),
-    ).toEqual({ label: "do udokumentowania", tone: "pending" });
+    ).toMatchObject({ label: "do udokumentowania", tone: "pending" });
+  });
+
+  it("zwraca poprawne labelKey dla reprezentatywnych stanów", () => {
+    expect(
+      consultationPresentation({
+        status: "confirmed",
+        scheduledAtISO: FUTURE,
+        nowMs: NOW,
+        viewer: "trainer",
+      }).labelKey,
+    ).toBe("konsultacje:status.confirmed");
+
+    expect(
+      consultationPresentation({
+        status: "change_requested",
+        scheduledAtISO: FUTURE,
+        nowMs: NOW,
+        viewer: "trainer",
+      }).labelKey,
+    ).toBe("konsultacje:status.change");
+
+    expect(
+      consultationPresentation({
+        status: "cancelled",
+        scheduledAtISO: FUTURE,
+        nowMs: NOW,
+        viewer: "trainer",
+      }).labelKey,
+    ).toBe("konsultacje:status.cancelled");
+
+    expect(
+      consultationPresentation({
+        status: "documented",
+        scheduledAtISO: PAST,
+        nowMs: NOW,
+        viewer: "trainer",
+      }).labelKey,
+    ).toBe("konsultacje:status.done");
+
+    expect(
+      consultationPresentation({
+        status: "planned",
+        scheduledAtISO: FUTURE,
+        nowMs: NOW,
+        viewer: "trainee",
+      }).labelKey,
+    ).toBe("konsultacje:status.pending");
+
+    expect(
+      consultationPresentation({
+        status: "planned",
+        scheduledAtISO: PAST,
+        nowMs: NOW,
+        viewer: "trainer",
+      }).labelKey,
+    ).toBe("konsultacje:status.pendingDoc");
+
+    expect(
+      consultationPresentation({
+        status: "planned",
+        scheduledAtISO: FUTURE,
+        nowMs: NOW,
+        viewer: "trainer",
+      }).labelKey,
+    ).toBe("konsultacje:status.scheduled");
   });
 });
 

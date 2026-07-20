@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
@@ -24,6 +25,8 @@ import {
   respondToOccurrence,
 } from "~/lib/consultations";
 import { syncCancelOne } from "~/lib/google/sync";
+import { langToIntlLocale, type Lang } from "~/i18n/config";
+import { tDyn } from "~/i18n/translate";
 import { db } from "~/lib/db/client";
 import { fmtDateTime, fmtTime, monthRangeUTC, shiftMonth, todayISO } from "~/lib/format";
 
@@ -52,7 +55,7 @@ export async function action(args: ActionFunctionArgs) {
   const fd = await args.request.formData();
   const consultationId = String(fd.get("consultationId") ?? "");
   const parsedAction = TraineeActionSchema.safeParse(String(fd.get("action") ?? ""));
-  if (!parsedAction.success) return { error: "Nieznana akcja." };
+  if (!parsedAction.success) return { error: "akcje.unknownAction" };
   const note = String(fd.get("note") ?? "").trim() || undefined;
   try {
     await respondToOccurrence(db, {
@@ -68,7 +71,7 @@ export async function action(args: ActionFunctionArgs) {
         await syncCancelOne(db, { trainerId: detail.consultation.trainerId, consultationId });
       }
     }
-    return { success: "Zapisano." };
+    return { success: "akcje.saved" };
   } catch (e) {
     if (e instanceof ConsultationError) return { error: e.userMessage };
     throw e;
@@ -78,6 +81,8 @@ export async function action(args: ActionFunctionArgs) {
 export default function PodopiecznyKonsultacjeKalendarz() {
   const { occurrences, next, m, year, month0, today } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const { t, i18n } = useTranslation("konsultacje");
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
   const now = Date.now();
 
   // Grupuj terminy po dniu miesiąca (UTC).
@@ -133,14 +138,23 @@ export default function PodopiecznyKonsultacjeKalendarz() {
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Podopieczny
+            {t("pulpit.eyebrow")}
           </div>
-          <h1>Konsultacje</h1>
-          <div className="sub">Twój kalendarz spotkań z trenerem.</div>
+          <h1>{t("pulpit.title")}</h1>
+          <div className="sub">{t("pulpit.sub")}</div>
         </div>
       </div>
 
-      <ConsultationAlert data={actionData} />
+      <ConsultationAlert
+        data={
+          actionData
+            ? {
+                error: actionData.error ? tDyn(t, actionData.error) : undefined,
+                success: actionData.success ? tDyn(t, actionData.success) : undefined,
+              }
+            : null
+        }
+      />
 
       {/* Najbliższy termin — przypięty, z szybkimi akcjami */}
       {next && nextMeta && (
@@ -149,8 +163,8 @@ export default function PodopiecznyKonsultacjeKalendarz() {
           style={{ marginBottom: 18, borderColor: "var(--ink)", background: "var(--accent-soft)" }}
         >
           <div className="row between" style={{ alignItems: "center", marginBottom: 8 }}>
-            <div className="eyebrow">Najbliższy termin</div>
-            <StatusBadge label={nextMeta.label} tone={nextMeta.tone} />
+            <div className="eyebrow">{t("pulpit.nextLabel")}</div>
+            <StatusBadge label={tDyn(t, nextMeta.labelKey)} tone={nextMeta.tone} />
           </div>
           <div className="row between" style={{ alignItems: "center", flexWrap: "wrap", gap: 10 }}>
             <div>
@@ -161,7 +175,7 @@ export default function PodopiecznyKonsultacjeKalendarz() {
                 {next.title}
               </Link>
               <div className="mono text-xs muted" style={{ marginTop: 2 }}>
-                {fmtDateTime(next.scheduledAt)} · {next.durationMin} min
+                {fmtDateTime(next.scheduledAt, locale)} · {t("pulpit.minUnit", { count: next.durationMin })}
               </div>
             </div>
             {next.meetingUrl && (
@@ -172,7 +186,7 @@ export default function PodopiecznyKonsultacjeKalendarz() {
                 className="btn btn-sm"
                 style={{ flexShrink: 0 }}
               >
-                <Icons.Video /> Dołącz
+                <Icons.Video /> {t("pulpit.join")}
               </a>
             )}
           </div>
@@ -202,34 +216,32 @@ export default function PodopiecznyKonsultacjeKalendarz() {
           <div>
             <div className="row between" style={{ alignItems: "center", marginBottom: 12 }}>
               <h2 style={{ fontSize: 17, margin: 0 }}>
-                {selectedOccs.length === 1 ? "1 termin" : `${selectedOccs.length} terminy`}
+                {selectedOccs.length === 1
+                  ? t("day.oneOccurrence")
+                  : t("day.manyOccurrences", { count: selectedOccs.length })}
               </h2>
               <button
                 type="button"
                 className="btn btn-sm btn-ghost"
                 onClick={() => setSelected(null)}
               >
-                <Icons.ChevLeft /> Wszystkie terminy
+                <Icons.ChevLeft /> {t("day.allOccurrences")}
               </button>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {selectedOccs.map((o) => (
-                <DayOccurrenceCard key={o.id} occ={o} now={now} />
+                <DayOccurrenceCard key={o.id} occ={o} now={now} t={t} />
               ))}
             </div>
           </div>
         ) : (
           // Agenda miesiąca
           <>
-            <h2 style={{ fontSize: 17, margin: "0 0 12px" }}>Nadchodzące terminy</h2>
+            <h2 style={{ fontSize: 17, margin: "0 0 12px" }}>{t("agenda.upcoming")}</h2>
             {upcoming.length === 0 ? (
               <div className="empty">
-                <h3>{next ? "To wszystkie nadchodzące terminy" : "Brak nadchodzących terminów"}</h3>
-                <div>
-                  {next
-                    ? "Kolejne terminy pojawią się tutaj, gdy trener je zaplanuje."
-                    : "Trener jeszcze nie zaplanował spotkań w tym miesiącu."}
-                </div>
+                <h3>{next ? t("agenda.allUpcomingTitle") : t("agenda.noUpcomingTitle")}</h3>
+                <div>{next ? t("agenda.allUpcomingBody") : t("agenda.noUpcomingBody")}</div>
               </div>
             ) : (
               <div className="list">
@@ -244,10 +256,10 @@ export default function PodopiecznyKonsultacjeKalendarz() {
                     <ConsultationRow
                       key={o.id}
                       to={`/podopieczny/konsultacje/${o.id}`}
-                      lead={fmtDateTime(o.scheduledAt)}
+                      lead={fmtDateTime(o.scheduledAt, locale)}
                       title={o.title}
-                      sub={`${o.durationMin} min`}
-                      label={meta.label}
+                      sub={t("pulpit.minUnit", { count: o.durationMin })}
+                      label={tDyn(t, meta.labelKey)}
                       tone={meta.tone}
                     />
                   );
@@ -257,7 +269,7 @@ export default function PodopiecznyKonsultacjeKalendarz() {
 
             {past.length > 0 && (
               <>
-                <h2 style={{ fontSize: 17, margin: "28px 0 12px" }}>Minione</h2>
+                <h2 style={{ fontSize: 17, margin: "28px 0 12px" }}>{t("agenda.past")}</h2>
                 <div className="list">
                   {past.map((o) => {
                     const meta = consultationPresentation({
@@ -270,10 +282,10 @@ export default function PodopiecznyKonsultacjeKalendarz() {
                       <ConsultationRow
                         key={o.id}
                         to={`/podopieczny/konsultacje/${o.id}`}
-                        lead={fmtDateTime(o.scheduledAt)}
+                        lead={fmtDateTime(o.scheduledAt, locale)}
                         title={o.title}
-                        sub={`${o.durationMin} min`}
-                        label={meta.label}
+                        sub={t("pulpit.minUnit", { count: o.durationMin })}
+                        label={tDyn(t, meta.labelKey)}
                         tone={meta.tone}
                       />
                     );
@@ -288,7 +300,16 @@ export default function PodopiecznyKonsultacjeKalendarz() {
   );
 }
 
-function DayOccurrenceCard({ occ, now }: { occ: OccurrenceListItem; now: number }) {
+function DayOccurrenceCard({
+  occ,
+  now,
+  t,
+}: {
+  occ: OccurrenceListItem;
+  now: number;
+  // biome-ignore lint/suspicious/noExplicitAny: przeciążenia TFunction są złożone; tu wystarczy luźny podpis.
+  t: (...args: any[]) => string;
+}) {
   const meta = consultationPresentation({
     status: occ.status,
     scheduledAtISO: occ.scheduledAt,
@@ -305,10 +326,10 @@ function DayOccurrenceCard({ occ, now }: { occ: OccurrenceListItem; now: number 
             {occ.title}
           </Link>
           <div className="mono text-xs muted" style={{ marginTop: 2 }}>
-            {fmtTime(occ.scheduledAt)} · {occ.durationMin} min
+            {fmtTime(occ.scheduledAt)} · {t("pulpit.minUnit", { count: occ.durationMin })}
           </div>
         </div>
-        <StatusBadge label={meta.label} tone={meta.tone} />
+        <StatusBadge label={tDyn(t, meta.labelKey)} tone={meta.tone} />
       </div>
 
       {occ.meetingUrl && (
@@ -320,7 +341,7 @@ function DayOccurrenceCard({ occ, now }: { occ: OccurrenceListItem; now: number 
             className="row"
             style={{ gap: 6, display: "inline-flex", alignItems: "center", fontSize: 13 }}
           >
-            <Icons.Video /> Link spotkania
+            <Icons.Video /> {t("pulpit.meetingLink")}
           </a>
         </div>
       )}

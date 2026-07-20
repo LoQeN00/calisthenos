@@ -22,10 +22,27 @@ const MAGIC_BYTE_INSPECT_SIZE = 4100;
 
 export type UploadKind = "exercise_demo" | "set_video" | "body_photo";
 
+export type UploadOwner = { trainerId: string } | { organizationId: string };
+
+/**
+ * Rozbija właściciela na kolumny `files` (dokładnie jedna niepusta — lustro CHECK
+ * `files_owner_check`). Wyczerpujące: dodanie nowego wariantu `UploadOwner` bez
+ * obsługi tutaj zapali błąd typu na `never`.
+ */
+function ownerColumns(owner: UploadOwner): {
+  trainerId: string | null;
+  organizationId: string | null;
+} {
+  if ("trainerId" in owner) return { trainerId: owner.trainerId, organizationId: null };
+  if ("organizationId" in owner) return { trainerId: null, organizationId: owner.organizationId };
+  const _exhaustive: never = owner;
+  return _exhaustive;
+}
+
 export interface UploadFileInput {
   file: File;
   kind: UploadKind;
-  trainerId: string;
+  owner: UploadOwner;
   uploadedBy: string;
 }
 
@@ -108,7 +125,7 @@ export async function uploadFile(
   input: UploadFileInput,
   cleanup?: UploadCleanupQueue,
 ): Promise<UploadedFileRecord> {
-  const { file, kind, trainerId, uploadedBy } = input;
+  const { file, kind, owner, uploadedBy } = input;
   if (file.size === 0) {
     throw new UploadError("empty file", "Plik jest pusty.");
   }
@@ -184,7 +201,7 @@ export async function uploadFile(
       .insert(schema.files)
       .values({
         id: fileId,
-        trainerId,
+        ...ownerColumns(owner),
         uploadedBy,
         kind,
         mimeType: mime,

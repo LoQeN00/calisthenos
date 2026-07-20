@@ -1,5 +1,5 @@
 import { redirect, type LoaderFunctionArgs } from "react-router";
-import { getOptionalUser } from "~/lib/auth";
+import { getOptionalUser, defaultPathForRole } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 
 /**
@@ -11,7 +11,7 @@ import { db } from "~/lib/db/client";
 export async function loader(args: LoaderFunctionArgs) {
   const user = await getOptionalUser(args.request, db);
   if (!user) throw redirect("/login");
-  throw redirect(user.role === "trainer" ? "/trener" : "/podopieczny");
+  throw redirect(defaultPathForRole(user.role));
 }
 
 export default function Index() {

@@ -1,22 +1,22 @@
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import { Icons } from "~/components/icons";
+import { langToIntlLocale, type Lang } from "~/i18n/config";
 import { type ConsultationTone, TONE_DOT } from "~/lib/consultation-status";
 
-const WEEKDAY_HEADERS = ["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Nd"];
-const MONTHS_PL = [
-  "styczeń",
-  "luty",
-  "marzec",
-  "kwiecień",
-  "maj",
-  "czerwiec",
-  "lipiec",
-  "sierpień",
-  "wrzesień",
-  "październik",
-  "listopad",
-  "grudzień",
-];
+// Krótkie nagłówki dni tygodnia (Pn..Nd), lokalizowane przez Intl.
+function weekdayHeaders(locale: string): string[] {
+  const fmt = new Intl.DateTimeFormat(locale, { weekday: "short", timeZone: "UTC" });
+  // 2024-01-01 to poniedziałek (UTC) — kolejne 7 dni to Pn..Nd.
+  return Array.from({ length: 7 }, (_, i) => fmt.format(new Date(Date.UTC(2024, 0, 1 + i))));
+}
+
+// Nazwa miesiąca w danym locale (np. "czerwiec" / "juin").
+function monthName(year: number, month0: number, locale: string): string {
+  return new Intl.DateTimeFormat(locale, { month: "long", timeZone: "UTC" }).format(
+    new Date(Date.UTC(year, month0, 1)),
+  );
+}
 
 export interface DaySummary {
   /** Najważniejszy ton dnia (kolor kropki). */
@@ -54,6 +54,9 @@ export function MonthCalendar({
   prevHref,
   nextHref,
 }: MonthCalendarProps) {
+  const { t, i18n } = useTranslation("konsultacje");
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
+  const weekdays = weekdayHeaders(locale);
   const daysInMonth = new Date(Date.UTC(year, month0 + 1, 0)).getUTCDate();
   const firstDow = new Date(Date.UTC(year, month0, 1)).getUTCDay(); // 0=Nd
   const leadingBlanks = (firstDow + 6) % 7; // tydzień od poniedziałku
@@ -61,18 +64,18 @@ export function MonthCalendar({
   return (
     <div className="card cal">
       <div className="cal-head">
-        <Link to={prevHref} className="btn btn-icon btn-ghost" aria-label="Poprzedni miesiąc">
+        <Link to={prevHref} className="btn btn-icon btn-ghost" aria-label={t("calendar.prevMonth")}>
           <Icons.ChevLeft />
         </Link>
         <div className="cal-title">
-          {MONTHS_PL[month0]} {year}
+          {monthName(year, month0, locale)} {year}
         </div>
-        <Link to={nextHref} className="btn btn-icon btn-ghost" aria-label="Następny miesiąc">
+        <Link to={nextHref} className="btn btn-icon btn-ghost" aria-label={t("calendar.nextMonth")}>
           <Icons.Chev />
         </Link>
       </div>
       <div className="cal-grid">
-        {WEEKDAY_HEADERS.map((w) => (
+        {weekdays.map((w) => (
           <div key={w} className="cal-dow">
             {w}
           </div>
@@ -100,7 +103,11 @@ export function MonthCalendar({
               disabled={!has}
               aria-pressed={day === selected}
               aria-label={
-                has ? `${day} — ${s.count} ${s.count === 1 ? "termin" : "terminy"}` : String(day)
+                has
+                  ? s.count === 1
+                    ? t("calendar.dayAriaOne", { day })
+                    : t("calendar.dayAriaMany", { day, count: s.count })
+                  : String(day)
               }
               onClick={() => has && onSelect(day)}
             >

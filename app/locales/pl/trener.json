@@ -1,0 +1,116 @@
+{
+  "pulpit": {
+    "greeting": "Cześć, {{name}}",
+    "subInvite": "Zaproś pierwszego podopiecznego, by zacząć.",
+    "subActive_one": "{{count}} osoba aktywna.",
+    "subActive_few": "{{count}} osoby aktywne.",
+    "subActive_other": "{{count}} osób aktywnych.",
+    "ctaInvite": "Zaproś podopiecznego",
+    "ctaNewPlan": "Nowy plan",
+    "stats": {
+      "activePlans": "aktywnych planów",
+      "weekSessions": "sesji w 7 dni",
+      "drafts": "draftów"
+    },
+    "clients": {
+      "heading": "Podopieczni",
+      "all": "Wszyscy",
+      "emptyTitle": "Brak podopiecznych",
+      "emptyBody": "Wygeneruj pierwsze zaproszenie w zakładce „Podopieczni”.",
+      "noPlan": "brak planu",
+      "noSession": "brak sesji"
+    },
+    "recent": {
+      "heading": "Ostatnie sesje",
+      "emptyTitle": "Brak sesji",
+      "emptyBody": "Nikt jeszcze nie zarejestrował treningu."
+    },
+    "footer": {
+      "plans": "Plany ›",
+      "library": "Biblioteka ćwiczeń ›"
+    }
+  },
+  "biblioteka": {
+    "eyebrow": "Trener",
+    "title": "Biblioteka ćwiczeń",
+    "subEmpty": "Brak ćwiczeń.",
+    "subCount_one": "{{count}} pozycja.",
+    "subCount_few": "{{count}} pozycje.",
+    "subCount_other": "{{count}} pozycji.",
+    "totalLabel_one": "pozycja",
+    "totalLabel_few": "pozycje",
+    "totalLabel_other": "pozycji",
+    "ctaNew": "Nowe ćwiczenie",
+    "searchPlaceholder": "Szukaj po nazwie…",
+    "sort": {
+      "name_asc": "Nazwa A–Z",
+      "name_desc": "Nazwa Z–A",
+      "newest": "Najnowsze",
+      "oldest": "Najstarsze"
+    },
+    "filterCategory": {
+      "label": "Kategoria",
+      "all": "Wszystkie"
+    },
+    "filterUnit": {
+      "label": "Jednostka",
+      "all": "Wszystkie",
+      "reps": "Powtórzenia",
+      "sec": "Czas"
+    },
+    "categories": {
+      "manage": "Zarządzaj kategoriami ({{count}})",
+      "removeTitle": "Usuń kategorię",
+      "confirmTitle": "Usunąć kategorię „{{name}}”?",
+      "confirmMessage": "Ćwiczenia ją zachowują w swoich tagach, ale zniknie z listy filtrów.",
+      "confirmText": "Usuń",
+      "placeholder": "np. pull, push, legs",
+      "add": "Dodaj"
+    },
+    "emptyTitle": "Nic nie znaleziono",
+    "emptyBody": "Dodaj pierwsze ćwiczenie, by zacząć.",
+    "demoLabel": "DEMO",
+    "brandBadge": "Marka",
+    "customize": "Dostosuj",
+    "brandReadonlyNote": "Markowe ćwiczenie — dostosuj, aby edytować u siebie."
+  },
+  "bibliotekaForm": {
+    "crumbsLibrary": "Biblioteka",
+    "eyebrow": "Trener",
+    "newTitle": "Nowe ćwiczenie",
+    "crumbNew": "Nowe",
+    "exerciseEyebrow": "Ćwiczenie · {{unit}}",
+    "currentDemo": "Aktualne demo",
+    "fieldName": "Nazwa",
+    "namePlaceholder": "np. Pull-up",
+    "fieldUnit": "Jednostka",
+    "unitReps": "REPS (powtórzenia)",
+    "unitSec": "SEC (sekundy)",
+    "fieldDescription": "Opis",
+    "descriptionPlaceholder": "Krótki opis, na co zwrócić uwagę przy wykonaniu…",
+    "rpeTitle": "Zbieraj ocenę trudności (RPE 1–10) przy logowaniu",
+    "rpeHint": "Wyłącz dla ćwiczeń, w których ocena wysiłku nie ma sensu — podopieczny nie zobaczy wtedy skali trudności.",
+    "demoLabel": "Wideo demo (opcjonalne)",
+    "demoReplaceLabel": "Zastąp wideo demo (opcjonalne)",
+    "saveNew": "Zapisz ćwiczenie",
+    "saveEdit": "Zapisz zmiany",
+    "cancel": "Anuluj",
+    "archived": "archiwum",
+    "unarchive": "Przywróć z archiwum",
+    "archive": "Archiwizuj",
+    "archiveConfirmTitle": "Zarchiwizować ćwiczenie?",
+    "archiveConfirmMessage": "Będzie ukryte na liście, ale plany historyczne pozostaną nietknięte. Możesz przywrócić je później.",
+    "archiveConfirmText": "Archiwizuj",
+    "errors": {
+      "nameRequired": "Nazwa jest wymagana.",
+      "formInvalid": "Sprawdź pola formularza.",
+      "exerciseIsVariant": "To ćwiczenie jest wariantem umiejętności „{{skill}}”. Usuń je z wariantów tej umiejętności, zanim je zarchiwizujesz."
+    }
+  },
+  "categoryPicker": {
+    "legend": "Kategorie",
+    "emptyPrefix": "Brak kategorii. ",
+    "emptyLink": "Dodaj kategorie w bibliotece",
+    "emptySuffix": " (rozwiń „Zarządzaj kategoriami”)."
+  }
+}

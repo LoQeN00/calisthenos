@@ -1,4 +1,5 @@
 import { and, desc, eq } from "drizzle-orm";
+import { Trans, useTranslation } from "react-i18next";
 import {
   Form,
   Link,
@@ -20,13 +21,15 @@ import {
   PlanUsageCard,
   TagDistributionCard,
 } from "~/components/trainee-health";
+import { langToIntlLocale, type Lang } from "~/i18n/config";
+import { tDyn } from "~/i18n/translate";
 import { requireUser } from "~/lib/auth";
 import { countPendingForTrainee, nextUpcomingForTrainee } from "~/lib/consultations";
 import { syncCancelAllForPair } from "~/lib/google/sync";
 import { cleanupSubscriptionForTrainee } from "~/lib/stripe/subscriptions";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
-import { daysAgo, fmtDate, fmtDateTime, pluralizePl, type PlForms } from "~/lib/format";
+import { daysAgo, fmtDate, fmtDateTime } from "~/lib/format";
 import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
 import { deletePlan, PlanRepoError } from "~/lib/plans";
 import {
@@ -42,25 +45,24 @@ import {
 import { deleteTraineeFully, TraineeDeleteError } from "~/lib/trainees";
 import { countLogsForTrainee, listLogsForTrainee, type LogSort } from "~/lib/workouts";
 
-const SESJA: PlForms = { one: "sesja", few: "sesje", many: "sesji" };
-
-const spec: ListControlsSpec = {
+/** Spec używany server-side do parseListControls — etykiety dokładamy w komponencie. */
+const SPEC_BASE: ListControlsSpec = {
   sortOptions: [
-    { key: "date_desc", label: "Najnowsze" },
-    { key: "date_asc", label: "Najstarsze" },
-    { key: "hardest", label: "Najtrudniejsze" },
-    { key: "easiest", label: "Najłatwiejsze" },
-    { key: "sets_desc", label: "Najwięcej serii" },
+    { key: "date_desc", label: "" },
+    { key: "date_asc", label: "" },
+    { key: "hardest", label: "" },
+    { key: "easiest", label: "" },
+    { key: "sets_desc", label: "" },
   ],
   defaultSort: "date_desc",
   filterGroups: [
     {
       param: "video",
-      label: "Wideo",
+      label: "",
       options: [
-        { value: "all", label: "Wszystkie" },
-        { value: "with", label: "Z wideo" },
-        { value: "without", label: "Bez wideo" },
+        { value: "all", label: "" },
+        { value: "with", label: "" },
+        { value: "without", label: "" },
       ],
       defaultValue: "all",
     },
@@ -75,7 +77,7 @@ export async function loader(args: LoaderFunctionArgs) {
   const traineeId = args.params.traineeId ?? "";
   const url = new URL(args.request.url);
   const logsPage = parsePage(url.searchParams);
-  const controls = parseListControls(url.searchParams, spec);
+  const controls = parseListControls(url.searchParams, SPEC_BASE);
 
   const traineeRows = await db
     .select()
@@ -147,7 +149,6 @@ export async function loader(args: LoaderFunctionArgs) {
     logsPage: safeLogsPage,
     totalLogPages,
     totalLogs,
-    spec,
     controls,
     health,
     heatmap,
@@ -203,14 +204,15 @@ export async function action(args: ActionFunctionArgs) {
 
   if (intent !== "delete-plan") return null;
   const planId = String(fd.get("planId") ?? "");
-  if (!planId) return { error: "Brak id planu." };
+  if (!planId) return { error: "szczegoly.action.noPlanId" };
   try {
     const result = await deletePlan(db, planId, user.id);
     if (result.kind === "deleted") {
-      return { success: "Plan usunięty." };
+      return { success: "szczegoly.action.planDeleted" };
     }
     return {
-      success: `Plan zarchiwizowany — ma ${result.logCount} zapisanych sesji, historia została zachowana.`,
+      success: "szczegoly.action.planArchived",
+      count: result.logCount,
     };
   } catch (e) {
     if (e instanceof PlanRepoError) return { error: e.userMessage };
@@ -227,7 +229,6 @@ export default function TrenerPodopiecznyDetail() {
     logsPage,
     totalLogPages,
     totalLogs,
-    spec,
     controls,
     health,
     heatmap,
@@ -241,11 +242,36 @@ export default function TrenerPodopiecznyDetail() {
     pendingConsultations,
   } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const { t, i18n } = useTranslation("trenerPodopieczni");
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
+
+  const spec: ListControlsSpec = {
+    ...SPEC_BASE,
+    sortOptions: [
+      { key: "date_desc", label: t("szczegoly.sort.date_desc") },
+      { key: "date_asc", label: t("szczegoly.sort.date_asc") },
+      { key: "hardest", label: t("szczegoly.sort.hardest") },
+      { key: "easiest", label: t("szczegoly.sort.easiest") },
+      { key: "sets_desc", label: t("szczegoly.sort.sets_desc") },
+    ],
+    filterGroups: [
+      {
+        param: "video",
+        label: t("szczegoly.filter.video"),
+        options: [
+          { value: "all", label: t("szczegoly.filter.videoAll") },
+          { value: "with", label: t("szczegoly.filter.videoWith") },
+          { value: "without", label: t("szczegoly.filter.videoWithout") },
+        ],
+        defaultValue: "all",
+      },
+    ],
+  };
 
   return (
     <div>
       <div className="crumbs">
-        <Link to="/trener/podopieczni">Podopieczni</Link>
+        <Link to="/trener/podopieczni">{t("szczegoly.crumb")}</Link>
         <span className="sep">›</span>
         <span className="current">{trainee.displayName}</span>
       </div>
@@ -253,34 +279,38 @@ export default function TrenerPodopiecznyDetail() {
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Podopieczny{trainee.joinedOn && ` · od ${fmtDate(trainee.joinedOn)}`}
+            {trainee.joinedOn
+              ? t("szczegoly.eyebrowSince", { date: fmtDate(trainee.joinedOn, locale) })
+              : t("szczegoly.eyebrow")}
           </div>
           <h1>{trainee.displayName}</h1>
           {totalLogs > 0 && logs[0] && (
             <div className="sub">
-              Ostatnia sesja{" "}
+              {t("szczegoly.lastSessionPrefix")}{" "}
               <span style={{ color: "var(--ink-2)" }} className="mono">
-                {daysAgo(logs[0].performedOn)}
+                {daysAgo(logs[0].performedOn, locale)}
               </span>{" "}
-              · łącznie <span className="mono">{totalLogs}</span> {pluralizePl(totalLogs, SESJA)}
+              · {t("szczegoly.totalPrefix")} <span className="mono">{totalLogs}</span>{" "}
+              {t("szczegoly.sessionWord", { count: totalLogs })}
             </div>
           )}
           {nextConsultation && (
             <div className="sub" style={{ marginTop: 4 }}>
               <Icons.Consult style={{ marginRight: 6, color: "var(--muted)" }} />
-              Najbliższa konsultacja{" "}
+              {t("szczegoly.nextConsultation")}{" "}
               <span style={{ color: "var(--ink-2)" }} className="mono">
                 {fmtDateTime(
                   typeof nextConsultation.scheduledAt === "string"
                     ? nextConsultation.scheduledAt
                     : new Date(nextConsultation.scheduledAt).toISOString(),
+                  locale,
                 )}
               </span>
               {pendingConsultations > 0 && (
                 <>
                   {" · "}
                   <span style={{ color: "var(--warn)" }} className="mono">
-                    {pendingConsultations} do potwierdzenia
+                    {t("szczegoly.pendingConfirm", { count: pendingConsultations })}
                   </span>
                 </>
               )}
@@ -289,13 +319,13 @@ export default function TrenerPodopiecznyDetail() {
         </div>
         <div className="row" style={{ gap: 8 }}>
           <Link to={`/trener/podopieczni/${trainee.id}/rozwoj`} className="btn">
-            <Icons.Trend /> Rozwój
+            <Icons.Trend /> {t("szczegoly.btn.progress")}
           </Link>
           <Link to={`/trener/podopieczni/${trainee.id}/sylwetka`} className="btn">
-            <Icons.Camera /> Sylwetka
+            <Icons.Camera /> {t("szczegoly.btn.body")}
           </Link>
           <Link to={`/trener/podopieczni/${trainee.id}/konsultacje`} className="btn">
-            <Icons.Consult /> Konsultacje
+            <Icons.Consult /> {t("szczegoly.btn.consultations")}
             {pendingConsultations > 0 && (
               <span
                 className="mono text-xs"
@@ -313,11 +343,11 @@ export default function TrenerPodopiecznyDetail() {
             )}
           </Link>
           <Link to={`/trener/podopieczni/${trainee.id}/platnosci`} className="btn">
-            <Icons.Card /> Płatności
+            <Icons.Card /> {t("szczegoly.btn.payments")}
           </Link>
           {draftPlan == null && (
             <Link to={`/trener/plany/nowy?traineeId=${trainee.id}`} className="btn btn-primary">
-              <Icons.Plus /> Nowy plan
+              <Icons.Plus /> {t("szczegoly.btn.newPlan")}
             </Link>
           )}
         </div>
@@ -338,7 +368,7 @@ export default function TrenerPodopiecznyDetail() {
             background: "var(--accent-soft)",
           }}
         >
-          {actionData.success}
+          {tDyn(t, actionData.success, "count" in actionData ? { count: actionData.count } : undefined)}
         </output>
       )}
       {actionData != null && "error" in actionData && actionData.error != null && (
@@ -353,7 +383,7 @@ export default function TrenerPodopiecznyDetail() {
             borderRadius: 8,
           }}
         >
-          {actionData.error}
+          {actionData.error.startsWith("szczegoly.") ? tDyn(t, actionData.error) : actionData.error}
         </p>
       )}
 
@@ -364,12 +394,12 @@ export default function TrenerPodopiecznyDetail() {
               <div className="row" style={{ gap: 8, marginBottom: 8, alignItems: "center" }}>
                 <span className="badge active">
                   <span className="badge-dot" />
-                  aktywny plan
+                  {t("szczegoly.activePlanBadge")}
                 </span>
                 <span className="mono text-xs muted">
                   v{activePlan.version}
                   {activePlan.publishedAt && (
-                    <> · od {fmtDate(activePlan.publishedAt.toString())}</>
+                    <> · {t("szczegoly.planSince", { date: fmtDate(activePlan.publishedAt.toString(), locale) })}</>
                   )}
                 </span>
               </div>
@@ -377,10 +407,10 @@ export default function TrenerPodopiecznyDetail() {
             </div>
             <div className="row" style={{ gap: 8 }}>
               <Link to={`/trener/plany/${activePlan.id}`} className="btn btn-ghost">
-                Pokaż
+                {t("szczegoly.show")}
               </Link>
               <Link to={`/trener/plany/${activePlan.id}?edit=1`} className="btn">
-                <Icons.Edit /> Edytuj plan
+                <Icons.Edit /> {t("szczegoly.editPlan")}
               </Link>
               <DeletePlanForm planId={activePlan.id} planName={activePlan.name} />
             </div>
@@ -403,23 +433,22 @@ export default function TrenerPodopiecznyDetail() {
               <div className="row" style={{ gap: 8, marginBottom: 8, alignItems: "center" }}>
                 <span className="badge draft">
                   <span className="badge-dot" />
-                  draft
+                  {t("szczegoly.draftBadge")}
                 </span>
                 <span className="mono text-xs muted">
-                  Wersja {draftPlan.version} (Draft)
-                  {draftPlan.basedOnVersion != null && (
-                    <> — bazuje na wersji {draftPlan.basedOnVersion}</>
-                  )}
+                  {t("szczegoly.draftVersion", { version: draftPlan.version })}
+                  {draftPlan.basedOnVersion != null &&
+                    ` ${t("szczegoly.draftBasedOn", { version: draftPlan.basedOnVersion })}`}
                 </span>
               </div>
               <h3 style={{ fontSize: 17 }}>{draftPlan.name}</h3>
               <div className="text-xs muted" style={{ marginTop: 4 }}>
-                niedokończony
+                {t("szczegoly.unfinished")}
               </div>
             </div>
             <div className="row" style={{ gap: 8 }}>
               <Link to={`/trener/plany/${draftPlan.id}`} className="btn btn-dark">
-                Wróć do edycji <Icons.Chev />
+                {t("szczegoly.backToEdit")} <Icons.Chev />
               </Link>
               <DeletePlanForm planId={draftPlan.id} planName={draftPlan.name} />
             </div>
@@ -434,13 +463,13 @@ export default function TrenerPodopiecznyDetail() {
         >
           <div className="row between" style={{ alignItems: "center" }}>
             <div>
-              <h3 style={{ fontSize: 16, marginBottom: 4 }}>Brak planu</h3>
+              <h3 style={{ fontSize: 16, marginBottom: 4 }}>{t("szczegoly.noPlan.title")}</h3>
               <div className="text-sm muted">
-                Ten podopieczny nie ma jeszcze przypisanego planu treningowego.
+                {t("szczegoly.noPlan.desc")}
               </div>
             </div>
             <Link to={`/trener/plany/nowy?traineeId=${trainee.id}`} className="btn btn-primary">
-              <Icons.Plus /> Nowy plan
+              <Icons.Plus /> {t("szczegoly.btn.newPlan")}
             </Link>
           </div>
         </div>
@@ -456,12 +485,16 @@ export default function TrenerPodopiecznyDetail() {
         total={tagDist.totalExerciseLogs}
       />
 
-      <h2 style={{ margin: "28px 0 12px", fontSize: 17 }}>Historia treningów</h2>
-      <ListControls spec={spec} state={controls} searchPlaceholder="Szukaj po nazwie sesji…" />
+      <h2 style={{ margin: "28px 0 12px", fontSize: 17 }}>{t("szczegoly.history.title")}</h2>
+      <ListControls
+        spec={spec}
+        state={controls}
+        searchPlaceholder={t("szczegoly.history.searchPlaceholder")}
+      />
       {totalLogs === 0 ? (
         <div className="empty">
-          <h3>Brak sesji</h3>
-          <div>Ten podopieczny jeszcze nic nie zarejestrował.</div>
+          <h3>{t("szczegoly.history.emptyTitle")}</h3>
+          <div>{t("szczegoly.history.emptyDesc")}</div>
         </div>
       ) : (
         <>
@@ -473,12 +506,13 @@ export default function TrenerPodopiecznyDetail() {
                 className="list-row"
                 style={{ gridTemplateColumns: "76px 1fr auto auto", gap: 14 }}
               >
-                <div className="mono text-xs muted">{fmtDate(log.performedOn)}</div>
+                <div className="mono text-xs muted">{fmtDate(log.performedOn, locale)}</div>
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 500 }}>{log.sessionName}</div>
                   <div className="text-xs muted" style={{ marginTop: 2 }}>
-                    <span className="mono">{log.exerciseCount}</span> ćwiczeń ·{" "}
-                    <span className="mono">{log.setCount}</span> serii · śr.{" "}
+                    <span className="mono">{log.exerciseCount}</span> {t("szczegoly.history.exercises")} ·{" "}
+                    <span className="mono">{log.setCount}</span> {t("szczegoly.history.sets")} ·{" "}
+                    {t("szczegoly.history.avg")}{" "}
                     {log.avgDifficulty == null ? (
                       "—"
                     ) : (
@@ -486,7 +520,7 @@ export default function TrenerPodopiecznyDetail() {
                         <span className="mono">{log.avgDifficulty}</span>/10
                       </>
                     )}
-                    {log.hasVideo && " · video"}
+                    {log.hasVideo && ` · ${t("szczegoly.history.video")}`}
                     {log.note && (
                       <span style={{ fontStyle: "italic", color: "var(--ink-2)" }}>
                         {" "}
@@ -505,7 +539,7 @@ export default function TrenerPodopiecznyDetail() {
             page={logsPage}
             totalPages={totalLogPages}
             total={totalLogs}
-            totalLabel={pluralizePl(totalLogs, SESJA)}
+            totalLabel={t("szczegoly.sessionWord", { count: totalLogs })}
           />
         </>
       )}
@@ -518,7 +552,7 @@ export default function TrenerPodopiecznyDetail() {
         }}
       >
         <h2 className="muted" style={{ fontSize: 14, marginBottom: 10 }}>
-          Strefa niebezpieczna
+          {t("szczegoly.danger.title")}
         </h2>
         <div
           className="card"
@@ -531,12 +565,14 @@ export default function TrenerPodopiecznyDetail() {
           <div className="row between" style={{ gap: 12, alignItems: "center", flexWrap: "wrap" }}>
             <div style={{ flex: 1, minWidth: 220 }}>
               <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>
-                Usuń podopiecznego
+                {t("szczegoly.danger.deleteTrainee")}
               </div>
               <div className="text-xs muted">
-                Konto, wszystkie plany, historia treningów, zdjęcia sylwetki i nagrania video
-                zostaną <strong>nieodwracalnie skasowane</strong>. Aktywna subskrypcja Stripe
-                zostanie anulowana, a nadchodzące spotkania usunięte z Twojego Kalendarza Google.
+                <Trans
+                  t={t}
+                  i18nKey="szczegoly.danger.deleteDesc"
+                  components={{ strong: <strong /> }}
+                />
               </div>
             </div>
             <Form method="post" style={{ flexShrink: 0 }}>
@@ -544,14 +580,13 @@ export default function TrenerPodopiecznyDetail() {
               <ConfirmSubmitButton
                 className="btn btn-danger"
                 confirmOptions={{
-                  title: `Usunąć podopiecznego „${trainee.displayName}"?`,
-                  message:
-                    "Wszystkie dane tej osoby (plany, sesje, video, zdjęcia) zostaną nieodwracalnie skasowane, subskrypcja Stripe anulowana, a nadchodzące spotkania usunięte z Kalendarza Google. Tej operacji nie da się cofnąć.",
+                  title: t("szczegoly.danger.confirmTitle", { name: trainee.displayName }),
+                  message: t("szczegoly.danger.confirmMessage"),
                   destructive: true,
-                  confirmText: "Usuń podopiecznego",
+                  confirmText: t("szczegoly.danger.confirmText"),
                 }}
               >
-                <Icons.Trash /> Usuń podopiecznego
+                <Icons.Trash /> {t("szczegoly.danger.deleteTrainee")}
               </ConfirmSubmitButton>
             </Form>
           </div>
@@ -562,6 +597,7 @@ export default function TrenerPodopiecznyDetail() {
 }
 
 function DeletePlanForm({ planId, planName }: { planId: string; planName: string }) {
+  const { t } = useTranslation("trenerPodopieczni");
   return (
     <Form method="post">
       <input type="hidden" name="intent" value="delete-plan" />
@@ -569,14 +605,13 @@ function DeletePlanForm({ planId, planName }: { planId: string; planName: string
       <ConfirmSubmitButton
         className="btn btn-icon btn-ghost"
         style={{ color: "var(--danger)" }}
-        title="Usuń plan"
-        aria-label={`Usuń plan ${planName}`}
+        title={t("szczegoly.deletePlan.title")}
+        aria-label={t("szczegoly.deletePlan.ariaLabel", { name: planName })}
         confirmOptions={{
-          title: `Usunąć plan „${planName}"?`,
-          message:
-            "Jeśli plan ma już zalogowane sesje, zostanie zarchiwizowany (historia zachowana). Inaczej — skasowany na stałe.",
+          title: t("szczegoly.deletePlan.confirmTitle", { name: planName }),
+          message: t("szczegoly.deletePlan.confirmMessage"),
           destructive: true,
-          confirmText: "Usuń plan",
+          confirmText: t("szczegoly.deletePlan.confirmText"),
         }}
       >
         <Icons.X />

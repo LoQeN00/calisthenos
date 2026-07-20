@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Form } from "react-router";
 import { Icons } from "./icons";
 
@@ -10,6 +11,7 @@ export function UserMenu({ displayName }: UserMenuProps) {
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const initials = initialsOf(displayName);
+  const { t } = useTranslation("common");
 
   // Close on outside click + Escape.
   useEffect(() => {
@@ -35,7 +37,7 @@ export function UserMenu({ displayName }: UserMenuProps) {
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="Menu użytkownika"
+        aria-label={t("nav.userMenu")}
         className="userchip"
         style={{
           border: 0,
@@ -83,7 +85,7 @@ export function UserMenu({ displayName }: UserMenuProps) {
           <Form method="post" action="/wyloguj">
             <button type="submit" role="menuitem" className="menu-item" style={menuItemStyle}>
               <Icons.LogOut />
-              <span>Wyloguj</span>
+              <span>{t("nav.logout")}</span>
             </button>
           </Form>
         </div>
@@ -100,6 +102,7 @@ function ThemeToggle({ onPick }: { onPick: () => void }) {
     if (typeof document === "undefined") return "light";
     return document.documentElement.classList.contains("theme-dark") ? "dark" : "light";
   });
+  const { t } = useTranslation("common");
 
   const apply = (next: "light" | "dark") => {
     setTheme(next);
@@ -117,7 +120,7 @@ function ThemeToggle({ onPick }: { onPick: () => void }) {
       style={menuItemStyle}
     >
       {theme === "dark" ? <Icons.Sun /> : <Icons.Moon />}
-      <span>{theme === "dark" ? "Tryb jasny" : "Tryb ciemny"}</span>
+      <span>{theme === "dark" ? t("menu.lightMode") : t("menu.darkMode")}</span>
     </button>
   );
 }

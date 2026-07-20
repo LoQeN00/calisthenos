@@ -1,0 +1,116 @@
+{
+  "pulpit": {
+    "greeting": "Bonjour, {{name}}",
+    "subInvite": "Invitez votre premier élève pour commencer.",
+    "subActive_one": "{{count}} personne active.",
+    "subActive_few": "{{count}} personnes actives.",
+    "subActive_other": "{{count}} personnes actives.",
+    "ctaInvite": "Inviter un élève",
+    "ctaNewPlan": "Nouveau plan",
+    "stats": {
+      "activePlans": "plans actifs",
+      "weekSessions": "séances sur 7 jours",
+      "drafts": "brouillons"
+    },
+    "clients": {
+      "heading": "Élèves",
+      "all": "Tous",
+      "emptyTitle": "Aucun élève",
+      "emptyBody": "Générez votre première invitation dans l’onglet « Élèves ».",
+      "noPlan": "aucun plan",
+      "noSession": "aucune séance"
+    },
+    "recent": {
+      "heading": "Dernières séances",
+      "emptyTitle": "Aucune séance",
+      "emptyBody": "Personne n’a encore enregistré d’entraînement."
+    },
+    "footer": {
+      "plans": "Plans ›",
+      "library": "Bibliothèque d’exercices ›"
+    }
+  },
+  "biblioteka": {
+    "eyebrow": "Coach",
+    "title": "Bibliothèque d’exercices",
+    "subEmpty": "Aucun exercice.",
+    "subCount_one": "{{count}} élément.",
+    "subCount_few": "{{count}} éléments.",
+    "subCount_other": "{{count}} éléments.",
+    "totalLabel_one": "élément",
+    "totalLabel_few": "éléments",
+    "totalLabel_other": "éléments",
+    "ctaNew": "Nouvel exercice",
+    "searchPlaceholder": "Rechercher par nom…",
+    "sort": {
+      "name_asc": "Nom A–Z",
+      "name_desc": "Nom Z–A",
+      "newest": "Les plus récents",
+      "oldest": "Les plus anciens"
+    },
+    "filterCategory": {
+      "label": "Catégorie",
+      "all": "Toutes"
+    },
+    "filterUnit": {
+      "label": "Unité",
+      "all": "Toutes",
+      "reps": "Répétitions",
+      "sec": "Durée"
+    },
+    "categories": {
+      "manage": "Gérer les catégories ({{count}})",
+      "removeTitle": "Supprimer la catégorie",
+      "confirmTitle": "Supprimer la catégorie « {{name}} » ?",
+      "confirmMessage": "Les exercices la conservent dans leurs tags, mais elle disparaîtra de la liste des filtres.",
+      "confirmText": "Supprimer",
+      "placeholder": "ex. pull, push, legs",
+      "add": "Ajouter"
+    },
+    "emptyTitle": "Aucun résultat",
+    "emptyBody": "Ajoutez un premier exercice pour commencer.",
+    "demoLabel": "DÉMO",
+    "brandBadge": "Marque",
+    "customize": "Adapter",
+    "brandReadonlyNote": "Exercice de la marque — adapte-le pour le modifier chez toi."
+  },
+  "bibliotekaForm": {
+    "crumbsLibrary": "Bibliothèque",
+    "eyebrow": "Coach",
+    "newTitle": "Nouvel exercice",
+    "crumbNew": "Nouveau",
+    "exerciseEyebrow": "Exercice · {{unit}}",
+    "currentDemo": "Démo actuelle",
+    "fieldName": "Nom",
+    "namePlaceholder": "ex. Pull-up",
+    "fieldUnit": "Unité",
+    "unitReps": "REPS (répétitions)",
+    "unitSec": "SEC (secondes)",
+    "fieldDescription": "Description",
+    "descriptionPlaceholder": "Brève description, points d’attention lors de l’exécution…",
+    "rpeTitle": "Collecter l’évaluation de difficulté (RPE 1–10) lors de l’enregistrement",
+    "rpeHint": "Désactivez pour les exercices où évaluer l’effort n’a pas de sens — l’élève ne verra alors pas l’échelle de difficulté.",
+    "demoLabel": "Vidéo démo (facultative)",
+    "demoReplaceLabel": "Remplacer la vidéo démo (facultative)",
+    "saveNew": "Enregistrer l’exercice",
+    "saveEdit": "Enregistrer les modifications",
+    "cancel": "Annuler",
+    "archived": "archives",
+    "unarchive": "Restaurer depuis les archives",
+    "archive": "Archiver",
+    "archiveConfirmTitle": "Archiver l’exercice ?",
+    "archiveConfirmMessage": "Il sera masqué de la liste, mais les plans historiques resteront intacts. Vous pourrez le restaurer plus tard.",
+    "archiveConfirmText": "Archiver",
+    "errors": {
+      "nameRequired": "Le nom est obligatoire.",
+      "formInvalid": "Vérifiez les champs du formulaire.",
+      "exerciseIsVariant": "Cet exercice est une variante de la compétence « {{skill}} ». Retirez-le des variantes de cette compétence avant de l’archiver."
+    }
+  },
+  "categoryPicker": {
+    "legend": "Catégories",
+    "emptyPrefix": "Aucune catégorie. ",
+    "emptyLink": "Ajoutez des catégories dans la bibliothèque",
+    "emptySuffix": " (dépliez « Gérer les catégories »)."
+  }
+}

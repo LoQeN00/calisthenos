@@ -27,7 +27,7 @@ const citext = customType<{ data: string; driverData: string }>({
 
 // ---------------- Enums ----------------
 
-export const userRole = pgEnum("user_role", ["trainer", "trainee"]);
+export const userRole = pgEnum("user_role", ["trainer", "trainee", "brand_admin"]);
 export const exerciseUnit = pgEnum("exercise_unit", ["REPS", "SEC"]);
 export const fileKind = pgEnum("file_kind", ["exercise_demo", "set_video", "body_photo"]);
 export const planStatus = pgEnum("plan_status", ["draft", "active", "archived"]);
@@ -55,6 +55,34 @@ export const subscriptionStatus = pgEnum("subscription_status", [
   "unpaid",
   "paused",
 ]);
+export const inviteTargetRole = pgEnum("invite_target_role", ["trainee", "trainer"]);
+
+// ---------------- Organizations + Regions (tenancy marki) ----------------
+
+export const organizations = pgTable("organizations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const regions = pgTable(
+  "regions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "restrict" }),
+    name: text("name").notNull(),
+    country: text("country").notNull(), // ISO-3166 alpha-2: PL, FR
+    currency: text("currency").notNull(), // małymi literami: pln, eur
+    locale: text("locale").notNull(), // BCP-47: pl-PL, fr-FR
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    orgCountryUniq: uniqueIndex("regions_org_country_uniq").on(t.organizationId, t.country),
+    orgIdx: index("regions_org_idx").on(t.organizationId),
+  }),
+);
 
 // ---------------- Users ----------------
 
@@ -70,16 +98,28 @@ export const users = pgTable(
     trainerId: uuid("trainer_id").references((): AnyPgColumn => users.id, {
       onDelete: "restrict",
     }),
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "restrict",
+    }),
+    regionId: uuid("region_id").references(() => regions.id, {
+      onDelete: "restrict",
+    }),
     joinedOn: date("joined_on"),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
     emailUniq: uniqueIndex("users_email_uniq").on(t.email),
+    // CHECK celowo NIE wymienia 'brand_admin' wprost. Gdyby porównywał do
+    // świeżo dodanej wartości enuma, migracja, która tę wartość DODAJE i używa
+    // jej w tej samej transakcji, failuje (Postgres 55P04: "unsafe use of new
+    // value ... must be committed before they can be used"). `role <> 'trainee'`
+    // pokrywa trainer + brand_admin (oba: trainer_id IS NULL) bez odwołania do
+    // nowej wartości — semantyka identyczna jak trzy gałęzie per rola.
     roleCheck: check(
       "users_role_check",
-      sql`(${t.role} = 'trainer' AND ${t.trainerId} IS NULL) OR
-          (${t.role} = 'trainee' AND ${t.trainerId} IS NOT NULL)`,
+      sql`(${t.role} = 'trainee' AND ${t.trainerId} IS NOT NULL) OR
+          (${t.role} <> 'trainee' AND ${t.trainerId} IS NULL)`,
     ),
   }),
 );
@@ -107,9 +147,16 @@ export const invites = pgTable(
   "invites",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    trainerId: uuid("trainer_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+    targetRole: inviteTargetRole("target_role").notNull().default("trainee"),
+    // Nullable: ustawiony tylko dla zaproszeń podopiecznego.
+    trainerId: uuid("trainer_id").references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "restrict",
+    }),
+    regionId: uuid("region_id").references(() => regions.id, { onDelete: "restrict" }),
+    invitedByUserId: uuid("invited_by_user_id").references(() => users.id, {
+      onDelete: "restrict",
+    }),
     displayName: text("display_name").notNull(),
     email: citext("email"),
     tokenHash: text("token_hash").notNull(),
@@ -123,6 +170,13 @@ export const invites = pgTable(
   (t) => ({
     tokenHashUniq: uniqueIndex("invites_token_hash_uniq").on(t.tokenHash),
     trainerIdx: index("invites_trainer_idx").on(t.trainerId),
+    targetCheck: check(
+      "invites_target_check",
+      sql`(${t.targetRole} = 'trainee' AND ${t.trainerId} IS NOT NULL) OR
+          (${t.targetRole} = 'trainer' AND ${t.invitedByUserId} IS NOT NULL
+             AND ${t.organizationId} IS NOT NULL AND ${t.trainerId} IS NULL
+             AND ${t.replacesUserId} IS NULL AND ${t.monthlyAmountGrosze} IS NULL)`,
+    ),
   }),
 );
 
@@ -132,9 +186,11 @@ export const files = pgTable(
   "files",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    trainerId: uuid("trainer_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+    // Nullable: plik jest albo trenerski (trainer_id) albo markowy (organization_id).
+    trainerId: uuid("trainer_id").references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "restrict",
+    }),
     uploadedBy: uuid("uploaded_by")
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
@@ -150,6 +206,12 @@ export const files = pgTable(
   (t) => ({
     storagePathUniq: uniqueIndex("files_storage_path_uniq").on(t.storagePath),
     trainerKindIdx: index("files_trainer_kind_idx").on(t.trainerId, t.kind),
+    orgKindIdx: index("files_org_kind_idx").on(t.organizationId, t.kind),
+    ownerCheck: check(
+      "files_owner_check",
+      sql`(${t.trainerId} IS NULL AND ${t.organizationId} IS NOT NULL) OR
+          (${t.trainerId} IS NOT NULL AND ${t.organizationId} IS NULL)`,
+    ),
   }),
 );
 
@@ -159,9 +221,15 @@ export const exercises = pgTable(
   "exercises",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    trainerId: uuid("trainer_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+    // Nullable: wiersz jest albo markowy (organization_id) albo trenerski (trainer_id).
+    trainerId: uuid("trainer_id").references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "restrict",
+    }),
+    // Fork: wskazuje markowy oryginał, z którego sklonowano ten wiersz trenera.
+    originId: uuid("origin_id").references((): AnyPgColumn => exercises.id, {
+      onDelete: "set null",
+    }),
     name: text("name").notNull(),
     unit: exerciseUnit("unit").notNull(),
     description: text("description").notNull().default(""),
@@ -173,7 +241,22 @@ export const exercises = pgTable(
   },
   (t) => ({
     trainerIdx: index("exercises_trainer_idx").on(t.trainerId),
+    orgIdx: index("exercises_org_idx").on(t.organizationId),
+    originIdx: index("exercises_origin_idx").on(t.originId),
+    // ≤1 fork danego origin na trenera. NULL-e w Postgresie są rozróżnialne, więc
+    // wiersze nie-forki (origin_id NULL) nie są ograniczane. Backuje idempotencję
+    // forkExercise (catch-and-reread po nazwie indeksu).
+    forkUniq: uniqueIndex("exercises_trainer_origin_uniq").on(t.trainerId, t.originId),
     tagsGin: index("exercises_tags_gin").using("gin", t.tags),
+    ownerCheck: check(
+      "exercises_owner_check",
+      sql`(${t.trainerId} IS NULL AND ${t.organizationId} IS NOT NULL) OR
+          (${t.trainerId} IS NOT NULL AND ${t.organizationId} IS NULL)`,
+    ),
+    originCheck: check(
+      "exercises_origin_check",
+      sql`${t.originId} IS NULL OR ${t.trainerId} IS NOT NULL`,
+    ),
   }),
 );
 
@@ -512,9 +595,15 @@ export const skills = pgTable(
   "skills",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    trainerId: uuid("trainer_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+    // Nullable: wiersz jest albo markowy (organization_id) albo trenerski (trainer_id).
+    trainerId: uuid("trainer_id").references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "restrict",
+    }),
+    // Fork: wskazuje markowy oryginał, z którego sklonowano ten wiersz trenera.
+    originId: uuid("origin_id").references((): AnyPgColumn => skills.id, {
+      onDelete: "set null",
+    }),
     name: text("name").notNull(),
     description: text("description").notNull().default(""),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
@@ -527,6 +616,21 @@ export const skills = pgTable(
       .on(t.trainerId, t.name)
       .where(sql`${t.archivedAt} IS NULL`),
     trainerIdx: index("skills_trainer_idx").on(t.trainerId),
+    orgIdx: index("skills_org_idx").on(t.organizationId),
+    originIdx: index("skills_origin_idx").on(t.originId),
+    // ≤1 fork danego origin na trenera. NULL-e w Postgresie są rozróżnialne, więc
+    // wiersze nie-forki (origin_id NULL) nie są ograniczane. Przygotowuje T9
+    // (forkSkill), który użyje tego samego wzorca idempotencji co forkExercise.
+    forkUniq: uniqueIndex("skills_trainer_origin_uniq").on(t.trainerId, t.originId),
+    ownerCheck: check(
+      "skills_owner_check",
+      sql`(${t.trainerId} IS NULL AND ${t.organizationId} IS NOT NULL) OR
+          (${t.trainerId} IS NOT NULL AND ${t.organizationId} IS NULL)`,
+    ),
+    originCheck: check(
+      "skills_origin_check",
+      sql`${t.originId} IS NULL OR ${t.trainerId} IS NOT NULL`,
+    ),
   }),
 );
 
@@ -544,14 +648,14 @@ export const skillVariations = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
+    // Reguła „ćwiczenie należy do ≤1 umiejętności w efektywnym widoku trenera" jest
+    // egzekwowana w repo (skills.ts:addVariation) — tak jak acykliczność prerekwizytów.
+    // Globalny UNIQUE(exercise_id) byłby błędny przy katalogu markowym + forkach trenerów.
     skillOrdinalUniq: uniqueIndex("skill_variations_skill_ordinal_uniq").on(t.skillId, t.ordinal),
     skillExerciseUniq: uniqueIndex("skill_variations_skill_exercise_uniq").on(
       t.skillId,
       t.exerciseId,
     ),
-    // Ćwiczenie należy do co najwyżej jednej umiejętności. Indeks wygląda globalnie,
-    // ale exercises są per-trener (mają własny trainer_id), więc działa w zakresie trenera.
-    exerciseUniq: uniqueIndex("skill_variations_exercise_uniq").on(t.exerciseId),
   }),
 );
 
@@ -596,9 +700,11 @@ export const skillPrerequisites = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     // Denormalizacja tenant-scope (jak skill_advancements/workout_logs).
-    trainerId: uuid("trainer_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+    // Nullable: krawędź jest albo markowa (organization_id) albo trenerska (trainer_id).
+    trainerId: uuid("trainer_id").references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "restrict",
+    }),
     // Umiejętność, która MA prerekwizyt.
     skillId: uuid("skill_id")
       .notNull()
@@ -619,6 +725,11 @@ export const skillPrerequisites = pgTable(
     noSelfLoop: check(
       "skill_prerequisites_no_self_loop",
       sql`${t.skillId} <> ${t.requiresSkillId}`,
+    ),
+    ownerCheck: check(
+      "skill_prerequisites_owner_check",
+      sql`(${t.trainerId} IS NULL AND ${t.organizationId} IS NOT NULL) OR
+          (${t.trainerId} IS NOT NULL AND ${t.organizationId} IS NULL)`,
     ),
   }),
 );
@@ -711,12 +822,17 @@ export const processedWebhookEvents = pgTable("processed_webhook_events", {
 
 // ---------------- Types ----------------
 
+export type Organization = typeof organizations.$inferSelect;
+export type NewOrganization = typeof organizations.$inferInsert;
+export type Region = typeof regions.$inferSelect;
+export type NewRegion = typeof regions.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
 export type Invite = typeof invites.$inferSelect;
 export type NewInvite = typeof invites.$inferInsert;
+export type InviteTargetRole = (typeof inviteTargetRole.enumValues)[number];
 export type File = typeof files.$inferSelect;
 export type NewFile = typeof files.$inferInsert;
 export type Exercise = typeof exercises.$inferSelect;

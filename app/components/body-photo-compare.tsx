@@ -1,6 +1,11 @@
-import { BODY_VIEW_LABELS } from "~/components/photo-card";
+import { useTranslation } from "react-i18next";
+import { bodyViewLabel } from "~/components/photo-card";
+import { langToIntlLocale, type Lang } from "~/i18n/config";
 import type { BodyPhotoView } from "~/lib/db/schema";
 import { fmtDate } from "~/lib/format";
+
+// biome-ignore lint/suspicious/noExplicitAny: loose `t` typing for in-file subcomponents
+type TFn = (...args: any[]) => string;
 
 // ============================================================
 // Side-by-side: pierwsze vs najnowsze zdjęcie z ujęcia.
@@ -22,14 +27,15 @@ export function SideBySideSection({
   pairs: ResolvedPair[];
   onOpenPhoto: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   const hasAny = pairs.some((p) => p.first != null);
   if (!hasAny) return null;
 
   return (
     <section style={{ marginBottom: 24 }}>
       <div className="row between" style={{ alignItems: "baseline", marginBottom: 10 }}>
-        <h2 style={{ fontSize: 17, margin: 0 }}>Porównanie</h2>
-        <span className="text-xs muted">kliknij zdjęcie aby powiększyć</span>
+        <h2 style={{ fontSize: 17, margin: 0 }}>{t("photo.compare.title")}</h2>
+        <span className="text-xs muted">{t("photo.compare.zoomHint")}</span>
       </div>
       <div
         className="grid"
@@ -53,6 +59,8 @@ function ViewPair({
   pair: ResolvedPair;
   onOpenPhoto: (id: string) => void;
 }) {
+  const { t, i18n } = useTranslation();
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
   if (pair.first == null) {
     return (
       <div
@@ -76,10 +84,10 @@ function ViewPair({
             color: "var(--muted)",
           }}
         >
-          {BODY_VIEW_LABELS[pair.view]}
+          {bodyViewLabel(t, pair.view)}
         </div>
         <div className="text-xs muted" style={{ fontStyle: "italic" }}>
-          brak zdjęć
+          {t("photo.compare.noPhotos")}
         </div>
       </div>
     );
@@ -98,13 +106,15 @@ function ViewPair({
             marginBottom: 8,
           }}
         >
-          {BODY_VIEW_LABELS[pair.view]} · jedno zdjęcie
+          {bodyViewLabel(t, pair.view)} · {t("photo.compare.onePhoto")}
         </div>
         <PhotoTile
           id={pair.first.id}
           url={pair.first.url}
           takenOn={pair.first.takenOn}
           onClick={onOpenPhoto}
+          t={t}
+          locale={locale}
         />
       </div>
     );
@@ -122,25 +132,31 @@ function ViewPair({
             color: "var(--muted)",
           }}
         >
-          {BODY_VIEW_LABELS[pair.view]}
+          {bodyViewLabel(t, pair.view)}
         </div>
-        <div className="mono text-xs muted">{pair.daysBetween} dni różnicy</div>
+        <div className="mono text-xs muted">
+          {t("photo.compare.daysDiff", { count: pair.daysBetween ?? 0 })}
+        </div>
       </div>
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 8, alignItems: "start" }}>
         <PhotoTile
           id={pair.first.id}
           url={pair.first.url}
           takenOn={pair.first.takenOn}
-          tag="pierwsze"
+          tag={t("photo.compare.first")}
           onClick={onOpenPhoto}
+          t={t}
+          locale={locale}
         />
         <PhotoTile
           id={pair.latest!.id}
           url={pair.latest!.url}
           takenOn={pair.latest!.takenOn}
-          tag="ostatnie"
+          tag={t("photo.compare.latest")}
           highlight
           onClick={onOpenPhoto}
+          t={t}
+          locale={locale}
         />
       </div>
     </div>
@@ -154,6 +170,8 @@ function PhotoTile({
   tag,
   highlight,
   onClick,
+  t,
+  locale,
 }: {
   id: string;
   url: string;
@@ -161,12 +179,14 @@ function PhotoTile({
   tag?: string;
   highlight?: boolean;
   onClick: (id: string) => void;
+  t: TFn;
+  locale: string;
 }) {
   return (
     <button
       type="button"
       onClick={() => onClick(id)}
-      aria-label={`Otwórz zdjęcie z ${fmtDate(takenOn)}`}
+      aria-label={t("photo.openAria", { date: fmtDate(takenOn, locale) })}
       style={{
         position: "relative",
         aspectRatio: "3 / 4",
@@ -223,7 +243,7 @@ function PhotoTile({
           fontWeight: 600,
         }}
       >
-        {fmtDate(takenOn)}
+        {fmtDate(takenOn, locale)}
       </div>
     </button>
   );

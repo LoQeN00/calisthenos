@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { Form, Link, useSearchParams, useSubmit } from "react-router";
 import { type ListControlsSpec, type ListControlsState, buildControlHref } from "~/lib/list-params";
 import { Icons } from "./icons";
@@ -20,6 +21,7 @@ export function ListControls({ spec, state, searchPlaceholder }: ListControlsPro
   const [searchParams] = useSearchParams();
   const submit = useSubmit();
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { t } = useTranslation("common");
 
   const scheduleAutoSubmit = (form: HTMLFormElement) => {
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
@@ -55,8 +57,9 @@ export function ListControls({ spec, state, searchPlaceholder }: ListControlsPro
         className="row wrap"
         style={{ gap: 8, alignItems: "center" }}
         onChange={(e) => {
-          const t = e.target as HTMLElement;
-          if (t instanceof HTMLInputElement && t.name === "q") scheduleAutoSubmit(e.currentTarget);
+          const target = e.target as HTMLElement;
+          if (target instanceof HTMLInputElement && target.name === "q")
+            scheduleAutoSubmit(e.currentTarget);
         }}
       >
         {spec.searchable && (
@@ -65,7 +68,7 @@ export function ListControls({ spec, state, searchPlaceholder }: ListControlsPro
             <input
               name="q"
               defaultValue={state.q}
-              placeholder={searchPlaceholder ?? "Szukaj…"}
+              placeholder={searchPlaceholder ?? t("controls.search")}
               className="input"
               type="search"
               autoComplete="off"
@@ -76,7 +79,7 @@ export function ListControls({ spec, state, searchPlaceholder }: ListControlsPro
         {hiddenFilters}
 
         <label className="row" style={{ gap: 6, alignItems: "center" }}>
-          <span className="text-xs muted">Sortuj</span>
+          <span className="text-xs muted">{t("controls.sort")}</span>
           <select
             name="sort"
             defaultValue={state.sort}
@@ -94,7 +97,7 @@ export function ListControls({ spec, state, searchPlaceholder }: ListControlsPro
 
         <noscript>
           <button type="submit" className="btn btn-sm">
-            Zastosuj
+            {t("controls.apply")}
           </button>
         </noscript>
       </Form>

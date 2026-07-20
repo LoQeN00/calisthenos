@@ -91,7 +91,7 @@ export async function addBodyPhoto(db: Db, input: AddBodyPhotoInput): Promise<st
       {
         file: input.file,
         kind: "body_photo",
-        trainerId: input.trainerId,
+        owner: { trainerId: input.trainerId },
         uploadedBy: input.traineeId,
       },
       cleanup,

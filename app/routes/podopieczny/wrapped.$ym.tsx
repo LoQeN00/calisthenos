@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import { Link, useLoaderData, useNavigate, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
+import { langToIntlLocale, type Lang } from "~/i18n/config";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import { fmtDate } from "~/lib/format";
+import { assertTrainerActive } from "~/lib/trainee-access";
 import {
   getMonthlyWrapped,
   isPastMonth,
   parseYM,
+  type Archetype,
   type MonthlyPR,
   type WrappedSummary,
 } from "~/lib/wrapped";
@@ -19,6 +23,9 @@ import {
 
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainee" });
+  // Wstrzymanie: trasa poza layoutem podopiecznego → gate jawnie (inaczej wstrzymany
+  // podopieczny zobaczyłby swoje Wrapped mimo dezaktywacji trenera).
+  await assertTrainerActive(db, user);
   const ym = args.params.ym ?? "";
   const parsed = parseYM(ym);
   if (!parsed) throw new Response("invalid month", { status: 404 });
@@ -77,6 +84,19 @@ export default function WrappedPage() {
 // Card deck — manages current index, transitions, keyboard input.
 // ============================================================
 
+/** Localized month name ("Czerwiec" / "juin") and full label ("Czerwiec 2026" / "juin 2026"). */
+function localizedMonth(
+  locale: string,
+  year: number,
+  month: number,
+): { name: string; label: string } {
+  const d = new Date(Date.UTC(year, month - 1, 1));
+  const name = new Intl.DateTimeFormat(locale, { month: "long", timeZone: "UTC" }).format(d);
+  // Capitalize first letter (fr renders lowercase month names).
+  const cased = name.charAt(0).toUpperCase() + name.slice(1);
+  return { name: cased, label: `${cased} ${year}` };
+}
+
 function CardDeck({
   summary,
   firstName,
@@ -86,7 +106,10 @@ function CardDeck({
   firstName: string;
   onClose: () => void;
 }) {
-  const cards = buildCards(summary, firstName);
+  const { t, i18n } = useTranslation("podopieczny");
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
+  const month = localizedMonth(locale, summary.year, summary.month);
+  const cards = buildCards(summary, firstName, month.name);
   const [index, setIndex] = useState(0);
   const current = cards[index]!;
   const isLast = index === cards.length - 1;
@@ -182,12 +205,12 @@ function CardDeck({
             color: "rgba(255,255,255,.6)",
           }}
         >
-          Wrapped · {summary.label}
+          {t("wrapped.deck.chrome", { label: month.label })}
         </div>
         <button
           type="button"
           onClick={onClose}
-          aria-label="Zamknij"
+          aria-label={t("wrapped.deck.close")}
           style={{
             background: "rgba(255,255,255,.08)",
             color: "var(--bg)",
@@ -208,7 +231,7 @@ function CardDeck({
       <button
         type="button"
         onClick={handleClick}
-        aria-label="Następna karta"
+        aria-label={t("wrapped.deck.nextCard")}
         style={{
           flex: 1,
           background: "transparent",
@@ -239,7 +262,7 @@ function CardDeck({
 // ============================================================
 
 type Card =
-  | { key: "intro"; kind: "intro"; firstName: string; label: string; sessions: number }
+  | { key: "intro"; kind: "intro"; firstName: string; monthName: string; sessions: number }
   | {
       key: "volume";
       kind: "volume";
@@ -259,17 +282,23 @@ type Card =
       kind: "heaviest";
       day: NonNullable<WrappedSummary["heaviestDay"]>;
     }
-  | { key: "archetype"; kind: "archetype"; archetype: WrappedSummary["archetype"] }
+  | {
+      key: "archetype";
+      kind: "archetype";
+      archetype: WrappedSummary["archetype"];
+      prCount: number;
+      topPct: number;
+    }
   | {
       key: "vs-prev";
       kind: "vs-prev";
       vs: WrappedSummary["vsPrevious"];
     }
-  | { key: "closing"; kind: "closing"; label: string };
+  | { key: "closing"; kind: "closing"; monthName: string };
 
-function buildCards(s: WrappedSummary, firstName: string): Card[] {
+function buildCards(s: WrappedSummary, firstName: string, monthName: string): Card[] {
   const cards: Card[] = [];
-  cards.push({ key: "intro", kind: "intro", firstName, label: s.label, sessions: s.sessions });
+  cards.push({ key: "intro", kind: "intro", firstName, monthName, sessions: s.sessions });
   cards.push({
     key: "volume",
     kind: "volume",
@@ -286,9 +315,15 @@ function buildCards(s: WrappedSummary, firstName: string): Card[] {
   if (s.heaviestDay) {
     cards.push({ key: "heaviest", kind: "heaviest", day: s.heaviestDay });
   }
-  cards.push({ key: "archetype", kind: "archetype", archetype: s.archetype });
+  cards.push({
+    key: "archetype",
+    kind: "archetype",
+    archetype: s.archetype,
+    prCount: s.prs.length,
+    topPct: s.topExercise?.pctOfSessions ?? 0,
+  });
   cards.push({ key: "vs-prev", kind: "vs-prev", vs: s.vsPrevious });
-  cards.push({ key: "closing", kind: "closing", label: s.label });
+  cards.push({ key: "closing", kind: "closing", monthName });
   return cards;
 }
 
@@ -328,7 +363,9 @@ const KEYFRAMES_CSS = `
 function RenderCard({ card }: { card: Card }) {
   switch (card.kind) {
     case "intro":
-      return <IntroCard firstName={card.firstName} label={card.label} sessions={card.sessions} />;
+      return (
+        <IntroCard firstName={card.firstName} monthName={card.monthName} sessions={card.sessions} />
+      );
     case "volume":
       return (
         <VolumeCard
@@ -346,11 +383,13 @@ function RenderCard({ card }: { card: Card }) {
     case "heaviest":
       return <HeaviestCard day={card.day} />;
     case "archetype":
-      return <ArchetypeCard archetype={card.archetype} />;
+      return (
+        <ArchetypeCard archetype={card.archetype} prCount={card.prCount} topPct={card.topPct} />
+      );
     case "vs-prev":
       return <VsPrevCard vs={card.vs} />;
     case "closing":
-      return <ClosingCard label={card.label} />;
+      return <ClosingCard monthName={card.monthName} />;
   }
 }
 
@@ -401,21 +440,27 @@ const SUB: React.CSSProperties = {
 
 function IntroCard({
   firstName,
-  label,
+  monthName,
   sessions,
 }: {
   firstName: string;
-  label: string;
+  monthName: string;
   sessions: number;
 }) {
+  const { t } = useTranslation("podopieczny");
   return (
     <div>
-      <div style={EYEBROW}>Twój miesiąc</div>
-      <div style={HEAD}>Cześć, {firstName}.</div>
-      <div style={{ ...HUGE, marginTop: 20 }}>{label.split(" ")[0]}</div>
+      <div style={EYEBROW}>{t("wrapped.intro.eyebrow")}</div>
+      <div style={HEAD}>{t("wrapped.intro.greeting", { name: firstName })}</div>
+      <div style={{ ...HUGE, marginTop: 20 }}>{monthName}</div>
       <div style={{ ...SUB, marginTop: 8 }}>
-        Zrobiłeś <strong style={{ color: "var(--accent)" }}>{sessions}</strong>{" "}
-        {pl(sessions, "sesję", "sesje", "sesji")}. Przewijaj dalej.
+        <Trans
+          t={t}
+          i18nKey="wrapped.intro.lead"
+          count={sessions}
+          values={{ count: sessions }}
+          components={[<strong style={{ color: "var(--accent)" }} key="s" />]}
+        />
       </div>
     </div>
   );
@@ -430,25 +475,35 @@ function VolumeCard({
   totalSeconds: number;
   totalSets: number;
 }) {
+  const { t, i18n } = useTranslation("podopieczny");
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
   const hero = totalReps >= totalSeconds ? totalReps : totalSeconds;
-  const heroLabel = totalReps >= totalSeconds ? "powtórzeń" : "sekund pod tension";
+  const heroLabel =
+    totalReps >= totalSeconds ? t("wrapped.volume.heroReps") : t("wrapped.volume.heroSeconds");
   return (
     <div>
-      <div style={EYEBROW}>Twoja praca</div>
-      <CountUp value={hero} style={HUGE} />
+      <div style={EYEBROW}>{t("wrapped.volume.eyebrow")}</div>
+      <CountUp value={hero} style={HUGE} locale={locale} />
       <div style={HEAD}>{heroLabel}</div>
       <div style={SUB}>
-        Plus <strong>{totalSets.toLocaleString("pl-PL")}</strong> serii.
+        <Trans
+          t={t}
+          i18nKey="wrapped.volume.lead"
+          values={{ sets: totalSets.toLocaleString(locale) }}
+          components={[<strong key="s" />]}
+        />
         {totalReps > 0 && totalSeconds > 0 && (
-          <>
-            {" "}
-            Dla równowagi:{" "}
-            <strong>
-              {hero === totalReps
-                ? `${totalSeconds.toLocaleString("pl-PL")} sek.`
-                : `${totalReps.toLocaleString("pl-PL")} powt.`}
-            </strong>
-          </>
+          <Trans
+            t={t}
+            i18nKey={
+              hero === totalReps ? "wrapped.volume.balanceSeconds" : "wrapped.volume.balanceReps"
+            }
+            values={{
+              seconds: totalSeconds.toLocaleString(locale),
+              reps: totalReps.toLocaleString(locale),
+            }}
+            components={[<strong key="s" />]}
+          />
         )}
       </div>
     </div>
@@ -460,10 +515,11 @@ function TopExerciseCard({
 }: {
   top: NonNullable<WrappedSummary["topExercise"]>;
 }) {
+  const { t } = useTranslation("podopieczny");
   return (
     <div>
-      <div style={EYEBROW}>Twoje numer jeden</div>
-      <div style={HEAD}>Najczęściej robiłeś</div>
+      <div style={EYEBROW}>{t("wrapped.top.eyebrow")}</div>
+      <div style={HEAD}>{t("wrapped.top.head")}</div>
       <div
         style={{
           ...BIG,
@@ -476,39 +532,46 @@ function TopExerciseCard({
         {top.exerciseName}
       </div>
       <div style={SUB}>
-        W <strong>{top.sessionsInvolved}</strong>{" "}
-        {pl(top.sessionsInvolved, "sesji", "sesjach", "sesjach")} ({top.pctOfSessions}% wszystkich).
-        Jednostka: <span className="mono">{top.unit}</span>.
+        <Trans
+          t={t}
+          i18nKey="wrapped.top.lead"
+          count={top.sessionsInvolved}
+          values={{ count: top.sessionsInvolved, pct: top.pctOfSessions, unit: top.unit }}
+          components={[<strong key="s" />, <span className="mono" key="u" />]}
+        />
       </div>
     </div>
   );
 }
 
 function TopEmptyCard() {
+  const { t } = useTranslation("podopieczny");
   return (
     <div>
-      <div style={EYEBROW}>Twoje numer jeden</div>
-      <div style={HEAD}>Bez wyraźnego faworyta</div>
-      <div style={SUB}>Rozłożyłeś wysiłek równo. Trener byłby z Ciebie dumny.</div>
+      <div style={EYEBROW}>{t("wrapped.topEmpty.eyebrow")}</div>
+      <div style={HEAD}>{t("wrapped.topEmpty.head")}</div>
+      <div style={SUB}>{t("wrapped.topEmpty.lead")}</div>
     </div>
   );
 }
 
 function PRsCard({ prs }: { prs: MonthlyPR[] }) {
+  const { t } = useTranslation("podopieczny");
   if (prs.length === 0) {
     return (
       <div>
-        <div style={EYEBROW}>Rekordy</div>
-        <div style={HEAD}>Tym razem bez PR.</div>
-        <div style={SUB}>Nie każdy miesiąc musi pobić rekord. Konsystencja to też wynik.</div>
+        <div style={EYEBROW}>{t("wrapped.prs.eyebrow")}</div>
+        <div style={HEAD}>{t("wrapped.prs.emptyHead")}</div>
+        <div style={SUB}>{t("wrapped.prs.emptyLead")}</div>
       </div>
     );
   }
   const top = prs[0]!;
+  const topUnitLabel = top.unit === "SEC" ? t("wrapped.prs.unitSec") : t("wrapped.prs.unitReps");
   return (
     <div>
-      <div style={EYEBROW}>Rekordy</div>
-      <div style={HEAD}>Pobiłeś</div>
+      <div style={EYEBROW}>{t("wrapped.prs.eyebrow")}</div>
+      <div style={HEAD}>{t("wrapped.prs.head")}</div>
       <div
         style={{
           ...HUGE,
@@ -519,15 +582,22 @@ function PRsCard({ prs }: { prs: MonthlyPR[] }) {
       >
         {prs.length}
       </div>
-      <div style={HEAD}>{pl(prs.length, "nowy rekord", "nowe rekordy", "nowych rekordów")}.</div>
+      <div style={HEAD}>{t("wrapped.prs.count", { count: prs.length })}</div>
       <div style={{ ...SUB, marginTop: 20 }}>
-        Najmocniej: <strong style={{ color: "var(--accent)" }}>{top.exerciseName}</strong> —{" "}
-        <span className="mono">{top.reps}</span> {top.unit === "SEC" ? "sek." : "powt."}
+        <Trans
+          t={t}
+          i18nKey="wrapped.prs.strongest"
+          values={{ name: top.exerciseName, reps: top.reps, unitLabel: topUnitLabel }}
+          components={[
+            <strong style={{ color: "var(--accent)" }} key="n" />,
+            <span className="mono" key="r" />,
+          ]}
+        />
         {top.previousBest > 0 && (
           <>
             {" "}
             <span className="mono" style={{ opacity: 0.55 }}>
-              (poprz. {top.previousBest})
+              {t("wrapped.prs.previousBest", { value: top.previousBest })}
             </span>
           </>
         )}
@@ -547,7 +617,7 @@ function PRsCard({ prs }: { prs: MonthlyPR[] }) {
             .slice(1, 5)
             .map((p) => `${p.exerciseName} · ${p.reps}${p.unit === "SEC" ? "s" : ""}`)
             .join(" · ")}
-          {prs.length > 5 && ` · +${prs.length - 5}`}
+          {prs.length > 5 && ` · ${t("wrapped.prs.moreSuffix", { n: prs.length - 5 })}`}
         </div>
       )}
     </div>
@@ -559,10 +629,13 @@ function HeaviestCard({
 }: {
   day: NonNullable<WrappedSummary["heaviestDay"]>;
 }) {
+  const { t, i18n } = useTranslation("podopieczny");
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
+  const setWord = t("wrapped.heaviest.setWord", { count: day.setCount });
   return (
     <div>
-      <div style={EYEBROW}>Najmocniejszy dzień</div>
-      <div style={HEAD}>{fmtDate(day.date)}</div>
+      <div style={EYEBROW}>{t("wrapped.heaviest.eyebrow")}</div>
+      <div style={HEAD}>{fmtDate(day.date, locale)}</div>
       <div
         style={{
           ...BIG,
@@ -575,13 +648,19 @@ function HeaviestCard({
         {day.sessionName}
       </div>
       <div style={SUB}>
-        <strong>{day.totalReps.toLocaleString("pl-PL")}</strong> powt. /{" "}
-        <strong>{day.setCount}</strong> {pl(day.setCount, "seria", "serie", "serii")}
+        <Trans
+          t={t}
+          i18nKey="wrapped.heaviest.lead"
+          values={{ reps: day.totalReps.toLocaleString(locale), count: day.setCount, setWord }}
+          components={[<strong key="r" />, <strong key="c" />]}
+        />
         {day.avgRpe != null && (
-          <>
-            {" "}
-            · śr. RPE <strong>{day.avgRpe}</strong>/10
-          </>
+          <Trans
+            t={t}
+            i18nKey="wrapped.heaviest.rpe"
+            values={{ value: day.avgRpe }}
+            components={[<strong key="v" />]}
+          />
         )}
       </div>
     </div>
@@ -590,12 +669,18 @@ function HeaviestCard({
 
 function ArchetypeCard({
   archetype,
+  prCount,
+  topPct,
 }: {
   archetype: WrappedSummary["archetype"];
+  prCount: number;
+  topPct: number;
 }) {
+  const { t } = useTranslation("podopieczny");
+  const { label, description } = localizeArchetype(t, archetype, prCount, topPct);
   return (
     <div>
-      <div style={EYEBROW}>Twój typ trenującego</div>
+      <div style={EYEBROW}>{t("wrapped.archetype.eyebrow")}</div>
       <div
         style={{
           fontSize: "clamp(72px, 18vw, 120px)",
@@ -607,26 +692,91 @@ function ArchetypeCard({
         {archetype.emoji}
       </div>
       <div style={{ ...HUGE, fontSize: "clamp(40px, 12vw, 84px)", color: "var(--accent)" }}>
-        {archetype.label}
+        {label}
       </div>
-      <div style={SUB}>{archetype.description}</div>
+      <div style={SUB}>{description}</div>
     </div>
   );
 }
 
+/**
+ * Maps the server-computed archetype (PL strings from `app/lib/wrapped.ts`) to a
+ * localized label + description via its stable `key`. Counts the summary still
+ * exposes (PR count for `power-user`, top-% for `specialist`) are re-interpolated;
+ * archetypes whose original copy referenced inputs not present in the summary
+ * (`experimenter` newExercises, `all-rounder` distinctExercises) use count-free copy.
+ */
+function localizeArchetype(
+  // biome-ignore lint/suspicious/noExplicitAny: przeciążenia TFunction są złożone; tu wystarczy luźny podpis.
+  t: (...args: any[]) => string,
+  archetype: Archetype,
+  prCount: number,
+  topPct: number,
+): { label: string; description: string } {
+  switch (archetype.key) {
+    case "power-user":
+      return {
+        label: t("wrapped.archetype.powerUser.label"),
+        description: t("wrapped.archetype.powerUser.description", { count: prCount }),
+      };
+    case "specialist":
+      return {
+        label: t("wrapped.archetype.specialist.label"),
+        description: t("wrapped.archetype.specialist.description", { pct: topPct }),
+      };
+    case "experimenter":
+      return {
+        label: t("wrapped.archetype.experimenter.label"),
+        description: t("wrapped.archetype.experimenter.description"),
+      };
+    case "consistent":
+      return {
+        label: t("wrapped.archetype.consistent.label"),
+        description: t("wrapped.archetype.consistent.description"),
+      };
+    case "maximalist":
+      return {
+        label: t("wrapped.archetype.maximalist.label"),
+        description: t("wrapped.archetype.maximalist.description"),
+      };
+    case "endurance":
+      return {
+        label: t("wrapped.archetype.endurance.label"),
+        description: t("wrapped.archetype.endurance.description"),
+      };
+    case "all-rounder":
+      return {
+        label: t("wrapped.archetype.allRounder.label"),
+        description: t("wrapped.archetype.allRounder.description"),
+      };
+    case "patient":
+      return {
+        label: t("wrapped.archetype.patient.label"),
+        description: t("wrapped.archetype.patient.description"),
+      };
+    default:
+      return {
+        label: t("wrapped.archetype.explorer.label"),
+        description: t("wrapped.archetype.explorer.description"),
+      };
+  }
+}
+
 function VsPrevCard({ vs }: { vs: WrappedSummary["vsPrevious"] }) {
+  const { t, i18n } = useTranslation("podopieczny");
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
   if (!vs.hasPrevious) {
     return (
       <div>
-        <div style={EYEBROW}>Porównanie</div>
-        <div style={HEAD}>Twój pierwszy miesiąc.</div>
-        <div style={SUB}>Następny wrapped pokaże, czy idziesz w górę. Dasz radę.</div>
+        <div style={EYEBROW}>{t("wrapped.vsPrev.eyebrowFirst")}</div>
+        <div style={HEAD}>{t("wrapped.vsPrev.firstHead")}</div>
+        <div style={SUB}>{t("wrapped.vsPrev.firstLead")}</div>
       </div>
     );
   }
   return (
     <div>
-      <div style={EYEBROW}>Vs poprzedni miesiąc</div>
+      <div style={EYEBROW}>{t("wrapped.vsPrev.eyebrow")}</div>
       <div
         style={{
           display: "grid",
@@ -637,39 +787,47 @@ function VsPrevCard({ vs }: { vs: WrappedSummary["vsPrevious"] }) {
         }}
       >
         <DeltaStat
-          label="Sesji"
+          label={t("wrapped.vsPrev.sessionsLabel")}
           value={`${vs.sessionsThis}`}
           delta={vs.sessionsDelta}
           deltaText={
             vs.sessionsDelta === 0
-              ? "tyle co poprz."
-              : `${vs.sessionsDelta > 0 ? "+" : ""}${vs.sessionsDelta} vs ${vs.sessionsPrev}`
+              ? t("wrapped.vsPrev.same")
+              : t("wrapped.vsPrev.sessionsDelta", {
+                  delta: `${vs.sessionsDelta > 0 ? "+" : ""}${vs.sessionsDelta}`,
+                  prev: vs.sessionsPrev,
+                })
           }
         />
         <DeltaStat
-          label="Powtórzeń"
-          value={vs.repsThis.toLocaleString("pl-PL")}
+          label={t("wrapped.vsPrev.repsLabel")}
+          value={vs.repsThis.toLocaleString(locale)}
           delta={vs.repsDeltaPct ?? 0}
           deltaText={
             vs.repsDeltaPct == null
-              ? "—"
+              ? t("wrapped.vsPrev.noData")
               : vs.repsDeltaPct === 0
-                ? "tyle co poprz."
-                : `${vs.repsDeltaPct > 0 ? "+" : ""}${vs.repsDeltaPct}% vs poprz.`
+                ? t("wrapped.vsPrev.same")
+                : t("wrapped.vsPrev.repsDelta", {
+                    delta: `${vs.repsDeltaPct > 0 ? "+" : ""}${vs.repsDeltaPct}`,
+                  })
           }
         />
       </div>
       {vs.avgRpeThis != null && vs.rpeDelta != null && vs.rpeDelta !== 0 && (
         <div style={{ ...SUB, marginTop: 8 }}>
-          Średnie RPE:{" "}
-          <strong>
-            {vs.avgRpeThis}/10
-            <span style={{ color: vs.rpeDelta > 0 ? "var(--danger)" : "var(--ok)" }}>
-              {" "}
-              ({vs.rpeDelta > 0 ? "+" : ""}
-              {vs.rpeDelta})
-            </span>
-          </strong>
+          <Trans
+            t={t}
+            i18nKey="wrapped.vsPrev.rpeLine"
+            values={{
+              value: vs.avgRpeThis,
+              delta: `${vs.rpeDelta > 0 ? "+" : ""}${vs.rpeDelta}`,
+            }}
+            components={[
+              <strong key="v" />,
+              <span style={{ color: vs.rpeDelta > 0 ? "var(--danger)" : "var(--ok)" }} key="d" />,
+            ]}
+          />
         </div>
       )}
     </div>
@@ -720,13 +878,14 @@ function DeltaStat({
   );
 }
 
-function ClosingCard({ label }: { label: string }) {
+function ClosingCard({ monthName }: { monthName: string }) {
+  const { t } = useTranslation("podopieczny");
   return (
     <div>
-      <div style={EYEBROW}>To był</div>
-      <div style={{ ...HUGE, color: "var(--accent)" }}>{label.split(" ")[0]}</div>
-      <div style={HEAD}>Do zobaczenia w następnym miesiącu.</div>
-      <div style={SUB}>Twoja historia rośnie z każdym treningiem. Trzymaj rytm.</div>
+      <div style={EYEBROW}>{t("wrapped.closing.eyebrow")}</div>
+      <div style={{ ...HUGE, color: "var(--accent)" }}>{monthName}</div>
+      <div style={HEAD}>{t("wrapped.closing.head")}</div>
+      <div style={SUB}>{t("wrapped.closing.lead")}</div>
     </div>
   );
 }
@@ -735,7 +894,15 @@ function ClosingCard({ label }: { label: string }) {
 // CountUp — animowany licznik dla dużych liczb
 // ============================================================
 
-function CountUp({ value, style }: { value: number; style: React.CSSProperties }) {
+function CountUp({
+  value,
+  style,
+  locale = "pl-PL",
+}: {
+  value: number;
+  style: React.CSSProperties;
+  locale?: string;
+}) {
   const [current, setCurrent] = useState(0);
   useEffect(() => {
     const duration = 900;
@@ -751,7 +918,7 @@ function CountUp({ value, style }: { value: number; style: React.CSSProperties }
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [value]);
-  return <div style={style}>{current.toLocaleString("pl-PL")}</div>;
+  return <div style={style}>{current.toLocaleString(locale)}</div>;
 }
 
 // ============================================================
@@ -766,8 +933,11 @@ function ShareBar({
   firstName: string;
 }) {
   const [copied, setCopied] = useState(false);
+  const { t, i18n } = useTranslation("podopieczny");
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
+  const monthLabel = localizedMonth(locale, summary.year, summary.month).label;
 
-  const shareText = buildShareText(summary, firstName);
+  const shareText = buildShareText(t, locale, summary, firstName, monthLabel);
 
   const onShare = async () => {
     try {
@@ -798,7 +968,7 @@ function ShareBar({
       }}
     >
       <button type="button" onClick={onShare} className="btn btn-primary" style={{ minWidth: 160 }}>
-        <Icons.Upload /> {copied ? "Skopiowano!" : "Udostępnij"}
+        <Icons.Upload /> {copied ? t("wrapped.share.copied") : t("wrapped.share.share")}
       </button>
       <Link
         to="/podopieczny"
@@ -809,30 +979,35 @@ function ShareBar({
           borderColor: "rgba(255,255,255,.15)",
         }}
       >
-        Zamknij
+        {t("wrapped.share.close")}
       </Link>
     </div>
   );
 }
 
-function buildShareText(s: WrappedSummary, firstName: string): string {
-  const parts = [`${firstName} · ${s.label} w kalisthenos:`, `${s.sessions} sesji`];
-  if (s.totalReps > 0) parts.push(`${s.totalReps.toLocaleString("pl-PL")} powt.`);
-  if (s.totalSeconds > 0) parts.push(`${s.totalSeconds.toLocaleString("pl-PL")} sek.`);
-  if (s.prs.length > 0) parts.push(`${s.prs.length} nowych rekordów`);
-  parts.push(`Typ: ${s.archetype.label} ${s.archetype.emoji}`);
+function buildShareText(
+  // biome-ignore lint/suspicious/noExplicitAny: przeciążenia TFunction są złożone; tu wystarczy luźny podpis.
+  t: (...args: any[]) => string,
+  locale: string,
+  s: WrappedSummary,
+  firstName: string,
+  monthLabel: string,
+): string {
+  const archetypeLabel = localizeArchetype(
+    t,
+    s.archetype,
+    s.prs.length,
+    s.topExercise?.pctOfSessions ?? 0,
+  ).label;
+  const parts = [
+    t("wrapped.share.textIntro", { name: firstName, label: monthLabel }),
+    t("wrapped.share.textSessions", { n: s.sessions }),
+  ];
+  if (s.totalReps > 0)
+    parts.push(t("wrapped.share.textReps", { reps: s.totalReps.toLocaleString(locale) }));
+  if (s.totalSeconds > 0)
+    parts.push(t("wrapped.share.textSeconds", { seconds: s.totalSeconds.toLocaleString(locale) }));
+  if (s.prs.length > 0) parts.push(t("wrapped.share.textPrs", { n: s.prs.length }));
+  parts.push(t("wrapped.share.textArchetype", { label: archetypeLabel, emoji: s.archetype.emoji }));
   return parts.join(" · ");
-}
-
-// ============================================================
-// Pluralization mini-helper local to this file
-// ============================================================
-
-function pl(n: number, one: string, few: string, many: string): string {
-  if (n === 1) return one;
-  const lastTwo = n % 100;
-  const last = n % 10;
-  if (lastTwo >= 12 && lastTwo <= 14) return many;
-  if (last >= 2 && last <= 4) return few;
-  return many;
 }

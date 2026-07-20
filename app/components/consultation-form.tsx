@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Icons } from "~/components/icons";
 
 export interface ConsultationFormItem {
@@ -29,6 +30,7 @@ interface ConsultationFormProps {
  * i dodaje własny przycisk submit + hidden intent.
  */
 export function ConsultationForm({ defaultValue, defaultScheduledAt }: ConsultationFormProps) {
+  const { t } = useTranslation("trenerKonsultacje");
   const [items, setItems] = useState<ConsultationFormItem[]>(defaultValue?.items ?? []);
 
   function addItem() {
@@ -59,7 +61,7 @@ export function ConsultationForm({ defaultValue, defaultScheduledAt }: Consultat
         }}
       >
         <div className="field">
-          <label htmlFor="cf-scheduledAt">Termin spotkania</label>
+          <label htmlFor="cf-scheduledAt">{t("form.scheduledAt")}</label>
           <input
             id="cf-scheduledAt"
             className="input"
@@ -70,7 +72,7 @@ export function ConsultationForm({ defaultValue, defaultScheduledAt }: Consultat
           />
         </div>
         <div className="field">
-          <label htmlFor="cf-durationMin">Czas trwania (min)</label>
+          <label htmlFor="cf-durationMin">{t("form.durationMin")}</label>
           <input
             id="cf-durationMin"
             className="input"
@@ -85,7 +87,7 @@ export function ConsultationForm({ defaultValue, defaultScheduledAt }: Consultat
 
       {/* Link spotkania */}
       <div className="field">
-        <label htmlFor="cf-meetingUrl">Link spotkania (opcjonalnie)</label>
+        <label htmlFor="cf-meetingUrl">{t("form.meetingUrl")}</label>
         <input
           id="cf-meetingUrl"
           className="input"
@@ -93,14 +95,14 @@ export function ConsultationForm({ defaultValue, defaultScheduledAt }: Consultat
           name="meetingUrl"
           maxLength={500}
           defaultValue={defaultValue?.meetingUrl ?? ""}
-          placeholder="https://meet.google.com/…"
+          placeholder={t("form.meetingUrlPlaceholder")}
         />
       </div>
 
       {/* Okres — od / do */}
       <div>
         <div className="field-label" style={{ marginBottom: 8 }}>
-          Okres (opcjonalnie)
+          {t("form.periodLabel")}
         </div>
         <div
           style={{
@@ -111,7 +113,7 @@ export function ConsultationForm({ defaultValue, defaultScheduledAt }: Consultat
           }}
         >
           <div className="field">
-            <label htmlFor="cf-periodFrom">Okres od</label>
+            <label htmlFor="cf-periodFrom">{t("form.periodFrom")}</label>
             <input
               id="cf-periodFrom"
               className="input"
@@ -121,7 +123,7 @@ export function ConsultationForm({ defaultValue, defaultScheduledAt }: Consultat
             />
           </div>
           <div className="field">
-            <label htmlFor="cf-periodTo">Okres do</label>
+            <label htmlFor="cf-periodTo">{t("form.periodTo")}</label>
             <input
               id="cf-periodTo"
               className="input"
@@ -135,7 +137,7 @@ export function ConsultationForm({ defaultValue, defaultScheduledAt }: Consultat
 
       {/* Tytuł */}
       <div className="field">
-        <label htmlFor="cf-title">Tytuł</label>
+        <label htmlFor="cf-title">{t("form.title")}</label>
         <input
           id="cf-title"
           className="input"
@@ -144,20 +146,20 @@ export function ConsultationForm({ defaultValue, defaultScheduledAt }: Consultat
           required
           maxLength={160}
           defaultValue={defaultValue?.title ?? ""}
-          placeholder="np. Konsultacja miesięczna — maj 2026"
+          placeholder={t("form.titlePlaceholder")}
         />
       </div>
 
       {/* Podsumowanie */}
       <div className="field">
-        <label htmlFor="cf-summary">Podsumowanie</label>
+        <label htmlFor="cf-summary">{t("form.summary")}</label>
         <textarea
           id="cf-summary"
           className="textarea"
           name="summary"
           maxLength={10000}
           defaultValue={defaultValue?.summary ?? ""}
-          placeholder="Notatki z konsultacji, obserwacje, plan na kolejny okres..."
+          placeholder={t("form.summaryPlaceholder")}
           rows={5}
         />
       </div>
@@ -165,7 +167,7 @@ export function ConsultationForm({ defaultValue, defaultScheduledAt }: Consultat
       {/* Punkty do poprawy */}
       <div>
         <div className="field-label" style={{ marginBottom: 10 }}>
-          Do poprawy
+          {t("form.toImprove")}
         </div>
 
         {items.length > 0 && (
@@ -207,7 +209,7 @@ export function ConsultationForm({ defaultValue, defaultScheduledAt }: Consultat
                   name="itemBody"
                   value={item.body}
                   onChange={(e) => updateItemBody(idx, e.target.value)}
-                  placeholder="Treść punktu do poprawy..."
+                  placeholder={t("form.itemPlaceholder")}
                   maxLength={2000}
                   style={{ flex: 1 }}
                 />
@@ -216,7 +218,7 @@ export function ConsultationForm({ defaultValue, defaultScheduledAt }: Consultat
                   className="btn btn-icon btn-ghost"
                   style={{ color: "var(--muted)", flexShrink: 0 }}
                   onClick={() => removeItem(idx)}
-                  aria-label={`Usuń punkt ${idx + 1}`}
+                  aria-label={t("form.removeItem", { n: idx + 1 })}
                 >
                   <Icons.X />
                 </button>
@@ -226,7 +228,7 @@ export function ConsultationForm({ defaultValue, defaultScheduledAt }: Consultat
         )}
 
         <button type="button" className="btn btn-ghost" onClick={addItem} style={{ fontSize: 13 }}>
-          <Icons.Plus /> Dodaj punkt
+          <Icons.Plus /> {t("form.addItem")}
         </button>
       </div>
     </div>

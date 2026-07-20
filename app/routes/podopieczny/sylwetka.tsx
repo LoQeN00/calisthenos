@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Form,
   useActionData,
@@ -45,10 +46,10 @@ const DELETE_ACTION_PATH = "/podopieczny/sylwetka";
 
 const PAGE_SIZE = 60;
 
-const SYLWETKA_SPEC: ListControlsSpec = {
+const SYLWETKA_SPEC_BASE: ListControlsSpec = {
   sortOptions: [
-    { key: "newest", label: "Najnowsze" },
-    { key: "oldest", label: "Najstarsze" },
+    { key: "newest", label: "" },
+    { key: "oldest", label: "" },
   ],
   defaultSort: "newest",
   filterGroups: [],
@@ -60,7 +61,7 @@ export async function loader(args: LoaderFunctionArgs) {
   const url = new URL(args.request.url);
   const page = parsePage(url.searchParams);
 
-  const controls = parseListControls(url.searchParams, SYLWETKA_SPEC);
+  const controls = parseListControls(url.searchParams, SYLWETKA_SPEC_BASE);
 
   const total = await countBodyPhotosForTrainee(db, user.id);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -102,25 +103,24 @@ export async function loader(args: LoaderFunctionArgs) {
     totalPages,
     total,
     resolvedPairs,
-    spec: SYLWETKA_SPEC,
     controls,
   };
 }
 
 export async function action(args: ActionFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainee" });
-  if (!user.trainerId) return { error: "Konto bez przypisanego trenera." };
+  if (!user.trainerId) return { errorKey: "sylwetka.errors.noTrainer" as const };
   const fd = await args.request.formData();
   const intent = fd.get("intent");
 
   if (intent === "delete") {
     const photoId = String(fd.get("photoId") ?? "");
-    if (!photoId) return { error: "Brak id zdjęcia." };
+    if (!photoId) return { errorKey: "sylwetka.errors.noPhotoId" as const };
     try {
       await deleteBodyPhoto(db, photoId, user.id);
     } catch (e) {
       logger.error("body_photo.delete_failed", errorMeta(e));
-      return { error: "Nie udało się usunąć zdjęcia. Spróbuj ponownie." };
+      return { errorKey: "sylwetka.errors.deleteFailed" as const };
     }
     return { ok: true };
   }
@@ -132,11 +132,11 @@ export async function action(args: ActionFunctionArgs) {
     note: fd.get("note") ?? undefined,
   });
   if (!parsed.success) {
-    return { error: "Sprawdź pola formularza." };
+    return { errorKey: "sylwetka.errors.formInvalid" as const };
   }
   const fileBlob = fd.get("photo");
   if (!(fileBlob instanceof File) || fileBlob.size === 0) {
-    return { error: "Wybierz zdjęcie." };
+    return { errorKey: "sylwetka.errors.noFile" as const };
   }
   try {
     await addBodyPhoto(db, {
@@ -148,7 +148,8 @@ export async function action(args: ActionFunctionArgs) {
       note: parsed.data.note,
     });
   } catch (e) {
-    if (e instanceof BodyPhotoError) return { error: e.userMessage };
+    if (e instanceof BodyPhotoError)
+      return { errorKey: "sylwetka.errors.formInvalid" as const, errorMessage: e.userMessage };
     throw e;
   }
   return { ok: true };
@@ -157,9 +158,10 @@ export async function action(args: ActionFunctionArgs) {
 type ViewFilter = "all" | BodyPhotoView;
 
 export default function TraineeBodyGallery() {
-  const { photos, page, totalPages, total, resolvedPairs, spec, controls } =
+  const { photos, page, totalPages, total, resolvedPairs, controls } =
     useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const { t, i18n } = useTranslation("podopieczny");
   const [showAddModal, setShowAddModal] = useState(false);
   const [filter, setFilter] = useState<ViewFilter>("all");
   const [lightboxId, setLightboxId] = useState<string | null>(null);
@@ -173,6 +175,14 @@ export default function TraineeBodyGallery() {
       setLightboxId(null);
     }
   }, [uploadOk]);
+
+  const sylwetkaSpec: ListControlsSpec = {
+    ...SYLWETKA_SPEC_BASE,
+    sortOptions: [
+      { key: "newest", label: t("sylwetka.sortOptions.newest") },
+      { key: "oldest", label: t("sylwetka.sortOptions.oldest") },
+    ],
+  };
 
   const counts = useMemo(() => countByView(photos), [photos]);
   const filteredPhotos = useMemo(
@@ -200,41 +210,51 @@ export default function TraineeBodyGallery() {
       }));
   }, [lightboxId, photos]);
 
-  const groups = useMemo(() => groupByMonth(filteredPhotos), [filteredPhotos]);
+  const groups = useMemo(
+    () => groupByMonth(filteredPhotos, i18n.language),
+    [filteredPhotos, i18n.language],
+  );
+
+  const errorMsg =
+    actionData != null && "errorKey" in actionData && actionData.errorKey != null
+      ? "errorMessage" in actionData && actionData.errorMessage
+        ? actionData.errorMessage
+        : t(actionData.errorKey)
+      : null;
 
   return (
     <div>
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Podopieczny
+            {t("sylwetka.eyebrow")}
           </div>
-          <h1>Sylwetka</h1>
-          <div className="sub">Wrzucaj cotygodniowe zdjęcia. Trener je widzi.</div>
+          <h1>{t("sylwetka.title")}</h1>
+          <div className="sub">{t("sylwetka.subtitle")}</div>
         </div>
         <button type="button" onClick={() => setShowAddModal(true)} className="btn btn-primary">
-          <Icons.Plus /> Dodaj zdjęcie
+          <Icons.Plus /> {t("sylwetka.addBtn")}
         </button>
       </div>
 
       <Modal
         open={showAddModal}
         onClose={() => setShowAddModal(false)}
-        title="Dodaj zdjęcie sylwetki"
+        title={t("sylwetka.modalTitle")}
       >
         <Form method="post" encType="multipart/form-data">
           <div className="modal-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <div className="field">
-                <label htmlFor="bp-view">Ujęcie</label>
+                <label htmlFor="bp-view">{t("sylwetka.fieldView")}</label>
                 <select id="bp-view" name="view" required defaultValue="front" className="select">
-                  <option value="front">Przód</option>
-                  <option value="side">Bok</option>
-                  <option value="back">Tył</option>
+                  <option value="front">{t("sylwetka.viewFront")}</option>
+                  <option value="side">{t("sylwetka.viewSide")}</option>
+                  <option value="back">{t("sylwetka.viewBack")}</option>
                 </select>
               </div>
               <div className="field">
-                <label htmlFor="bp-date">Data</label>
+                <label htmlFor="bp-date">{t("sylwetka.fieldDate")}</label>
                 <input
                   id="bp-date"
                   name="takenOn"
@@ -246,36 +266,36 @@ export default function TraineeBodyGallery() {
               </div>
             </div>
             <div className="field">
-              <label htmlFor="bp-note">Notatka (opcjonalna)</label>
+              <label htmlFor="bp-note">{t("sylwetka.fieldNote")}</label>
               <input
                 id="bp-note"
                 name="note"
                 type="text"
                 maxLength={500}
-                placeholder="np. waga 72.4 kg, energia 8/10"
+                placeholder={t("sylwetka.notePlaceholder")}
                 className="input"
               />
             </div>
             <FileDropzone
               name="photo"
               kind="image"
-              label="Zdjęcie"
+              label={t("sylwetka.fieldPhoto")}
               required
               capture
               maxBytes={250_000_000}
             />
-            {actionData != null && "error" in actionData && actionData.error != null && (
+            {errorMsg != null && (
               <p role="alert" style={{ color: "var(--danger)", fontSize: 13, margin: 0 }}>
-                {actionData.error}
+                {errorMsg}
               </p>
             )}
           </div>
           <div className="modal-foot">
             <button type="button" onClick={() => setShowAddModal(false)} className="btn btn-ghost">
-              Anuluj
+              {t("sylwetka.cancelBtn")}
             </button>
             <button type="submit" className="btn btn-primary">
-              <Icons.Upload /> Dodaj zdjęcie
+              <Icons.Upload /> {t("sylwetka.uploadBtn")}
             </button>
           </div>
         </Form>
@@ -283,21 +303,21 @@ export default function TraineeBodyGallery() {
 
       {total === 0 ? (
         <div className="empty">
-          <h3>Brak zdjęć</h3>
-          <div>Dodaj pierwsze powyżej.</div>
+          <h3>{t("sylwetka.empty.title")}</h3>
+          <div>{t("sylwetka.empty.subtitle")}</div>
         </div>
       ) : (
         <>
-          <ListControls spec={spec} state={controls} />
+          <ListControls spec={sylwetkaSpec} state={controls} />
 
           <SideBySideSection pairs={resolvedPairs} onOpenPhoto={setLightboxId} />
 
-          <FilterTabs filter={filter} setFilter={setFilter} counts={counts} />
+          <FilterTabs filter={filter} setFilter={setFilter} counts={counts} t={t} />
 
           {filteredPhotos.length === 0 ? (
             <div className="empty" style={{ marginTop: 12 }}>
-              <h3>Brak zdjęć w tym ujęciu</h3>
-              <div>Zmień filtr lub wgraj nowe.</div>
+              <h3>{t("sylwetka.emptyView.title")}</h3>
+              <div>{t("sylwetka.emptyView.subtitle")}</div>
             </div>
           ) : (
             <PhotoGrid groups={groups} onOpenPhoto={setLightboxId} />
@@ -307,7 +327,7 @@ export default function TraineeBodyGallery() {
             page={page}
             totalPages={totalPages}
             total={total}
-            totalLabel={total === 1 ? "zdjęcie" : "zdjęć"}
+            totalLabel={t("sylwetka.totalLabel", { count: total })}
           />
         </>
       )}
@@ -331,16 +351,19 @@ function FilterTabs({
   filter,
   setFilter,
   counts,
+  t,
 }: {
   filter: ViewFilter;
   setFilter: (f: ViewFilter) => void;
   counts: Record<ViewFilter, number>;
+  // biome-ignore lint/suspicious/noExplicitAny: TFunction overloads are complex; narrow to what we need
+  t: (...args: any[]) => string;
 }) {
   const TABS: Array<{ key: ViewFilter; label: string }> = [
-    { key: "all", label: "Wszystkie" },
-    { key: "front", label: "Przód" },
-    { key: "side", label: "Bok" },
-    { key: "back", label: "Tył" },
+    { key: "all", label: t("sylwetka.filterAll") },
+    { key: "front", label: t("sylwetka.filterFront") },
+    { key: "side", label: t("sylwetka.filterSide") },
+    { key: "back", label: t("sylwetka.filterBack") },
   ];
   return (
     <div className="row wrap" style={{ gap: 6, marginBottom: 14 }}>
@@ -451,31 +474,21 @@ function countByView(photos: Array<{ view: BodyPhotoView }>): Record<ViewFilter,
   return out;
 }
 
-const MONTHS_PL = [
-  "Styczeń",
-  "Luty",
-  "Marzec",
-  "Kwiecień",
-  "Maj",
-  "Czerwiec",
-  "Lipiec",
-  "Sierpień",
-  "Wrzesień",
-  "Październik",
-  "Listopad",
-  "Grudzień",
-];
-
 function groupByMonth<
   T extends { id: string; url: string; takenOn: string; view: BodyPhotoView; note: string | null },
->(photos: T[]): PhotoGroup[] {
+>(photos: T[], lang = "pl"): PhotoGroup[] {
   // Arrives pre-sorted by takenOn from the loader (kierunek zależny od ?sort=); grupowanie zachowuje tę kolejność.
   const groups = new Map<string, PhotoGroup>();
   const order: string[] = [];
+  const monthFmt = new Intl.DateTimeFormat(lang, {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
   for (const p of photos) {
     const d = new Date(p.takenOn);
     const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
-    const label = `${MONTHS_PL[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+    const label = monthFmt.format(d);
     let g = groups.get(key);
     if (!g) {
       g = { label, photos: [] };

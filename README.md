@@ -106,6 +106,10 @@ Required env vars on Railway:
 | `SEED_TRAINER_EMAIL` | bootstrap trainer email |
 | `SEED_TRAINER_PASSWORD` | strong password (≥8 chars; change after first login) |
 | `SEED_TRAINER_NAME` | trainer's display name |
+| `BRAND_NAME` | (seed only) nazwa organizacji marki — pomijając brak bootstrap tenancy |
+| `BRAND_ADMIN_EMAIL` | (seed only) email konta `brand_admin` |
+| `BRAND_ADMIN_PASSWORD` | (seed only) hasło konta `brand_admin` (≥8 znaków) |
+| `BRAND_ADMIN_NAME` | (seed only, opcjonalne) nazwa wyświetlana admina; domyślnie = `BRAND_NAME` |
 
 Set the volume mount inside the service config — uploads live at `DATA_DIR`.
 

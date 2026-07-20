@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { invoiceStatusLabel, subscriptionPresentation, mapStripeStatus } from "~/lib/stripe/status";
+import {
+  invoiceStatusLabel,
+  invoiceStatusLabelKey,
+  subscriptionPresentation,
+  mapStripeStatus,
+} from "~/lib/stripe/status";
 
 describe("mapStripeStatus", () => {
   it("mapuje znane statusy Stripe na nasz enum", () => {
@@ -21,16 +26,41 @@ describe("mapStripeStatus", () => {
 
 describe("subscriptionPresentation", () => {
   it("daje polską etykietę i ton dla statusu", () => {
-    expect(subscriptionPresentation("active")).toEqual({ label: "Aktywna", tone: "ok" });
-    expect(subscriptionPresentation("past_due")).toEqual({ label: "Zaległość", tone: "warn" });
-    expect(subscriptionPresentation("none")).toEqual({
+    expect(subscriptionPresentation("active")).toMatchObject({ label: "Aktywna", tone: "ok" });
+    expect(subscriptionPresentation("past_due")).toMatchObject({
+      label: "Zaległość",
+      tone: "warn",
+    });
+    expect(subscriptionPresentation("none")).toMatchObject({
       label: "Brak subskrypcji",
       tone: "neutral",
     });
-    expect(subscriptionPresentation("canceled")).toEqual({ label: "Anulowana", tone: "neutral" });
-    expect(subscriptionPresentation("incomplete")).toEqual({ label: "Nieukończona", tone: "warn" });
-    expect(subscriptionPresentation("unpaid")).toEqual({ label: "Nieopłacona", tone: "warn" });
-    expect(subscriptionPresentation("paused")).toEqual({ label: "Wstrzymana", tone: "neutral" });
+    expect(subscriptionPresentation("canceled")).toMatchObject({
+      label: "Anulowana",
+      tone: "neutral",
+    });
+    expect(subscriptionPresentation("incomplete")).toMatchObject({
+      label: "Nieukończona",
+      tone: "warn",
+    });
+    expect(subscriptionPresentation("unpaid")).toMatchObject({
+      label: "Nieopłacona",
+      tone: "warn",
+    });
+    expect(subscriptionPresentation("paused")).toMatchObject({
+      label: "Wstrzymana",
+      tone: "neutral",
+    });
+  });
+
+  it("zwraca poprawne labelKey dla każdego statusu subskrypcji", () => {
+    expect(subscriptionPresentation("none").labelKey).toBe("platnosci:subStatus.none");
+    expect(subscriptionPresentation("incomplete").labelKey).toBe("platnosci:subStatus.incomplete");
+    expect(subscriptionPresentation("active").labelKey).toBe("platnosci:subStatus.active");
+    expect(subscriptionPresentation("past_due").labelKey).toBe("platnosci:subStatus.past_due");
+    expect(subscriptionPresentation("unpaid").labelKey).toBe("platnosci:subStatus.unpaid");
+    expect(subscriptionPresentation("canceled").labelKey).toBe("platnosci:subStatus.canceled");
+    expect(subscriptionPresentation("paused").labelKey).toBe("platnosci:subStatus.paused");
   });
 });
 
@@ -45,5 +75,19 @@ describe("invoiceStatusLabel", () => {
   });
   it("nieznany status przechodzi bez zmian", () => {
     expect(invoiceStatusLabel("future_status_xyz")).toBe("future_status_xyz");
+  });
+});
+
+describe("invoiceStatusLabelKey", () => {
+  it("zwraca poprawne klucze i18next dla znanych statusów faktury", () => {
+    expect(invoiceStatusLabelKey("paid")).toBe("platnosci:invoiceStatus.paid");
+    expect(invoiceStatusLabelKey("open")).toBe("platnosci:invoiceStatus.open");
+    expect(invoiceStatusLabelKey("void")).toBe("platnosci:invoiceStatus.void");
+    expect(invoiceStatusLabelKey("uncollectible")).toBe("platnosci:invoiceStatus.uncollectible");
+    expect(invoiceStatusLabelKey("draft")).toBe("platnosci:invoiceStatus.draft");
+    expect(invoiceStatusLabelKey("failed")).toBe("platnosci:invoiceStatus.failed");
+  });
+  it("nieznany status → null", () => {
+    expect(invoiceStatusLabelKey("future_status_xyz")).toBeNull();
   });
 });

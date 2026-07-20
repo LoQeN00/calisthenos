@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { useTranslation } from "react-i18next";
 import {
   Form,
   Link,
@@ -9,9 +10,11 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
+import { langToIntlLocale, type Lang } from "~/i18n/config";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
+import { assertTrainerActive } from "~/lib/trainee-access";
 import { stripeApiConfigured } from "~/lib/env";
 import { fmtMoney } from "~/lib/money";
 import { hasAppAccess, paymentRequired } from "~/lib/stripe/access";
@@ -30,6 +33,8 @@ import {
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const user = await requireUser(request, db, { role: "trainee" });
+  // Wstrzymanie ma pierwszeństwo nad aktywacją płatności (trasa poza layoutem).
+  await assertTrainerActive(db, user);
   const trainerId = user.trainerId!;
 
   const sub = await getSubscriptionForPair(db, trainerId, user.id);
@@ -52,6 +57,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return {
     trainerName: trainerRow[0]?.name ?? null,
     amountGrosze: sub?.amountGrosze ?? null,
+    currency: sub?.currency ?? "pln",
   };
 }
 
@@ -61,6 +67,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 export async function action({ request }: ActionFunctionArgs) {
   const user = await requireUser(request, db, { role: "trainee" });
+  // Wstrzymany podopieczny nie może inicjować płatności (Checkout) — gate jawnie.
+  await assertTrainerActive(db, user);
   const fd = await request.formData();
   const intent = fd.get("intent");
   if (intent === "subscribe") {
@@ -85,10 +93,12 @@ export async function action({ request }: ActionFunctionArgs) {
 // ============================================================
 
 export default function AktywujPage() {
-  const { trainerName, amountGrosze } = useLoaderData<typeof loader>();
+  const { trainerName, amountGrosze, currency } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [searchParams] = useSearchParams();
   const canceled = searchParams.get("canceled") === "1";
+  const { t, i18n } = useTranslation("podopieczny");
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
 
   return (
     <main className="auth-shell">
@@ -99,11 +109,13 @@ export default function AktywujPage() {
           <span className="brand-dot" />
         </div>
         <div className="eyebrow" style={{ marginBottom: 6 }}>
-          Dostęp
+          {t("aktywuj.eyebrow")}
         </div>
-        <h1 style={{ fontSize: 22, marginBottom: 8 }}>Aktywuj subskrypcję</h1>
+        <h1 style={{ fontSize: 22, marginBottom: 8 }}>{t("aktywuj.title")}</h1>
         <p className="muted" style={{ marginBottom: 18 }}>
-          Aby korzystać z aplikacji, opłać subskrypcję u {trainerName ?? "swojego trenera"}.
+          {trainerName
+            ? t("aktywuj.leadWithTrainer", { trainer: trainerName })
+            : t("aktywuj.leadNoTrainer")}
         </p>
 
         {amountGrosze != null && (
@@ -118,20 +130,20 @@ export default function AktywujPage() {
             }}
           >
             <div style={{ fontWeight: 600 }}>
-              Prowadzenie treningowe — {trainerName ?? "Twój trener"}
+              {trainerName
+                ? t("aktywuj.planNameWithTrainer", { trainer: trainerName })
+                : t("aktywuj.planNameNoTrainer")}
             </div>
             <div style={{ fontSize: 20, fontWeight: 700 }}>
-              {fmtMoney(amountGrosze)} miesięcznie
+              {t("aktywuj.perMonth", { amount: fmtMoney(amountGrosze, locale, currency) })}
             </div>
-            <div className="text-xs muted">
-              Subskrypcja odnawia się automatycznie; możesz ją anulować w panelu płatności.
-            </div>
+            <div className="text-xs muted">{t("aktywuj.renewNote")}</div>
           </div>
         )}
 
         {canceled && (
           <p className="alert" style={{ marginBottom: 14 }}>
-            Płatność anulowana — spróbuj ponownie.
+            {t("aktywuj.canceled")}
           </p>
         )}
 
@@ -144,13 +156,13 @@ export default function AktywujPage() {
         <Form method="post" style={{ display: "grid", gap: 12 }}>
           <input type="hidden" name="intent" value="subscribe" />
           <button type="submit" className="btn btn-primary btn-lg">
-            Opłać i aktywuj
+            {t("aktywuj.submit")}
           </button>
         </Form>
 
         <div style={{ marginTop: 16, textAlign: "center" }}>
           <Link to="/wyloguj" className="muted text-sm">
-            Wyloguj
+            {t("aktywuj.logout")}
           </Link>
         </div>
       </div>

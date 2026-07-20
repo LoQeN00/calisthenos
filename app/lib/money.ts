@@ -1,23 +1,32 @@
 import { z } from "zod";
 
-const PLN = new Intl.NumberFormat("pl-PL", {
-  style: "currency",
-  currency: "PLN",
-});
-
-/** Formatuje kwotę w groszach na polski zapis waluty, np. 12345 → "123,45 zł". */
-export function fmtMoney(grosze: number, _currency: "pln" = "pln"): string {
-  // Intl wstawia twardą spację (U+00A0) lub wąską niełamliwą (U+202F) —
-  // normalizujemy do zwykłej spacji dla stabilnych asercji testowych.
-  return PLN.format(grosze / 100).replace(/[  ]/g, " ");
+/** Formatuje kwotę w jednostkach minor (grosze/centy) na zapis walutowy.
+ *
+ * Domyślnie PLN/pl-PL, czyli wstecznie kompatybilne z istniejącymi callerami:
+ *   fmtMoney(12345)           → "123,45 zł"
+ *   fmtMoney(12345, "fr-FR", "eur") → "123,45 €"
+ *
+ * Intl wstawia twardą spację (U+00A0) lub wąską niełamliwą (U+202F) —
+ * normalizujemy do zwykłej spacji dla stabilnych asercji testowych.
+ */
+export function fmtMoney(minorUnits: number, locale = "pl-PL", currency = "pln"): string {
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: currency.toUpperCase(),
+  })
+    .format(minorUnits / 100)
+    .replace(/[  ]/g, " ");
 }
 
-/** "200,50" | "200.50" | "200" → grosze (20050). Null gdy nie-liczba. */
-export function parsePlnToGrosze(input: string): number | null {
+/** "200,50" | "200.50" | "200" → minor units (20050). Null gdy nie-liczba. */
+export function parseMoneyToMinor(input: string): number | null {
   const norm = input.trim().replace(",", ".");
   if (norm === "" || !/^\d+(\.\d{1,2})?$/.test(norm)) return null;
   return Math.round(Number(norm) * 100);
 }
+
+/** Alias wstecznie kompatybilny — zachowuje istniejących callerów i MonthlyAmountSchema. */
+export const parsePlnToGrosze = parseMoneyToMinor;
 
 // Minimum 2 zł (200 gr), maksimum 100 000 zł — sanity przeciw literówkom.
 export const MonthlyAmountSchema = z

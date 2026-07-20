@@ -77,6 +77,8 @@ export async function deleteConnection(db: Db, trainerId: string): Promise<strin
 export interface AuthedCalendar {
   client: OAuth2Client;
   calendarId: string;
+  /** E-mail połączonego konta = gospodarz spotkań Meet (organizator zdarzeń). */
+  googleEmail: string;
 }
 
 /**
@@ -106,7 +108,7 @@ export async function getAuthedClient(db: Db, trainerId: string): Promise<Authed
     void persistRefreshed(db, trainerId, tokens.access_token, tokens.expiry_date, tokens.refresh_token);
   });
 
-  return { client, calendarId: row.calendarId };
+  return { client, calendarId: row.calendarId, googleEmail: row.googleEmail };
 }
 
 async function persistRefreshed(

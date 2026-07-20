@@ -1,0 +1,191 @@
+{
+  "pulpit": {
+    "eyebrow": "Espace marque",
+    "title": "Tableau de bord de la marque",
+    "body": "Vous trouverez ici un aperçu du réseau d'ambassadeurs et d'élèves. Pour l'instant, le compte du président sert à confirmer que la hiérarchie de la marque fonctionne.",
+    "exercisesCard": "Exercices de la marque",
+    "skillsCard": "Compétences de la marque",
+    "manageExercises": "Gérer les exercices",
+    "manageSkills": "Gérer les compétences"
+  },
+  "nav": {
+    "section": "Marque",
+    "dashboard": "Tableau de bord",
+    "library": "Bibliothèque d'exercices",
+    "skills": "Compétences",
+    "ambassadors": "Ambassadeurs",
+    "regions": "Régions",
+    "settings": "Paramètres de la marque",
+    "soon": "bientôt"
+  },
+  "biblioteka": {
+    "title": "Exercices de la marque",
+    "eyebrow": "Catalogue de la marque",
+    "ctaNew": "Nouvel exercice",
+    "emptyTitle": "Aucun résultat",
+    "emptyBody": "Ajoutez le premier exercice de la marque.",
+    "subEmpty": "Aucun exercice.",
+    "subCount": "{{count}} exercices.",
+    "totalLabel": "exercices",
+    "searchPlaceholder": "Rechercher un exercice…",
+    "sort": {
+      "name_asc": "Nom A–Z",
+      "name_desc": "Nom Z–A"
+    },
+    "filterUnit": {
+      "label": "Unité",
+      "all": "Toutes",
+      "reps": "Répétitions",
+      "sec": "Durée"
+    }
+  },
+  "bibliotekaForm": {
+    "eyebrow": "Catalogue de la marque",
+    "newTitle": "Nouvel exercice de marque",
+    "crumbsLibrary": "Bibliothèque d'exercices",
+    "crumbNew": "Nouveau",
+    "exerciseEyebrow": "Exercice · {{unit}}",
+    "fieldName": "Nom",
+    "namePlaceholder": "ex. Pull-up",
+    "fieldUnit": "Unité",
+    "unitReps": "Répétitions",
+    "unitSec": "Secondes",
+    "fieldDescription": "Description",
+    "descriptionPlaceholder": "Conseils techniques…",
+    "rpeTitle": "Collecter le RPE",
+    "rpeHint": "L'élève évaluera la difficulté de la série de 1 à 10.",
+    "demoLabel": "Vidéo de démonstration",
+    "demoReplaceLabel": "Remplacer la vidéo de démonstration",
+    "currentDemo": "Démonstration actuelle",
+    "saveNew": "Ajouter l'exercice",
+    "saveEdit": "Enregistrer les modifications",
+    "cancel": "Annuler",
+    "archive": "Archiver",
+    "unarchive": "Restaurer",
+    "archived": "Archivé",
+    "archiveConfirmTitle": "Archiver l'exercice ?",
+    "archiveConfirmMessage": "L'exercice disparaîtra du catalogue actif de la marque.",
+    "archiveConfirmText": "Archiver",
+    "errors": {
+      "nameRequired": "Veuillez saisir le nom de l'exercice.",
+      "formInvalid": "Le formulaire contient des erreurs.",
+      "exerciseIsVariant": "Impossible d'archiver — l'exercice est une variante de la compétence « {{skill}} »."
+    }
+  },
+  "umiejetnosci": {
+    "title": "Compétences de la marque",
+    "eyebrow": "Catalogue de la marque",
+    "new": "Nouvelle compétence",
+    "empty": "Aucune compétence de marque. Ajoutez la première.",
+    "variationsCount": "{{count}} variante(s)",
+    "treeTitle": "Arbre des compétences de la marque"
+  },
+  "ambasadorzy": {
+    "eyebrow": "Réseau de la marque",
+    "title": "Ambassadeurs",
+    "empty": "Aucun ambassadeur. Invitez le premier.",
+    "total": "{{count}} ambassadeurs",
+    "totalWord": "ambassadeurs",
+    "invite": "Inviter un ambassadeur",
+    "searchPlaceholder": "Rechercher un ambassadeur…",
+    "sort": { "name_asc": "Nom A–Z", "name_desc": "Nom Z–A" },
+    "filterStatus": {
+      "label": "Statut",
+      "all": "Tous",
+      "active": "Actifs",
+      "suspended": "Suspendus"
+    },
+    "table": {
+      "ambassador": "Ambassadeur",
+      "region": "Région",
+      "trainees": "Élèves",
+      "status": "Statut",
+      "since": "depuis {{date}}",
+      "active": "Actif",
+      "suspended": "Suspendu",
+      "noRegion": "—"
+    },
+    "form": {
+      "title": "Inviter un ambassadeur",
+      "name": "Nom et prénom",
+      "namePlaceholder": "ex. Anna Coach",
+      "email": "E-mail",
+      "emailPlaceholder": "anna@example.com",
+      "region": "Région",
+      "regionPlaceholder": "Choisir une région…",
+      "cancel": "Annuler",
+      "generate": "Générer le lien",
+      "fallbackError": "Le formulaire contient des erreurs."
+    },
+    "inviteCard": {
+      "generated": "Lien d'invitation",
+      "instructions": "Envoyez ce lien à l'ambassadeur — il définira lui-même son mot de passe.",
+      "copy": "Copier le lien",
+      "tokenNote": "Lien valable 14 jours, à usage unique."
+    },
+    "validation": {
+      "nameRequired": "Veuillez saisir le nom et le prénom.",
+      "emailRequired": "Veuillez saisir l'e-mail.",
+      "emailInvalid": "E-mail invalide.",
+      "regionRequired": "Veuillez choisir une région.",
+      "regionInvalid": "La région choisie n'appartient pas à cette organisation."
+    },
+    "profil": {
+      "eyebrow": "Ambassadeur",
+      "crumbs": "Ambassadeurs",
+      "trainees": "Élèves actifs",
+      "logs7d": "Entraînements (7 j)",
+      "logs30d": "Entraînements (30 j)",
+      "mrr": "MRR",
+      "statusActive": "Actif",
+      "statusSuspended": "Suspendu",
+      "deactivate": "Désactiver l'ambassadeur",
+      "reactivate": "Réactiver l'ambassadeur",
+      "deactivateConfirmTitle": "Désactiver l'ambassadeur ?",
+      "deactivateConfirmMessage": "Le coach perdra l'accès, ses élèves seront suspendus et leurs abonnements mis en pause.",
+      "deactivateConfirmText": "Désactiver",
+      "actionError": "L'opération a échoué.",
+      "saved": "Enregistré."
+    }
+  },
+  "umiejetnosciForm": {
+    "newTitle": "Nouvelle compétence de marque",
+    "crumbs": "Compétences",
+    "crumbNew": "Nouvelle",
+    "fieldName": "Nom",
+    "namePlaceholder": "ex. Pull-up",
+    "fieldDescription": "Description",
+    "save": "Enregistrer",
+    "saved": "Modifications enregistrées.",
+    "cancel": "Annuler",
+    "variations": "Variantes",
+    "variationsEmpty": "Aucune variante.",
+    "addVariation": "Ajouter une variante",
+    "addVariationPlaceholder": "Choisir un exercice…",
+    "removeVariation": "Supprimer",
+    "moveUp": "Monter",
+    "moveDown": "Descendre",
+    "confirmRemoveVariationTitle": "Supprimer la variante {{name}} ?",
+    "confirmRemoveVariationMessage": "La variante sera définitivement supprimée de la compétence.",
+    "confirmRemoveVariationConfirm": "Supprimer",
+    "confirmRemovePrereqTitle": "Supprimer le prérequis ?",
+    "confirmRemovePrereqMessage": "Le lien sera supprimé de l'arbre.",
+    "confirmRemovePrereqConfirm": "Supprimer",
+    "prereqs": "Prérequis",
+    "prereqIntro": "Compétences que l'élève doit maîtriser avant celle-ci.",
+    "prereqEmpty": "Aucun prérequis.",
+    "prereqNoneToAdd": "Aucune compétence disponible à ajouter comme prérequis.",
+    "addPrereq": "Ajouter un prérequis",
+    "addPrereqPlaceholder": "Choisir une compétence…",
+    "removePrereq": "Supprimer",
+    "archive": "Archiver la compétence",
+    "archiveConfirmTitle": "Archiver la compétence ?",
+    "archiveConfirmMessage": "La compétence et ses liens de prérequis seront détachés.",
+    "archiveConfirmText": "Archiver",
+    "errors": {
+      "nameRequired": "Veuillez saisir le nom de la compétence.",
+      "formInvalid": "Le formulaire contient des erreurs.",
+      "generic": "L'opération a échoué."
+    }
+  }
+}

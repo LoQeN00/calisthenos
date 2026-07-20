@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import {
   type ActionFunctionArgs,
   Form,
@@ -7,6 +8,7 @@ import {
   useLoaderData,
   useSearchParams,
 } from "react-router";
+import { tDyn } from "~/i18n/translate";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import { getEnv, googleConfigured } from "~/lib/env";
@@ -31,7 +33,7 @@ export async function action(args: ActionFunctionArgs) {
   const intent = fd.get("intent");
 
   if (intent === "connect") {
-    if (!googleConfigured()) return { error: "Integracja Google nie jest skonfigurowana na serwerze." };
+    if (!googleConfigured()) return { error: "integracje.google.actionNotConfigured" };
     const nonce = newNonce();
     const state = signState(nonce, Date.now() + 10 * 60_000, getEnv().SESSION_SECRET);
     return redirect(consentUrl(state), { headers: { "Set-Cookie": nonceCookie(nonce) } });
@@ -45,21 +47,23 @@ export async function action(args: ActionFunctionArgs) {
         // best-effort revoke
       }
     }
-    return { success: "Konto Google odłączone." };
+    return { success: "integracje.google.actionDisconnected" };
   }
   return null;
 }
 
-const ERROR_MESSAGES: Record<string, string> = {
-  denied: "Anulowałeś autoryzację lub odmówiłeś dostępu.",
-  state: "Żądanie wygasło lub zostało zmodyfikowane — spróbuj ponownie.",
-  exchange: "Nie udało się wymienić kodu autoryzacji na tokeny — spróbuj ponownie.",
+// Mapowanie kodu z query (?error=…) na sufiks klucza tłumaczenia.
+const ERROR_KEY_BY_PARAM: Record<string, string> = {
+  denied: "integracje.google.errorDenied",
+  state: "integracje.google.errorState",
+  exchange: "integracje.google.errorExchange",
 };
 
 export default function IntegracjeGoogle() {
   const { configured, status } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [searchParams] = useSearchParams();
+  const { t } = useTranslation("trenerPlany");
 
   const okParam = searchParams.get("ok");
   const errorParam = searchParams.get("error");
@@ -69,10 +73,10 @@ export default function IntegracjeGoogle() {
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Trener
+            {t("integracje.google.eyebrow")}
           </div>
-          <h1>Integracje</h1>
-          <div className="sub">Połącz konto Google, aby synchronizować konsultacje z kalendarzem.</div>
+          <h1>{t("integracje.google.title")}</h1>
+          <div className="sub">{t("integracje.google.sub")}</div>
         </div>
       </div>
 
@@ -80,54 +84,72 @@ export default function IntegracjeGoogle() {
         {/* Banery z URL search params (po przekierowaniu z callbacku) */}
         {okParam && (
           <div className="alert alert-success" style={{ marginBottom: 16 }}>
-            Konto Google zostało pomyślnie połączone.
+            {t("integracje.google.okBanner")}
           </div>
         )}
         {errorParam && (
           <div className="alert alert-error" style={{ marginBottom: 16 }}>
-            {ERROR_MESSAGES[errorParam] ?? "Wystąpił nieoczekiwany błąd — spróbuj ponownie."}
+            {tDyn(t, ERROR_KEY_BY_PARAM[errorParam] ?? "integracje.google.errorUnexpected")}
           </div>
         )}
 
         {/* Baner z wyniku akcji (rozłącz / błąd serwera) */}
         {"success" in (actionData ?? {}) && actionData && "success" in actionData && (
           <div className="alert alert-success" style={{ marginBottom: 16 }}>
-            {(actionData as { success: string }).success}
+            {tDyn(t, (actionData as { success: string }).success)}
           </div>
         )}
         {"error" in (actionData ?? {}) && actionData && "error" in actionData && (
           <div className="alert alert-error" style={{ marginBottom: 16 }}>
-            {(actionData as { error: string }).error}
+            {tDyn(t, (actionData as { error: string }).error)}
           </div>
         )}
 
-        <h2 style={{ fontSize: 17, margin: "0 0 12px" }}>Google Calendar</h2>
+        <h2 style={{ fontSize: 17, margin: "0 0 12px" }}>{t("integracje.google.heading")}</h2>
 
         {!configured ? (
           <p className="muted" style={{ margin: 0 }}>
-            Integracja Google nie jest skonfigurowana na tym serwerze. Skontaktuj się z administratorem.
+            {t("integracje.google.notConfigured")}
           </p>
         ) : status.connected ? (
           <div>
             <p style={{ margin: "0 0 16px" }}>
-              Połączone konto: <strong>{status.googleEmail}</strong>
+              {t("integracje.google.connectedAccount")}
+              <strong>{status.googleEmail}</strong>
             </p>
+            <div
+              className="alert"
+              style={{
+                marginBottom: 16,
+                fontSize: 13,
+                lineHeight: 1.55,
+                background: "var(--accent-soft)",
+                border: "1px solid var(--line)",
+                borderRadius: "var(--radius)",
+                padding: "10px 12px",
+              }}
+            >
+              <strong>{t("integracje.google.hostNoticeStrong")}</strong>
+              {t("integracje.google.hostNoticePre")}
+              <strong>{status.googleEmail}</strong>
+              {t("integracje.google.hostNoticeMid")}
+            </div>
             <Form method="post">
               <input type="hidden" name="intent" value="disconnect" />
               <button type="submit" className="btn btn-ghost" style={{ color: "var(--danger)" }}>
-                Rozłącz
+                {t("integracje.google.disconnect")}
               </button>
             </Form>
           </div>
         ) : (
           <div>
             <p className="muted" style={{ margin: "0 0 16px" }}>
-              Brak połączonego konta Google. Kliknij poniżej, aby autoryzować dostęp do kalendarza.
+              {t("integracje.google.notConnected")}
             </p>
             <Form method="post">
               <input type="hidden" name="intent" value="connect" />
               <button type="submit" className="btn btn-primary">
-                Połącz z Google
+                {t("integracje.google.connect")}
               </button>
             </Form>
           </div>

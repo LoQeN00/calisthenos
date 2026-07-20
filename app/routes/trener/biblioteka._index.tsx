@@ -1,4 +1,6 @@
 import { and, arrayContains, asc, count, desc, eq, ilike, isNull } from "drizzle-orm";
+import { useTranslation } from "react-i18next";
+import { tDyn } from "~/i18n/translate";
 import {
   type ActionFunctionArgs,
   Form,
@@ -18,14 +20,13 @@ import {
   deleteCategory,
   listCategoriesForTrainer,
 } from "~/lib/categories";
+import { effectiveExerciseWhere, forkedExerciseOriginIds, isBrandOwned } from "~/lib/catalog";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import { signFileUrl } from "~/lib/files";
-import { type PlForms, pluralizePl } from "~/lib/format";
 import { type ListControlsSpec, parseListControls } from "~/lib/list-params";
 
 const PAGE_SIZE = 24;
-const POZYCJA: PlForms = { one: "pozycja", few: "pozycje", many: "pozycji" };
 
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainer" });
@@ -35,31 +36,33 @@ export async function loader(args: LoaderFunctionArgs) {
   const categories = await listCategoriesForTrainer(db, user.id);
   const categoryNames = new Set(categories.map((c) => c.name));
 
+  // Labels not needed server-side (parseListControls reads keys/values only);
+  // the render-time spec below carries translated labels for <ListControls>.
   const spec: ListControlsSpec = {
     sortOptions: [
-      { key: "name_asc", label: "Nazwa A–Z" },
-      { key: "name_desc", label: "Nazwa Z–A" },
-      { key: "newest", label: "Najnowsze" },
-      { key: "oldest", label: "Najstarsze" },
+      { key: "name_asc", label: "" },
+      { key: "name_desc", label: "" },
+      { key: "newest", label: "" },
+      { key: "oldest", label: "" },
     ],
     defaultSort: "name_asc",
     filterGroups: [
       {
         param: "tag",
-        label: "Kategoria",
+        label: "",
         options: [
-          { value: "all", label: "Wszystkie" },
+          { value: "all", label: "" },
           ...categories.map((c) => ({ value: c.name, label: c.name })),
         ],
         defaultValue: "all",
       },
       {
         param: "unit",
-        label: "Jednostka",
+        label: "",
         options: [
-          { value: "all", label: "Wszystkie" },
-          { value: "REPS", label: "Powtórzenia" },
-          { value: "SEC", label: "Czas" },
+          { value: "all", label: "" },
+          { value: "REPS", label: "" },
+          { value: "SEC", label: "" },
         ],
         defaultValue: "all",
       },
@@ -72,7 +75,11 @@ export async function loader(args: LoaderFunctionArgs) {
   const filterTag = controls.filters.tag ?? "all";
   const filterUnit = controls.filters.unit ?? "all";
 
-  const conditions = [eq(schema.exercises.trainerId, user.id), isNull(schema.exercises.archivedAt)];
+  const forkedOrigins = await forkedExerciseOriginIds(db, user.id);
+  const conditions = [
+    effectiveExerciseWhere(user.organizationId, user.id, forkedOrigins),
+    isNull(schema.exercises.archivedAt),
+  ];
   if (controls.q.length > 0) {
     conditions.push(ilike(schema.exercises.name, `%${controls.q}%`));
   }
@@ -116,6 +123,7 @@ export async function loader(args: LoaderFunctionArgs) {
     unit: r.exercise.unit,
     description: r.exercise.description,
     tags: r.exercise.tags,
+    isBrand: isBrandOwned(r.exercise),
     demo:
       r.demoFile != null
         ? {
@@ -167,28 +175,65 @@ export default function BibliotekaList() {
   const { items, spec, controls, categories, page, totalPages, total } =
     useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const { t } = useTranslation("trener");
   // Po usunięciu kategorii jej nazwa zostaje w `exercises.tags[]` (świadome), ale
   // nie powinna już wisieć jako chip — pokazujemy tylko tagi będące znaną kategorią.
   const knownCategoryNames = new Set(categories.map((c) => c.name));
+
+  const localizedUnit = (u: string) =>
+    u === "REPS"
+      ? t("biblioteka.filterUnit.reps")
+      : u === "SEC"
+        ? t("biblioteka.filterUnit.sec")
+        : t("biblioteka.filterUnit.all");
+
+  // Spec z przetłumaczonymi etykietami — budowany przy renderze. Kategorie
+  // (nazwy z DB) zachowują własne etykiety; pozostałe opcje są tłumaczone.
+  const localizedSpec: ListControlsSpec = {
+    ...spec,
+    sortOptions: spec.sortOptions.map((o) => ({
+      ...o,
+      label: tDyn(t, `biblioteka.sort.${o.key}`),
+    })),
+    filterGroups: spec.filterGroups.map((g) =>
+      g.param === "tag"
+        ? {
+            ...g,
+            label: t("biblioteka.filterCategory.label"),
+            options: g.options.map((o) =>
+              o.value === "all" ? { ...o, label: t("biblioteka.filterCategory.all") } : o,
+            ),
+          }
+        : {
+            ...g,
+            label: t("biblioteka.filterUnit.label"),
+            options: g.options.map((o) => ({ ...o, label: localizedUnit(o.value) })),
+          },
+    ),
+  };
 
   return (
     <div>
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Trener
+            {t("biblioteka.eyebrow")}
           </div>
-          <h1>Biblioteka ćwiczeń</h1>
+          <h1>{t("biblioteka.title")}</h1>
           <div className="sub">
-            {total === 0 ? "Brak ćwiczeń." : `${total} ${pluralizePl(total, POZYCJA)}.`}
+            {total === 0 ? t("biblioteka.subEmpty") : t("biblioteka.subCount", { count: total })}
           </div>
         </div>
         <Link to="/trener/biblioteka/nowe" className="btn btn-primary">
-          <Icons.Plus /> Nowe ćwiczenie
+          <Icons.Plus /> {t("biblioteka.ctaNew")}
         </Link>
       </div>
 
-      <ListControls spec={spec} state={controls} searchPlaceholder="Szukaj po nazwie…" />
+      <ListControls
+        spec={localizedSpec}
+        state={controls}
+        searchPlaceholder={t("biblioteka.searchPlaceholder")}
+      />
 
       <details
         className="card"
@@ -206,7 +251,7 @@ export default function BibliotekaList() {
           }}
         >
           <Icons.Settings />
-          <span>Zarządzaj kategoriami ({categories.length})</span>
+          <span>{t("biblioteka.categories.manage", { count: categories.length })}</span>
         </summary>
         <div style={{ marginTop: 12 }}>
           {categories.length > 0 && (
@@ -224,13 +269,12 @@ export default function BibliotekaList() {
                       cursor: "pointer",
                       border: 0,
                     }}
-                    title="Usuń kategorię"
+                    title={t("biblioteka.categories.removeTitle")}
                     confirmOptions={{
-                      title: `Usunąć kategorię „${c.name}"?`,
-                      message:
-                        "Ćwiczenia ją zachowują w swoich tagach, ale zniknie z listy filtrów.",
+                      title: t("biblioteka.categories.confirmTitle", { name: c.name }),
+                      message: t("biblioteka.categories.confirmMessage"),
                       destructive: true,
-                      confirmText: "Usuń",
+                      confirmText: t("biblioteka.categories.confirmText"),
                     }}
                   >
                     {c.name}
@@ -246,13 +290,13 @@ export default function BibliotekaList() {
               name="name"
               type="text"
               maxLength={32}
-              placeholder="np. pull, push, legs"
+              placeholder={t("biblioteka.categories.placeholder")}
               required
               className="input"
               style={{ flex: 1 }}
             />
             <button type="submit" className="btn btn-sm btn-primary">
-              <Icons.Plus /> Dodaj
+              <Icons.Plus /> {t("biblioteka.categories.add")}
             </button>
           </Form>
           {actionData != null && "error" in actionData && actionData.error != null && (
@@ -265,8 +309,8 @@ export default function BibliotekaList() {
 
       {items.length === 0 ? (
         <div className="empty">
-          <h3>Nic nie znaleziono</h3>
-          <div>Dodaj pierwsze ćwiczenie, by zacząć.</div>
+          <h3>{t("biblioteka.emptyTitle")}</h3>
+          <div>{t("biblioteka.emptyBody")}</div>
         </div>
       ) : (
         <div
@@ -296,7 +340,7 @@ export default function BibliotekaList() {
                 ) : (
                   <>
                     <span className="scanlines" />
-                    <span className="label">DEMO</span>
+                    <span className="label">{t("biblioteka.demoLabel")}</span>
                     <span className="play">
                       <Icons.Play />
                     </span>
@@ -305,7 +349,10 @@ export default function BibliotekaList() {
               </div>
               <div className="row between" style={{ alignItems: "flex-start", gap: 8 }}>
                 <h3 style={{ margin: 0 }}>{ex.name}</h3>
-                <span className={`badge${ex.unit === "REPS" ? " active" : ""}`}>{ex.unit}</span>
+                <div className="row" style={{ gap: 6, flexShrink: 0 }}>
+                  {ex.isBrand && <span className="badge">{t("biblioteka.brandBadge")}</span>}
+                  <span className={`badge${ex.unit === "REPS" ? " active" : ""}`}>{ex.unit}</span>
+                </div>
               </div>
               {ex.description.length > 0 && (
                 <div
@@ -343,7 +390,7 @@ export default function BibliotekaList() {
         page={page}
         totalPages={totalPages}
         total={total}
-        totalLabel={pluralizePl(total, POZYCJA)}
+        totalLabel={t("biblioteka.totalLabel", { count: total })}
       />
     </div>
   );

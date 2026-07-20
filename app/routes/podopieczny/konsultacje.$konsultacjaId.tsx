@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
@@ -14,6 +15,8 @@ import { consultationPresentation } from "~/lib/consultation-status";
 import { TraineeActionSchema } from "~/lib/consultation-types";
 import { ConsultationError, getConsultationDetail, respondToOccurrence } from "~/lib/consultations";
 import { syncCancelOne } from "~/lib/google/sync";
+import { langToIntlLocale, type Lang } from "~/i18n/config";
+import { tDyn } from "~/i18n/translate";
 import { db } from "~/lib/db/client";
 import { fmtDate, fmtDateTime } from "~/lib/format";
 
@@ -36,7 +39,7 @@ export async function action(args: ActionFunctionArgs) {
   const fd = await args.request.formData();
   const consultationId = String(fd.get("consultationId") ?? "");
   const parsedAction = TraineeActionSchema.safeParse(String(fd.get("action") ?? ""));
-  if (!parsedAction.success) return { error: "Nieznana akcja." };
+  if (!parsedAction.success) return { error: "akcje.unknownAction" };
   const note = String(fd.get("note") ?? "").trim() || undefined;
   try {
     await respondToOccurrence(db, {
@@ -52,7 +55,7 @@ export async function action(args: ActionFunctionArgs) {
         await syncCancelOne(db, { trainerId: detail.consultation.trainerId, consultationId });
       }
     }
-    return { success: "Zapisano." };
+    return { success: "akcje.saved" };
   } catch (e) {
     if (e instanceof ConsultationError) return { error: e.userMessage };
     throw e;
@@ -62,6 +65,8 @@ export async function action(args: ActionFunctionArgs) {
 export default function TraineeKonsultacjaDetail() {
   const { detail } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const { t, i18n } = useTranslation("konsultacje");
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
   const { consultation: c, items } = detail;
 
   const meta = consultationPresentation({
@@ -76,7 +81,7 @@ export default function TraineeKonsultacjaDetail() {
   return (
     <div>
       <div className="crumbs">
-        <Link to="/podopieczny/konsultacje">Konsultacje</Link>
+        <Link to="/podopieczny/konsultacje">{t("detail.crumb")}</Link>
         <span className="sep">›</span>
         <span className="current">{c.title}</span>
       </div>
@@ -87,9 +92,9 @@ export default function TraineeKonsultacjaDetail() {
             className="eyebrow"
             style={{ marginBottom: 6, display: "flex", gap: 10, alignItems: "center" }}
           >
-            <span className="mono">{fmtDateTime(c.scheduledAt)}</span>
-            <span>· {c.durationMin} min</span>
-            <StatusBadge label={meta.label} tone={meta.tone} />
+            <span className="mono">{fmtDateTime(c.scheduledAt, locale)}</span>
+            <span>· {t("pulpit.minUnit", { count: c.durationMin })}</span>
+            <StatusBadge label={tDyn(t, meta.labelKey)} tone={meta.tone} />
           </div>
           <h1>{c.title}</h1>
           {c.meetingUrl && (
@@ -101,20 +106,29 @@ export default function TraineeKonsultacjaDetail() {
                 className="row"
                 style={{ gap: 6, display: "inline-flex", alignItems: "center" }}
               >
-                <Icons.Video /> Link spotkania
+                <Icons.Video /> {t("detail.meetingLink")}
               </a>
             </div>
           )}
         </div>
       </div>
 
-      <ConsultationAlert data={actionData} />
+      <ConsultationAlert
+        data={
+          actionData
+            ? {
+                error: actionData.error ? tDyn(t, actionData.error) : undefined,
+                success: actionData.success ? tDyn(t, actionData.success) : undefined,
+              }
+            : null
+        }
+      />
 
       {/* Akcje potwierdzania */}
       {canAct && (
         <div className="card" style={{ marginBottom: 18 }}>
           <div className="field-label" style={{ marginBottom: 10 }}>
-            Twoja odpowiedź
+            {t("detail.yourResponse")}
           </div>
           <TraineeOccurrenceActions consultationId={c.id} />
         </div>
@@ -122,7 +136,7 @@ export default function TraineeKonsultacjaDetail() {
 
       {c.status === "change_requested" && (
         <div className="text-sm muted" style={{ marginBottom: 18 }}>
-          Wysłałeś prośbę o zmianę terminu — trener zaproponuje nowy.
+          {t("detail.changeRequestedNote")}
         </div>
       )}
 
@@ -144,8 +158,8 @@ export default function TraineeKonsultacjaDetail() {
 
       {c.periodFrom && c.periodTo && (
         <div className="text-xs muted" style={{ marginBottom: 18 }}>
-          Okres omówiony: <span className="mono">{fmtDate(c.periodFrom)}</span> —{" "}
-          <span className="mono">{fmtDate(c.periodTo)}</span>
+          {t("detail.periodLabel")} <span className="mono">{fmtDate(c.periodFrom, locale)}</span> —{" "}
+          <span className="mono">{fmtDate(c.periodTo, locale)}</span>
         </div>
       )}
 
@@ -153,7 +167,12 @@ export default function TraineeKonsultacjaDetail() {
       {items.length > 0 && (
         <div>
           <div className="field-label" style={{ marginBottom: 10 }}>
-            Do poprawy ({openCount > 0 ? `${openCount} otwartych z ${items.length}` : items.length})
+            {t("detail.toImproveLabel", {
+              detail:
+                openCount > 0
+                  ? t("detail.openOfTotal", { open: openCount, total: items.length })
+                  : items.length,
+            })}
           </div>
           <div className="list">
             {items.map((item) => {
@@ -187,7 +206,7 @@ export default function TraineeKonsultacjaDetail() {
                     className="mono text-xs"
                     style={{ color: resolved ? "var(--ok)" : "var(--muted)", flexShrink: 0 }}
                   >
-                    {resolved ? "poprawione" : "otwarte"}
+                    {resolved ? t("detail.itemResolved") : t("detail.itemOpen")}
                   </span>
                 </div>
               );

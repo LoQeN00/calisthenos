@@ -1,0 +1,43 @@
+<h2>Mapa możliwości prezesa — pełna wizja</h2>
+<p class="subtitle">Centrum dowodzenia. Zaznacz na ekranie / powiedz w terminalu, które obszary mają wejść do WIZJI (zakres całości). Potem wybierzemy, co budujemy pierwsze.</p>
+
+<div class="section">
+  <div class="label">A · Analityka sieci (read-only)</div>
+  <div class="mockup"><div class="mockup-body" style="line-height:1.7">
+    <b>Pulpit organizacji:</b> liczba ambasadorów i podopiecznych, aktywni 7/30 dni,
+    MRR / przychód, nowi w tym miesiącu, trend. Rozbicie per region i per ambasador
+    (ranking). Adopcja markowego katalogu (ile forków). Konsultacje w sieci.
+  </div></div>
+</div>
+
+<div class="section">
+  <div class="label">B · Autorstwo markowego katalogu (write) — Twój nacisk</div>
+  <div class="mockup"><div class="mockup-body" style="line-height:1.7">
+    Tworzenie/edycja <b>markowych ćwiczeń</b> (nazwa, jednostka, RPE, tagi, demo wideo)
+    oraz <b>markowych umiejętności</b> (warianty, drzewo prerekwizytów) <b>wprost z poziomu
+    marki</b> — `trainer_id NULL` + `organization_id`. Te pozycje są read-only dla trenerów
+    (mogą tylko „Dostosuj"/fork). Domyka plasterek #3.
+  </div></div>
+</div>
+
+<div class="section">
+  <div class="label">C · Zarządzanie ambasadorami (write)</div>
+  <div class="mockup"><div class="mockup-body" style="line-height:1.7">
+    Lista trenerów, profil ambasadora (jego klienci, aktywność, przychód),
+    <b>zapraszanie nowych trenerów</b> (generator zaproszeń brand_admin), dezaktywacja.
+  </div></div>
+</div>
+
+<div class="section">
+  <div class="label">D · Regiony (write)</div>
+  <div class="mockup"><div class="mockup-body" style="line-height:1.7">
+    Lista regionów, dodawanie (kraj, waluta, locale), przypisywanie ambasadorów do regionów.
+  </div></div>
+</div>
+
+<div class="section">
+  <div class="label">E · Ustawienia marki / branding (write)</div>
+  <div class="mockup"><div class="mockup-body" style="line-height:1.7">
+    Nazwa marki, logo/branding. (White-label + prowizja w Stripe to osobny plasterek #5.)
+  </div></div>
+</div>

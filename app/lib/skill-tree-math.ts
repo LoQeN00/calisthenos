@@ -76,6 +76,32 @@ export function nodeState(input: NodeStateInput): NodeState {
   return allMastered ? "available" : "locked";
 }
 
+/**
+ * Pozycje węzłów do rysowania drzewa: warstwa (najdłuższa ścieżka od korzenia) +
+ * kolejność w warstwie (po nazwie, locale pl). Czyste — współdzielone przez widok
+ * trenera (`skill-tree.ts`) i marki (`brand-catalog.ts`).
+ */
+export function layoutNodes(
+  nodes: Array<{ id: string; name: string }>,
+  edges: Edge[],
+): Map<string, { layer: number; orderInLayer: number }> {
+  const ids = nodes.map((n) => n.id);
+  const layers = assignLayers(ids, edges);
+  const nameById = new Map(nodes.map((n) => [n.id, n.name]));
+  const byLayer = new Map<number, string[]>();
+  for (const id of ids) {
+    const l = layers.get(id) ?? 0;
+    const arr = byLayer.get(l) ?? [];
+    arr.push(id);
+    byLayer.set(l, arr);
+  }
+  const pos = new Map<string, { layer: number; orderInLayer: number }>();
+  for (const [l, group] of byLayer) {
+    orderWithinLayer(group, nameById).forEach((id, i) => pos.set(id, { layer: l, orderInLayer: i }));
+  }
+  return pos;
+}
+
 /** Porządek topologiczny (prerekwizyty przed zależnymi). Stabilny (sort id). */
 export function topoOrder(nodeIds: string[], edges: Edge[]): string[] {
   const adj = prereqAdjacency(edges);

@@ -7,10 +7,15 @@ import { logUnhandled } from "~/lib/logger";
 import { isbot } from "isbot";
 import type { RenderToPipeableStreamOptions } from "react-dom/server";
 import { renderToPipeableStream } from "react-dom/server";
+import { createInstance } from "i18next";
+import { I18nextProvider, initReactI18next } from "react-i18next";
+import { i18nServer } from "~/i18n.server";
+import { resources } from "~/i18n/resources";
+import { DEFAULT_NS, NAMESPACES } from "~/i18n/config";
 
 export const streamTimeout = 5_000;
 
-export default function handleRequest(
+export default async function handleRequest(
   request: Request,
   responseStatusCode: number,
   responseHeaders: Headers,
@@ -26,6 +31,17 @@ export default function handleRequest(
       headers: responseHeaders,
     });
   }
+
+  const lng = await i18nServer.getLocale(request);
+  const instance = createInstance();
+  await instance.use(initReactI18next).init({
+    lng,
+    resources,
+    fallbackLng: "pl",
+    defaultNS: DEFAULT_NS,
+    ns: [...NAMESPACES],
+    interpolation: { escapeValue: false },
+  });
 
   return new Promise((resolve, reject) => {
     let shellRendered = false;
@@ -45,7 +61,9 @@ export default function handleRequest(
     );
 
     const { pipe, abort } = renderToPipeableStream(
-      <ServerRouter context={routerContext} url={request.url} />,
+      <I18nextProvider i18n={instance}>
+        <ServerRouter context={routerContext} url={request.url} />
+      </I18nextProvider>,
       {
         [readyOption]() {
           shellRendered = true;

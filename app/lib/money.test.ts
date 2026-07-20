@@ -1,11 +1,25 @@
 import { describe, it, expect } from "vitest";
-import { fmtMoney, parsePlnToGrosze, MonthlyAmountSchema } from "~/lib/money";
+import { fmtMoney, parsePlnToGrosze, parseMoneyToMinor, MonthlyAmountSchema } from "~/lib/money";
 
 describe("fmtMoney", () => {
-  it("formatuje grosze jako PLN po polsku", () => {
-    expect(fmtMoney(12345, "pln")).toBe("123,45 zł");
-    expect(fmtMoney(20000, "pln")).toBe("200,00 zł");
-    expect(fmtMoney(0, "pln")).toBe("0,00 zł");
+  it("formatuje grosze jako PLN po polsku (domyślne)", () => {
+    expect(fmtMoney(12345)).toMatch(/123,45/);
+    expect(fmtMoney(20000)).toMatch(/200,00/);
+    expect(fmtMoney(0)).toMatch(/0,00/);
+  });
+  it("wynik PLN/pl-PL zawiera 'zł'", () => {
+    expect(fmtMoney(12345)).toMatch(/zł/);
+  });
+});
+
+describe("fmtMoney (Intl, multi-currency)", () => {
+  it("PLN/pl-PL (domyślne)", () => {
+    expect(fmtMoney(12345)).toMatch(/123,45/);
+  });
+  it("EUR/fr-FR", () => {
+    const s = fmtMoney(12345, "fr-FR", "eur");
+    expect(s).toMatch(/123,45/);
+    expect(s).toMatch(/€/);
   });
 });
 
@@ -18,6 +32,16 @@ describe("parsePlnToGrosze", () => {
   it("odrzuca śmieci jako null", () => {
     expect(parsePlnToGrosze("abc")).toBeNull();
     expect(parsePlnToGrosze("")).toBeNull();
+  });
+});
+
+describe("parseMoneyToMinor", () => {
+  it("przecinek i kropka", () => {
+    expect(parseMoneyToMinor("123,45")).toBe(12345);
+    expect(parseMoneyToMinor("123.45")).toBe(12345);
+  });
+  it("śmieci → null", () => {
+    expect(parseMoneyToMinor("abc")).toBeNull();
   });
 });
 

@@ -1,4 +1,5 @@
 import { and, count, eq, isNull } from "drizzle-orm";
+import { useTranslation } from "react-i18next";
 import { NavLink, Outlet, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { UserMenu } from "~/components/user-menu";
@@ -33,52 +34,58 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 const NAV_ITEMS = [
-  { to: "/trener", label: "Pulpit", end: true, icon: "Dashboard" as const, tailKey: null },
+  {
+    to: "/trener",
+    labelKey: "nav.trener.dashboard" as const,
+    end: true,
+    icon: "Dashboard" as const,
+    tailKey: null,
+  },
   {
     to: "/trener/podopieczni",
-    label: "Podopieczni",
+    labelKey: "nav.trener.trainees" as const,
     end: false,
     icon: "Users" as const,
     tailKey: "trainees" as const,
   },
   {
     to: "/trener/biblioteka",
-    label: "Biblioteka ćwiczeń",
+    labelKey: "nav.trener.library" as const,
     end: false,
     icon: "Library" as const,
     tailKey: "exercises" as const,
   },
   {
     to: "/trener/plany",
-    label: "Plany",
+    labelKey: "nav.trener.plans" as const,
     end: false,
     icon: "Plans" as const,
     tailKey: "plans" as const,
   },
   {
     to: "/trener/umiejetnosci",
-    label: "Umiejętności",
+    labelKey: "nav.trener.skills" as const,
     end: false,
     icon: "Trend" as const,
     tailKey: null,
   },
   {
     to: "/trener/konsultacje",
-    label: "Konsultacje",
+    labelKey: "nav.trener.consultations" as const,
     end: false,
     icon: "Consult" as const,
     tailKey: null,
   },
   {
     to: "/trener/integracje/stripe",
-    label: "Płatności",
+    labelKey: "nav.trener.payments" as const,
     end: false,
     icon: "Card" as const,
     tailKey: null,
   },
   {
     to: "/trener/integracje/google",
-    label: "Integracje",
+    labelKey: "nav.trener.integrations" as const,
     end: false,
     icon: "Link" as const,
     tailKey: null,
@@ -87,6 +94,7 @@ const NAV_ITEMS = [
 
 export default function TrenerLayout() {
   const { user, tails } = useLoaderData<typeof loader>();
+  const { t } = useTranslation("common");
 
   return (
     <div className="app">
@@ -96,13 +104,13 @@ export default function TrenerLayout() {
           <span>calisthenos</span>
           <span className="brand-dot" />
         </div>
-        <span className="topbar-eyebrow">TRENER</span>
+        <span className="topbar-eyebrow">{t("nav.trener.eyebrow")}</span>
         <div className="topbar-spacer" />
         <UserMenu displayName={user.displayName} />
       </header>
       <div className="layout">
         <nav className="sidenav">
-          <div className="sidenav-section">Trener</div>
+          <div className="sidenav-section">{t("nav.trener.section")}</div>
           {NAV_ITEMS.map((item) => {
             const Icon = Icons[item.icon];
             const tail = item.tailKey ? tails[item.tailKey] : null;
@@ -114,7 +122,7 @@ export default function TrenerLayout() {
                 className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
               >
                 <Icon />
-                <span>{item.label}</span>
+                <span>{t(item.labelKey)}</span>
                 {tail != null && <span className="nav-tail">{tail}</span>}
               </NavLink>
             );

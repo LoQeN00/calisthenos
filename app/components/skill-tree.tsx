@@ -1,7 +1,12 @@
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import { Icons } from "~/components/icons";
+import { tDyn } from "~/i18n/translate";
 import type { SkillTree, TreeNode } from "~/lib/skill-tree";
 import type { NodeState } from "~/lib/skill-tree-math";
+
+// biome-ignore lint/suspicious/noExplicitAny: loose `t` typing for in-file helpers/subcomponents
+type TFn = (...args: any[]) => string;
 
 // ============================================================
 // SkillTreeView — game-like skill tree, re-skinned to the kalisthenos
@@ -33,12 +38,10 @@ import type { NodeState } from "~/lib/skill-tree-math";
 const VIEW_W = 1000;
 const ROW_H = 100; // normalized height per layer band
 
-const STATE_LABEL: Record<NodeState, string> = {
-  mastered: "opanowane",
-  in_progress: "w toku",
-  available: "gotowe do startu",
-  locked: "zablokowane",
-};
+/** Localized label for a node state. */
+function stateLabel(t: TFn, state: NodeState): string {
+  return tDyn(t, `skillTree.state.${state}`);
+}
 
 /** Token-based accent color for a node state (no hardcoded hex, no glow). */
 function stateColor(state: NodeState): string {
@@ -93,12 +96,13 @@ export function SkillTreeView({
   /** true: koloruj wg stanu (per-podopieczny); false: szkielet (autor). */
   showStates: boolean;
 }): React.JSX.Element {
+  const { t } = useTranslation();
   if (tree.nodes.length === 0) {
     return (
       <div className="empty">
-        <h3>Brak umiejętności w drzewie.</h3>
+        <h3>{t("skillTree.empty.title")}</h3>
         <p className="muted text-sm" style={{ margin: 0 }}>
-          Dodaj umiejętności i połącz je prerekwizytami, aby zobaczyć drzewo.
+          {t("skillTree.empty.body")}
         </p>
       </div>
     );
@@ -132,7 +136,7 @@ export function SkillTreeView({
           viewBox={`0 0 ${VIEW_W} ${viewH}`}
           preserveAspectRatio="none"
           role="img"
-          aria-label="Połączenia prerekwizytów między umiejętnościami"
+          aria-label={t("skillTree.edgesAria")}
           style={{
             position: "absolute",
             inset: 0,
@@ -186,6 +190,7 @@ export function SkillTreeView({
                   node={node}
                   href={hrefForNode(node.skillId)}
                   showStates={showStates}
+                  t={t}
                 />
               ))}
             </div>
@@ -193,7 +198,7 @@ export function SkillTreeView({
         </div>
       </div>
 
-      {showStates ? <StateLegend /> : null}
+      {showStates ? <StateLegend t={t} /> : null}
     </div>
   );
 }
@@ -206,10 +211,12 @@ function NodeCard({
   node,
   href,
   showStates,
+  t,
 }: {
   node: TreeNode;
   href: string;
   showStates: boolean;
+  t: TFn;
 }) {
   const state: NodeState = node.state ?? "locked";
   const color = stateColor(state);
@@ -243,11 +250,11 @@ function NodeCard({
       }}
       aria-label={
         showStates
-          ? `${node.name} — ${STATE_LABEL[state]}`
-          : `${node.name} — ${node.variationCount} wariantów`
+          ? t("skillTree.nodeAriaState", { name: node.name, state: stateLabel(t, state) })
+          : t("skillTree.nodeAriaVariations", { name: node.name, count: node.variationCount })
       }
     >
-      {showStates ? <StatePill state={state} /> : null}
+      {showStates ? <StatePill state={state} t={t} /> : null}
 
       {/* Glyph tile — mono initial, no emoji (design-system rule). */}
       <div
@@ -284,7 +291,7 @@ function NodeCard({
 
       {/* Level indicator / skeleton variation count. */}
       <div className="mono" style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 5 }}>
-        {showStates ? levelText(node) : `${node.variationCount} wariantów`}
+        {showStates ? levelText(t, node) : t("skillTree.variations", { count: node.variationCount })}
       </div>
 
       {/* Progress bar — fill driven by state, accent-coded. */}
@@ -315,14 +322,16 @@ function NodeCard({
 }
 
 /** Level line for the per-trainee view: "poziom n/m" + current variation hint. */
-function levelText(node: TreeNode): string {
+function levelText(t: TFn, node: TreeNode): string {
   const state: NodeState = node.state ?? "locked";
-  if (state === "available") return "prereki spełnione";
-  if (state === "locked") return "zablokowane";
-  if (node.variationCount === 0) return "brak wariantów";
+  if (state === "available") return t("skillTree.level.prereqsMet");
+  if (state === "locked") return t("skillTree.level.locked");
+  if (node.variationCount === 0) return t("skillTree.level.noVariations");
   // mastered/in_progress — we know there are events; show the exact level.
   const total = node.variationCount;
-  return node.currentOrdinal != null ? `poziom ${node.currentOrdinal}/${total}` : `${total} poziomów`;
+  return node.currentOrdinal != null
+    ? t("skillTree.level.current", { current: node.currentOrdinal, total })
+    : t("skillTree.level.levels", { count: total });
 }
 
 /** Bar fill width by state. mastered = full, available/locked = empty, in_progress = ordinal/total. */
@@ -341,7 +350,7 @@ function barFill(state: NodeState, node: TreeNode): string {
 // StatePill — small mono uppercase pill, mirrors the system's `.badge`.
 // ============================================================
 
-function StatePill({ state }: { state: NodeState }) {
+function StatePill({ state, t }: { state: NodeState; t: TFn }) {
   const color = stateColor(state);
   const bg =
     state === "mastered"
@@ -377,7 +386,7 @@ function StatePill({ state }: { state: NodeState }) {
         border: state === "in_progress" ? "1px solid transparent" : `1px solid ${color}`,
       }}
     >
-      {STATE_LABEL[state]}
+      {stateLabel(t, state)}
     </span>
   );
 }
@@ -386,7 +395,7 @@ function StatePill({ state }: { state: NodeState }) {
 // StateLegend — color key + edge legend, matching SegmentedBarLegend idiom.
 // ============================================================
 
-function StateLegend() {
+function StateLegend({ t }: { t: TFn }) {
   const items: Array<{ state: NodeState }> = [
     { state: "mastered" },
     { state: "in_progress" },
@@ -410,7 +419,7 @@ function StateLegend() {
               background: stateColor(state),
             }}
           />
-          <span>{STATE_LABEL[state]}</span>
+          <span>{stateLabel(t, state)}</span>
         </span>
       ))}
       <span className="row" style={{ gap: 6, alignItems: "center" }}>
@@ -425,7 +434,7 @@ function StateLegend() {
             strokeDasharray="4 4"
           />
         </svg>
-        <span>prowadzi do zablokowanej</span>
+        <span>{t("skillTree.legend.leadsToLocked")}</span>
       </span>
     </div>
   );
@@ -464,12 +473,9 @@ export function VariationLadder({
     isCurrent: boolean;
   }>;
 }): React.JSX.Element {
+  const { t } = useTranslation();
   if (variations.length === 0) {
-    return (
-      <span className="text-xs muted">
-        Brak wariantów — uzupełnij w edytorze umiejętności.
-      </span>
-    );
+    return <span className="text-xs muted">{t("skillTree.ladder.empty")}</span>;
   }
 
   const currentOrdinal = variations.find((v) => v.isCurrent)?.ordinal ?? null;
@@ -502,6 +508,7 @@ export function VariationLadder({
             state={state}
             color={color}
             isLast={isLast}
+            t={t}
           />
         );
       })}
@@ -515,12 +522,14 @@ function LadderStep({
   state,
   color,
   isLast,
+  t,
 }: {
   ordinal: number;
   exerciseName: string;
   state: LadderState;
   color: string;
   isLast: boolean;
+  t: TFn;
 }) {
   const isCurrent = state === "current";
   const isDone = state === "done";
@@ -635,7 +644,7 @@ function LadderStep({
                 border: "1px solid transparent",
               }}
             >
-              Tu jesteś
+              {t("skillTree.ladder.youAreHere")}
             </span>
           ) : null}
         </div>

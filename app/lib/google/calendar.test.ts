@@ -9,6 +9,7 @@ describe("consultationToEvent", () => {
     scheduledAtISO: "2026-06-11T18:00:00.000Z",
     durationMin: 45,
     attendeeEmail: "podopieczny@example.com",
+    organizerEmail: "trener@example.com",
   };
 
   it("ustawia start/end w UTC wg durationMin", () => {
@@ -17,8 +18,16 @@ describe("consultationToEvent", () => {
     expect(ev.end).toEqual({ dateTime: "2026-06-11T18:45:00.000Z", timeZone: "Etc/UTC" });
   });
 
-  it("dodaje uczestnika (zaproszenie mailowe)", () => {
+  it("oznacza połączone konto jako gospodarza (organizer) i dodaje podopiecznego", () => {
     const ev = consultationToEvent(base);
+    expect(ev.attendees).toEqual([
+      { email: "trener@example.com", organizer: true, responseStatus: "accepted" },
+      { email: "podopieczny@example.com" },
+    ]);
+  });
+
+  it("pomija gospodarza, gdy e-mail połączonego konta nieznany", () => {
+    const ev = consultationToEvent({ ...base, organizerEmail: "(polaczone)" });
     expect(ev.attendees).toEqual([{ email: "podopieczny@example.com" }]);
   });
 

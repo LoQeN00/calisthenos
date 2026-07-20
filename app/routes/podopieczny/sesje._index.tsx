@@ -1,5 +1,7 @@
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
+import { useTranslation } from "react-i18next";
 import { Icons } from "~/components/icons";
+import { langToIntlLocale, type Lang } from "~/i18n/config";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import { daysAgo, fmtDate } from "~/lib/format";
@@ -13,6 +15,7 @@ export async function loader(args: LoaderFunctionArgs) {
 
 export default function TraineeSessionsList() {
   const { planFull } = useLoaderData<typeof loader>();
+  const { t } = useTranslation("podopieczny");
 
   if (planFull == null) {
     return (
@@ -20,15 +23,15 @@ export default function TraineeSessionsList() {
         <div className="pagehead">
           <div>
             <div className="eyebrow" style={{ marginBottom: 6 }}>
-              Sesje
+              {t("sesje.noPlan.eyebrow")}
             </div>
-            <h1>Brak aktywnego planu</h1>
-            <div className="sub">Trener przygotuje go wkrótce.</div>
+            <h1>{t("sesje.noPlan.title")}</h1>
+            <div className="sub">{t("sesje.noPlan.subtitle")}</div>
           </div>
         </div>
         <div className="empty">
-          <h3>Nic do pokazania</h3>
-          <div>Gdy trener opublikuje plan, sesje pojawią się tutaj.</div>
+          <h3>{t("sesje.noPlan.empty.title")}</h3>
+          <div>{t("sesje.noPlan.empty.subtitle")}</div>
         </div>
       </div>
     );
@@ -39,13 +42,16 @@ export default function TraineeSessionsList() {
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Aktywny plan · v{planFull.plan.version}
+            {t("sesje.eyebrow", { version: planFull.plan.version })}
             {planFull.plan.publishedAt && (
-              <> · od {fmtDate(planFull.plan.publishedAt.toString())}</>
+              <>
+                {" "}
+                · {t("sesje.sinceDate", { date: fmtDate(planFull.plan.publishedAt.toString()) })}
+              </>
             )}
           </div>
           <h1>{planFull.plan.name}</h1>
-          <div className="sub">{planFull.sessions.length} sesji do wyboru</div>
+          <div className="sub">{t("sesje.sessionCount", { count: planFull.sessions.length })}</div>
         </div>
       </div>
 
@@ -62,6 +68,8 @@ export default function TraineeSessionsList() {
 }
 
 function SessionCard({ sessionView }: { sessionView: PlanSessionView }) {
+  const { t, i18n } = useTranslation("podopieczny");
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
   const blocks = sessionView.blocks;
   const totalExercises = blocks.reduce((a, b) => a + b.items.length, 0);
   const supersetCount = blocks.filter((b) => b.block.kind === "superset").length;
@@ -71,7 +79,7 @@ function SessionCard({ sessionView }: { sessionView: PlanSessionView }) {
     <div className="card card-hover" style={{ padding: 18, position: "relative" }}>
       <Link
         to={`/podopieczny/sesje/${sessionView.session.id}`}
-        aria-label={`Otwórz sesję ${sessionView.session.name}`}
+        aria-label={t("sesje.card.openAriaLabel", { name: sessionView.session.name })}
         style={{
           position: "absolute",
           inset: 0,
@@ -86,17 +94,20 @@ function SessionCard({ sessionView }: { sessionView: PlanSessionView }) {
         <div>
           <h3 style={{ fontSize: 16, marginBottom: 4 }}>{sessionView.session.name}</h3>
           <div className="text-xs muted">
-            <span className="mono">{totalExercises}</span> ćwiczeń
+            <span className="mono">{totalExercises}</span>{" "}
+            {t("sesje.card.exerciseCount", { count: totalExercises })}
             {supersetCount > 0 && (
               <>
                 {" "}
-                · <span className="mono">{supersetCount}</span> supersetów
+                · <span className="mono">{supersetCount}</span>{" "}
+                {t("sesje.card.supersetCount", { count: supersetCount })}
               </>
             )}
             {dropsetCount > 0 && (
               <>
                 {" "}
-                · <span className="mono">{dropsetCount}</span> dropsetów
+                · <span className="mono">{dropsetCount}</span>{" "}
+                {t("sesje.card.dropsetCount", { count: dropsetCount })}
               </>
             )}
           </div>
@@ -109,7 +120,7 @@ function SessionCard({ sessionView }: { sessionView: PlanSessionView }) {
         ) : (
           <span className="badge">
             <span className="badge-dot" />
-            nowa
+            {t("sesje.card.badgeNew")}
           </span>
         )}
       </div>
@@ -152,7 +163,7 @@ function SessionCard({ sessionView }: { sessionView: PlanSessionView }) {
         })}
         {blocks.length > 4 && (
           <div className="text-xs muted" style={{ marginTop: 4 }}>
-            + {blocks.length - 4} kolejnych bloków…
+            {t("sesje.card.moreBlocks", { count: blocks.length - 4 })}
           </div>
         )}
       </div>
@@ -170,18 +181,16 @@ function SessionCard({ sessionView }: { sessionView: PlanSessionView }) {
       >
         <div className="text-xs muted">
           {sessionView.lastPerformedOn ? (
-            <>
-              Ostatnio <span className="mono">{daysAgo(sessionView.lastPerformedOn)}</span>
-            </>
+            <>{t("sesje.card.lastPerformed", { when: daysAgo(sessionView.lastPerformedOn, locale) })}</>
           ) : (
-            <>Jeszcze nie wykonana</>
+            <>{t("sesje.card.neverDone")}</>
           )}
         </div>
         <Link
           to={`/podopieczny/loguj/${sessionView.session.id}`}
           className="btn btn-primary btn-sm"
         >
-          <Icons.Plus /> Zarejestruj
+          <Icons.Plus /> {t("sesje.card.registerBtn")}
         </Link>
       </div>
     </div>

@@ -1,7 +1,9 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { type LoaderFunctionArgs, useLoaderData } from "react-router";
 import { ConsultationRow } from "~/components/consultation-row";
 import { type DaySummary, MonthCalendar } from "~/components/month-calendar";
+import { tDyn } from "~/i18n/translate";
 import { requireUser } from "~/lib/auth";
 import { consultationPresentation, mostUrgentTone } from "~/lib/consultation-status";
 import { type TrainerCalendarItem, listTrainerOccurrencesInRange } from "~/lib/consultations";
@@ -23,6 +25,7 @@ export async function loader(args: LoaderFunctionArgs) {
 
 export default function TrenerKonsultacjeKalendarz() {
   const { occurrences, m, year, month0, today } = useLoaderData<typeof loader>();
+  const { t } = useTranslation("trenerKonsultacje");
   const now = Date.now();
 
   // Grupuj po dniu miesiąca (UTC).
@@ -60,12 +63,10 @@ export default function TrenerKonsultacjeKalendarz() {
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Trener
+            {t("kalendarz.eyebrow")}
           </div>
-          <h1>Konsultacje</h1>
-          <div className="sub">
-            Zbiorczy kalendarz wszystkich terminów z podopiecznymi — dobierz wolny slot.
-          </div>
+          <h1>{t("kalendarz.title")}</h1>
+          <div className="sub">{t("kalendarz.sub")}</div>
         </div>
       </div>
 
@@ -97,8 +98,8 @@ export default function TrenerKonsultacjeKalendarz() {
                     to={`/trener/podopieczni/${o.traineeId}/konsultacje/${o.id}`}
                     lead={fmtTime(o.scheduledAt)}
                     title={o.traineeName}
-                    sub={`${o.title} · ${o.durationMin} min`}
-                    label={meta.label}
+                    sub={`${o.title} · ${t("kalendarz.minUnit", { count: o.durationMin })}`}
+                    label={tDyn(t, meta.labelKey)}
                     tone={meta.tone}
                   />
                 );
@@ -106,11 +107,15 @@ export default function TrenerKonsultacjeKalendarz() {
             </div>
           ) : (
             <div className="empty">
-              <h3>{occurrences.length === 0 ? "Brak terminów w tym miesiącu" : "Wybierz dzień"}</h3>
+              <h3>
+                {occurrences.length === 0
+                  ? t("kalendarz.emptyMonthTitle")
+                  : t("kalendarz.selectDayTitle")}
+              </h3>
               <div>
                 {occurrences.length === 0
-                  ? "Użyj strzałek, aby przejść do innego miesiąca, albo ustaw harmonogram u podopiecznego."
-                  : "Dni z umówionymi terminami są oznaczone kropką."}
+                  ? t("kalendarz.emptyMonthBody")
+                  : t("kalendarz.selectDayBody")}
               </div>
             </div>
           )}

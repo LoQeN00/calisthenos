@@ -7,6 +7,7 @@ import {
   type ButtonHTMLAttributes,
   type ReactNode,
 } from "react";
+import { useTranslation } from "react-i18next";
 import { Modal } from "./modal";
 
 export interface ConfirmOptions {
@@ -37,7 +38,7 @@ export function useAlert(): (message: string, title?: string) => Promise<void> {
   const confirm = useConfirm();
   return useCallback(
     async (message, title) => {
-      await confirm({ message, title, alertOnly: true, confirmText: "OK" });
+      await confirm({ message, title, alertOnly: true });
     },
     [confirm],
   );
@@ -48,6 +49,7 @@ interface Pending extends ConfirmOptions {
 }
 
 export function ConfirmProvider({ children }: { children: ReactNode }) {
+  const { t } = useTranslation();
   const [pending, setPending] = useState<Pending | null>(null);
 
   const confirm: ConfirmFn = useCallback(
@@ -69,7 +71,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
       <Modal
         open={pending != null}
         onClose={() => respond(false)}
-        title={pending?.title ?? "Potwierdź"}
+        title={pending?.title ?? t("confirm.title")}
       >
         {pending && (
           <>
@@ -88,7 +90,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             <div className="modal-foot">
               {!pending.alertOnly && (
                 <button type="button" onClick={() => respond(false)} className="btn btn-ghost">
-                  {pending.cancelText ?? "Anuluj"}
+                  {pending.cancelText ?? t("confirm.cancel")}
                 </button>
               )}
               <button
@@ -100,7 +102,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                   el?.focus();
                 }}
               >
-                {pending.confirmText ?? "Potwierdź"}
+                {pending.confirmText ?? (pending.alertOnly ? t("confirm.ok") : t("confirm.confirm"))}
               </button>
             </div>
           </>

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import { Icons } from "~/components/icons";
 import { ListControls } from "~/components/list-controls";
@@ -8,12 +9,10 @@ import {
   sparkStrokeForStatus,
 } from "~/components/progression-charts";
 import { Sparkline } from "~/components/stat-widgets";
-import { daysAgo, fmtDate, pluralizePl, type PlForms } from "~/lib/format";
+import { langToIntlLocale, type Lang } from "~/i18n/config";
+import { daysAgo, fmtDate } from "~/lib/format";
 import type { ListControlsSpec, ListControlsState } from "~/lib/list-params";
 import type { ProgressionListRow } from "~/lib/progression-math";
-import { unitLabelPl } from "~/lib/progression-math";
-
-const SESJA: PlForms = { one: "sesja", few: "sesje", many: "sesji" };
 
 type Summary = React.ComponentProps<typeof StatusSummaryBar>["summary"];
 
@@ -39,6 +38,8 @@ export function ProgressionList({
   hrefForExercise: (exerciseId: string) => string;
   buildCompareHref: (selectedIds: string[]) => string;
 }) {
+  const { t, i18n } = useTranslation();
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
   const [compare, setCompare] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
 
@@ -58,15 +59,17 @@ export function ProgressionList({
           {compare ? (
             <>
               <button type="button" className="btn btn-sm" onClick={exitCompare}>
-                Anuluj
+                {t("progression.list.cancel")}
               </button>
               {selected.length < 2 ? (
                 <button type="button" className="btn btn-sm btn-primary" disabled>
-                  Porównaj{selected.length > 0 ? ` (${selected.length})` : ""}
+                  {selected.length > 0
+                    ? t("progression.list.compareWithCount", { count: selected.length })
+                    : t("progression.list.compare")}
                 </button>
               ) : (
                 <Link to={buildCompareHref(selected)} className="btn btn-sm btn-primary">
-                  Porównaj ({selected.length})
+                  {t("progression.list.compareWithCount", { count: selected.length })}
                 </Link>
               )}
             </>
@@ -74,7 +77,7 @@ export function ProgressionList({
             rows.length > 0 && (
               <button type="button" className="btn btn-sm" onClick={() => setCompare(true)}>
                 <Icons.Trend />
-                Porównaj
+                {t("progression.list.compare")}
               </button>
             )
           )}
@@ -86,22 +89,23 @@ export function ProgressionList({
 
       {compare && (
         <div className="text-xs muted" style={{ marginBottom: 12 }}>
-          Zaznacz co najmniej 2 ćwiczenia, aby je porównać.
+          {t("progression.list.selectHint")}
         </div>
       )}
 
       {rows.length === 0 ? (
         <div className="empty">
-          <h3>Brak ćwiczeń poza umiejętnościami</h3>
-          <div>Tu pojawią się ćwiczenia z logów, które nie są wariantem umiejętności.</div>
+          <h3>{t("progression.list.emptyTitle")}</h3>
+          <div>{t("progression.list.emptyBody")}</div>
         </div>
       ) : (
         <div className="col" style={{ gap: 10 }}>
           {rows.map((row) => {
-            const subtitle = `${row.sessionCount} ${pluralizePl(
-              row.sessionCount,
-              SESJA,
-            )} · ostatnio: ${daysAgo(row.lastPerformedOn)} (${fmtDate(row.lastPerformedOn)})`;
+            const subtitle = t("progression.list.subtitle", {
+              sessions: t("progression.list.sessions", { count: row.sessionCount }),
+              ago: daysAgo(row.lastPerformedOn, locale),
+              date: fmtDate(row.lastPerformedOn, locale),
+            });
             const prText = `${row.pr}${row.unit === "SEC" ? " s" : ""}`;
             const isSelected = selected.includes(row.exerciseId);
 
@@ -130,7 +134,9 @@ export function ProgressionList({
                   <div style={{ minWidth: 0 }}>
                     <div className="row" style={{ gap: 8, alignItems: "center" }}>
                       <span style={{ fontSize: 14, fontWeight: 500 }}>{row.name}</span>
-                      <span className="badge">{unitLabelPl(row.unit)}</span>
+                      <span className="badge">
+                        {t(row.unit === "SEC" ? "progression.unit.sec" : "progression.unit.reps")}
+                      </span>
                     </div>
                     <div className="text-xs muted" style={{ marginTop: 2 }}>
                       {subtitle}
@@ -146,8 +152,11 @@ export function ProgressionList({
                     fill="transparent"
                   />
                   <ProgressionStatusBadge status={row.status} />
-                  <div style={{ textAlign: "right", minWidth: 56 }} title="Rekord osobisty">
-                    <div className="text-xs muted">rekord</div>
+                  <div
+                    style={{ textAlign: "right", minWidth: 56 }}
+                    title={t("progression.list.personalRecord")}
+                  >
+                    <div className="text-xs muted">{t("progression.list.record")}</div>
                     <div className="mono" style={{ fontSize: 15, fontWeight: 600 }}>
                       {prText}
                     </div>

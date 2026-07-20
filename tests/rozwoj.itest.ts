@@ -258,10 +258,10 @@ beforeAll(async () => {
   skillId = skill.id;
 
   // Add two variations: exWithLogs (ordinal 1) and exNoLogs (ordinal 2).
-  await addVariation(db, trainerA, skillId, exWithLogs!.id);
-  await addVariation(db, trainerA, skillId, exNoLogs!.id);
+  await addVariation(db, { trainerId: trainerA, organizationId: null },skillId, exWithLogs!.id);
+  await addVariation(db, { trainerId: trainerA, organizationId: null },skillId, exNoLogs!.id);
 
-  const skillDetail = await getSkillWithVariations(db, trainerA, skillId);
+  const skillDetail = await getSkillWithVariations(db, { trainerId: trainerA, organizationId: null }, skillId);
   // variations are ordered by ordinal ascending.
   variationIdWithLogs = skillDetail!.variations[0]!.id; // ordinal 1 — has logs (exWithLogs)
   variationIdNoLogs = skillDetail!.variations[1]!.id; // ordinal 2 — no logs (exNoLogs)
@@ -296,7 +296,7 @@ describe("tenant-scope: trener A → 404 na podopiecznym trenera B", () => {
     // The guard `findTraineeOfTrainer` returning null is sufficient for HTTP-layer 404.
     // Additionally verify that getSkillTreeForTrainee is scoped to trainerId:
     // trainer A created skillId above — trainer B's tree should not include it.
-    const treeBForPA = await getSkillTreeForTrainee(db, trainerB, traineePA);
+    const treeBForPA = await getSkillTreeForTrainee(db, { trainerId: trainerB, organizationId: null }, traineePA);
     const nodeIds = treeBForPA.nodes.map((n) => n.skillId);
     expect(nodeIds).not.toContain(skillId);
   });
@@ -455,7 +455,7 @@ describe("read-only podopieczny: brak action na węźle umiejętności", () => {
 describe("lista Pozostałe: warianty umiejętności nie trafiają na listę", () => {
   it("przed dodaniem wariantu: wszystkie ćwiczenia z logami widoczne w liście", async () => {
     const allRows = await listProgressionExercises(db, traineePA);
-    const skillMap = await listExerciseSkillMap(db, trainerA);
+    const skillMap = await listExerciseSkillMap(db, { trainerId: trainerA, organizationId: null });
     const variantIds = new Set(skillMap.map((s) => s.exerciseId));
     // skillExId is NOT a variation yet (only Front Lever variants were added in setup).
     // Pull-up, Dips, Archer Pull-up, Front Lever Tuck should all be in allRows.
@@ -476,10 +476,10 @@ describe("lista Pozostałe: warianty umiejętności nie trafiają na listę", ()
   it("po dodaniu ćwiczenia jako wariantu: znika z listy, pojawia się jako węzeł w drzewie", async () => {
     // Create a new skill and add skillExId (Archer Pull-up) as its variation.
     const newSkill = await createSkill(db, trainerA, "Archer Pull-up Skill", "");
-    await addVariation(db, trainerA, newSkill.id, skillExId);
+    await addVariation(db, { trainerId: trainerA, organizationId: null },newSkill.id, skillExId);
 
     const allRows = await listProgressionExercises(db, traineePA);
-    const skillMap = await listExerciseSkillMap(db, trainerA);
+    const skillMap = await listExerciseSkillMap(db, { trainerId: trainerA, organizationId: null });
     const variantIds = new Set(skillMap.map((s) => s.exerciseId));
 
     // skillExId should now be in variantIds.
@@ -496,7 +496,7 @@ describe("lista Pozostałe: warianty umiejętności nie trafiają na listę", ()
     expect(filteredIds).toContain(dipsId);
 
     // The new skill should appear as a node in the skill tree for the trainee.
-    const tree = await getSkillTreeForTrainee(db, trainerA, traineePA);
+    const tree = await getSkillTreeForTrainee(db, { trainerId: trainerA, organizationId: null }, traineePA);
     const treeNodeIds = tree.nodes.map((n) => n.skillId);
     expect(treeNodeIds).toContain(newSkill.id);
   });

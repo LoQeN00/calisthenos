@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import { useTranslation } from "react-i18next";
 import {
   Form,
   Link,
@@ -12,6 +13,8 @@ import { z } from "zod";
 import { ConfirmSubmitButton } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
 import { requireUser } from "~/lib/auth";
+import { canReadCatalogRow } from "~/lib/authz";
+import { forkExercise, isBrandOwned } from "~/lib/catalog";
 import { filterToKnownCategoryNames, listCategoriesForTrainer } from "~/lib/categories";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
@@ -26,9 +29,10 @@ import { signFileUrl } from "~/lib/files";
 import { findSkillForExercise } from "~/lib/skills";
 import { CategoryPicker } from "~/components/exercise-fields";
 import { FileDropzone } from "~/components/file-dropzone";
+import { tDyn } from "~/i18n/translate";
 
 const EditSchema = z.object({
-  name: z.string().trim().min(1, "Nazwa jest wymagana.").max(120),
+  name: z.string().trim().min(1, "nameRequired").max(120),
   unit: z.enum(["REPS", "SEC"]),
   description: z.string().max(2000).default(""),
   tracksRpe: z.boolean(),
@@ -38,15 +42,18 @@ export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainer" });
   const exerciseId = args.params.exerciseId ?? "";
 
+  // Ładujemy po id BEZ filtra trainer-only: ćwiczenie może być własne trenera
+  // albo markowe (trainer_id NULL) z jego organizacji. Autoryzacja przez
+  // canReadCatalogRow; brak/niedozwolone → 404 (nie 403, by nie zdradzać zasobu).
   const rows = await db
     .select({ exercise: schema.exercises, demoFile: schema.files })
     .from(schema.exercises)
     .leftJoin(schema.files, eq(schema.files.id, schema.exercises.demoFileId))
-    .where(and(eq(schema.exercises.id, exerciseId), eq(schema.exercises.trainerId, user.id)))
+    .where(eq(schema.exercises.id, exerciseId))
     .limit(1);
 
   const row = rows[0];
-  if (!row) {
+  if (!row || !canReadCatalogRow(user, row.exercise)) {
     throw new Response("not found", { status: 404 });
   }
 
@@ -54,6 +61,7 @@ export async function loader(args: LoaderFunctionArgs) {
 
   return {
     exercise: row.exercise,
+    isBrand: isBrandOwned(row.exercise),
     categories,
     demo:
       row.demoFile != null
@@ -67,6 +75,32 @@ export async function action(args: ActionFunctionArgs) {
   const exerciseId = args.params.exerciseId ?? "";
   const fd = await args.request.formData();
   const intent = fd.get("intent");
+
+  // Najpierw ustalamy własność celu (raz), nie filtrując po trenerze — bo „fork"
+  // dotyczy markowego wiersza, którego trener NIE jest właścicielem.
+  const [target] = await db
+    .select({
+      trainerId: schema.exercises.trainerId,
+      organizationId: schema.exercises.organizationId,
+    })
+    .from(schema.exercises)
+    .where(eq(schema.exercises.id, exerciseId))
+    .limit(1);
+  if (!target) throw new Response("not found", { status: 404 });
+
+  if (intent === "fork") {
+    const newId = await forkExercise(db, {
+      trainerId: user.id,
+      organizationId: user.organizationId,
+      exerciseId,
+    });
+    if (!newId) throw new Response("not found", { status: 404 });
+    throw redirect(`/trener/biblioteka/${newId}`);
+  }
+
+  // Każdy inny (zapisujący) intent jest zabroniony na markowym wierszu — 404
+  // (read-only z poziomu trenera; edycja tylko przez fork → własna kopia).
+  if (target.trainerId == null) throw new Response("not found", { status: 404 });
 
   // Verify tenant ownership before any mutation.
   const existing = await db
@@ -83,10 +117,15 @@ export async function action(args: ActionFunctionArgs) {
     // Inwariant: wariant aktywnej umiejętności nigdy nie wskazuje zarchiwizowanego
     // ćwiczenia — inaczej w drzewie/mapie Rozwoju wisiałby „duch". Blokujemy
     // archiwizację, dopóki ćwiczenie jest wariantem; trener musi je najpierw odpiąć.
-    const skill = await findSkillForExercise(db, user.id, exerciseId);
+    const skill = await findSkillForExercise(
+      db,
+      { trainerId: user.id, organizationId: user.organizationId },
+      exerciseId,
+    );
     if (skill) {
       return {
-        error: `To ćwiczenie jest wariantem umiejętności „${skill.skillName}". Usuń je z wariantów tej umiejętności, zanim je zarchiwizujesz.`,
+        errorKey: "bibliotekaForm.errors.exerciseIsVariant" as const,
+        errorValues: { skill: skill.skillName },
       };
     }
     await db
@@ -112,7 +151,13 @@ export async function action(args: ActionFunctionArgs) {
     tracksRpe: fd.get("tracksRpe") === "on",
   });
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Sprawdź pola formularza." };
+    const issue = parsed.error.issues[0]?.message;
+    return {
+      errorKey:
+        issue === "nameRequired"
+          ? ("bibliotekaForm.errors.nameRequired" as const)
+          : ("bibliotekaForm.errors.formInvalid" as const),
+    };
   }
   const categories = await listCategoriesForTrainer(db, user.id);
   const selected = fd.getAll("categories").map((v) => v.toString());
@@ -137,7 +182,7 @@ export async function action(args: ActionFunctionArgs) {
           {
             file: demoBlob as File,
             kind: "exercise_demo",
-            trainerId: user.id,
+            owner: { trainerId: user.id },
             uploadedBy: user.id,
           },
           cleanup,
@@ -175,43 +220,63 @@ export async function action(args: ActionFunctionArgs) {
     }
   } catch (e) {
     await cleanup.cleanup();
-    if (e instanceof UploadError) return { error: e.userMessage };
+    if (e instanceof UploadError)
+      return {
+        errorKey: "bibliotekaForm.errors.formInvalid" as const,
+        errorMessage: e.userMessage,
+      };
     throw e;
   }
   throw redirect("/trener/biblioteka");
 }
 
 export default function EdytujCwiczenie() {
-  const { exercise, demo, categories } = useLoaderData<typeof loader>();
+  const { exercise, isBrand, demo, categories } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const { t } = useTranslation("trener");
   const isArchived = exercise.archivedAt != null;
+  const knownTags = filterToKnownCategoryNames(categories, exercise.tags);
+
+  const errorMsg =
+    actionData?.errorKey != null
+      ? "errorMessage" in actionData && actionData.errorMessage
+        ? actionData.errorMessage
+        : tDyn(
+            t,
+            actionData.errorKey,
+            "errorValues" in actionData ? actionData.errorValues : undefined,
+          )
+      : null;
 
   return (
     <div style={{ maxWidth: 580 }}>
       <div className="crumbs">
-        <Link to="/trener/biblioteka">Biblioteka</Link>
+        <Link to="/trener/biblioteka">{t("bibliotekaForm.crumbsLibrary")}</Link>
         <span className="sep">›</span>
         <span className="current">{exercise.name}</span>
       </div>
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Ćwiczenie · {exercise.unit}
+            {t("bibliotekaForm.exerciseEyebrow", { unit: exercise.unit })}
           </div>
           <h1>{exercise.name}</h1>
         </div>
-        {isArchived && (
-          <span className="badge archived">
-            <span className="badge-dot" />
-            archiwum
-          </span>
-        )}
+        <div className="row" style={{ gap: 6, flexShrink: 0 }}>
+          {isBrand && <span className="badge">{t("biblioteka.brandBadge")}</span>}
+          {isArchived && (
+            <span className="badge archived">
+              <span className="badge-dot" />
+              {t("bibliotekaForm.archived")}
+            </span>
+          )}
+        </div>
       </div>
 
       {demo && (
         <div style={{ marginBottom: 18 }}>
           <div className="field-label" style={{ marginBottom: 6 }}>
-            Aktualne demo
+            {t("bibliotekaForm.currentDemo")}
           </div>
           <video
             src={demo.url}
@@ -229,110 +294,167 @@ export default function EdytujCwiczenie() {
         </div>
       )}
 
-      <Form
-        method="post"
-        encType="multipart/form-data"
-        className="card"
-        style={{ display: "grid", gap: 14 }}
-      >
-        <div className="field">
-          <label htmlFor="ex-name">Nazwa</label>
-          <input
-            id="ex-name"
-            name="name"
-            type="text"
-            required
-            maxLength={120}
-            defaultValue={exercise.name}
-            className="input"
-          />
-        </div>
+      {isBrand ? (
+        <>
+          <div className="card" style={{ display: "grid", gap: 14 }}>
+            <div className="field">
+              <div className="field-label">{t("bibliotekaForm.fieldUnit")}</div>
+              <div>
+                {exercise.unit === "REPS"
+                  ? t("bibliotekaForm.unitReps")
+                  : t("bibliotekaForm.unitSec")}
+              </div>
+            </div>
 
-        <div className="field">
-          <label htmlFor="ex-unit">Jednostka</label>
-          <select id="ex-unit" name="unit" required defaultValue={exercise.unit} className="select">
-            <option value="REPS">REPS (powtórzenia)</option>
-            <option value="SEC">SEC (sekundy)</option>
-          </select>
-        </div>
+            {exercise.description.length > 0 && (
+              <div className="field">
+                <div className="field-label">{t("bibliotekaForm.fieldDescription")}</div>
+                <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.4 }}>
+                  {exercise.description}
+                </div>
+              </div>
+            )}
 
-        <div className="field">
-          <label htmlFor="ex-desc">Opis</label>
-          <textarea
-            id="ex-desc"
-            name="description"
-            rows={4}
-            maxLength={2000}
-            defaultValue={exercise.description}
-            className="textarea"
-          />
-        </div>
+            {knownTags.length > 0 && (
+              <div className="row wrap" style={{ gap: 4 }}>
+                {knownTags.map((tag) => (
+                  <span key={tag} className="tag">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
 
-        <label className="field" style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
-          <input type="checkbox" name="tracksRpe" defaultChecked={exercise.tracksRpe} style={{ marginTop: 3 }} />
-          <span>
-            <span style={{ display: "block", fontWeight: 500 }}>
-              Zbieraj ocenę trudności (RPE 1–10) przy logowaniu
-            </span>
-            <span className="text-xs muted">
-              Wyłącz dla ćwiczeń, w których ocena wysiłku nie ma sensu — podopieczny nie zobaczy
-              wtedy skali trudności.
-            </span>
-          </span>
-        </label>
+            <p className="text-sm muted" style={{ margin: 0 }}>
+              {t("biblioteka.brandReadonlyNote")}
+            </p>
 
-        <CategoryPicker categories={categories} selected={exercise.tags} />
-
-        <FileDropzone
-          name="demo"
-          idSuffix="edit"
-          kind="video"
-          label={demo ? "Zastąp wideo demo (opcjonalne)" : "Wideo demo (opcjonalne)"}
-          maxBytes={250_000_000}
-        />
-
-        {actionData?.error != null && (
-          <p role="alert" style={{ color: "var(--danger)", fontSize: 13, margin: 0 }}>
-            {actionData.error}
-          </p>
-        )}
-
-        <div className="row" style={{ gap: 8 }}>
-          <button type="submit" className="btn btn-primary">
-            Zapisz zmiany
-          </button>
-          <Link to="/trener/biblioteka" className="btn btn-ghost">
-            Anuluj
-          </Link>
-        </div>
-      </Form>
-
-      {/* Separate form for archive / unarchive so it doesn't carry the file input. */}
-      <Form
-        method="post"
-        style={{ marginTop: 28, paddingTop: 18, borderTop: "1px solid var(--line)" }}
-      >
-        {isArchived ? (
-          <button type="submit" name="intent" value="unarchive" className="btn">
-            Przywróć z archiwum
-          </button>
-        ) : (
-          <ConfirmSubmitButton
-            name="intent"
-            value="archive"
-            className="btn btn-danger"
-            confirmOptions={{
-              title: "Zarchiwizować ćwiczenie?",
-              message:
-                "Będzie ukryte na liście, ale plany historyczne pozostaną nietknięte. Możesz przywrócić je później.",
-              destructive: true,
-              confirmText: "Archiwizuj",
-            }}
+            <Form method="post">
+              <input type="hidden" name="intent" value="fork" />
+              <button type="submit" className="btn btn-primary">
+                {t("biblioteka.customize")}
+              </button>
+            </Form>
+          </div>
+        </>
+      ) : (
+        <>
+          <Form
+            method="post"
+            encType="multipart/form-data"
+            className="card"
+            style={{ display: "grid", gap: 14 }}
           >
-            <Icons.Arch /> Archiwizuj
-          </ConfirmSubmitButton>
-        )}
-      </Form>
+            <div className="field">
+              <label htmlFor="ex-name">{t("bibliotekaForm.fieldName")}</label>
+              <input
+                id="ex-name"
+                name="name"
+                type="text"
+                required
+                maxLength={120}
+                defaultValue={exercise.name}
+                className="input"
+              />
+            </div>
+
+            <div className="field">
+              <label htmlFor="ex-unit">{t("bibliotekaForm.fieldUnit")}</label>
+              <select
+                id="ex-unit"
+                name="unit"
+                required
+                defaultValue={exercise.unit}
+                className="select"
+              >
+                <option value="REPS">{t("bibliotekaForm.unitReps")}</option>
+                <option value="SEC">{t("bibliotekaForm.unitSec")}</option>
+              </select>
+            </div>
+
+            <div className="field">
+              <label htmlFor="ex-desc">{t("bibliotekaForm.fieldDescription")}</label>
+              <textarea
+                id="ex-desc"
+                name="description"
+                rows={4}
+                maxLength={2000}
+                defaultValue={exercise.description}
+                className="textarea"
+              />
+            </div>
+
+            <label
+              className="field"
+              style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}
+            >
+              <input
+                type="checkbox"
+                name="tracksRpe"
+                defaultChecked={exercise.tracksRpe}
+                style={{ marginTop: 3 }}
+              />
+              <span>
+                <span style={{ display: "block", fontWeight: 500 }}>
+                  {t("bibliotekaForm.rpeTitle")}
+                </span>
+                <span className="text-xs muted">{t("bibliotekaForm.rpeHint")}</span>
+              </span>
+            </label>
+
+            <CategoryPicker categories={categories} selected={exercise.tags} />
+
+            <FileDropzone
+              name="demo"
+              idSuffix="edit"
+              kind="video"
+              label={demo ? t("bibliotekaForm.demoReplaceLabel") : t("bibliotekaForm.demoLabel")}
+              maxBytes={250_000_000}
+            />
+
+            {errorMsg != null && (
+              <p role="alert" style={{ color: "var(--danger)", fontSize: 13, margin: 0 }}>
+                {errorMsg}
+              </p>
+            )}
+
+            <div className="row" style={{ gap: 8 }}>
+              <button type="submit" className="btn btn-primary">
+                {t("bibliotekaForm.saveEdit")}
+              </button>
+              <Link to="/trener/biblioteka" className="btn btn-ghost">
+                {t("bibliotekaForm.cancel")}
+              </Link>
+            </div>
+          </Form>
+
+          {/* Separate form for archive / unarchive so it doesn't carry the file input. */}
+          <Form
+            method="post"
+            style={{ marginTop: 28, paddingTop: 18, borderTop: "1px solid var(--line)" }}
+          >
+            {isArchived ? (
+              <button type="submit" name="intent" value="unarchive" className="btn">
+                {t("bibliotekaForm.unarchive")}
+              </button>
+            ) : (
+              <ConfirmSubmitButton
+                name="intent"
+                value="archive"
+                className="btn btn-danger"
+                confirmOptions={{
+                  title: t("bibliotekaForm.archiveConfirmTitle"),
+                  message: t("bibliotekaForm.archiveConfirmMessage"),
+                  destructive: true,
+                  confirmText: t("bibliotekaForm.archiveConfirmText"),
+                }}
+              >
+                <Icons.Arch /> {t("bibliotekaForm.archive")}
+              </ConfirmSubmitButton>
+            )}
+          </Form>
+        </>
+      )}
     </div>
   );
 }

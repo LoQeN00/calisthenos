@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
+import { useTranslation } from "react-i18next";
 import { Icons } from "~/components/icons";
 import {
   ActivityHeatmapCard,
@@ -8,6 +9,7 @@ import {
   ThisWeekCard,
   WrappedListRow,
 } from "~/components/trainee-stats";
+import { langToIntlLocale, type Lang } from "~/i18n/config";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import { daysAgo, fmtDate, fmtDateShort } from "~/lib/format";
@@ -26,6 +28,7 @@ function WrappedBanner({
 }: {
   wrapped: NonNullable<ReturnType<typeof useLoaderData<typeof loader>>["latestWrapped"]>;
 }) {
+  const { t } = useTranslation("podopieczny");
   const [show, setShow] = useState(false);
 
   useEffect(() => {
@@ -92,14 +95,13 @@ function WrappedBanner({
             marginBottom: 6,
           }}
         >
-          ✨ Świeży wrapped
+          ✨ {t("pulpit.wrapped.badge")}
         </div>
         <div style={{ fontSize: 19, fontWeight: 600, marginBottom: 4 }}>
-          Twój {wrapped.label} jest gotowy.
+          {t("pulpit.wrapped.title", { label: wrapped.label })}
         </div>
         <div style={{ fontSize: 13, opacity: 0.7 }}>
-          {wrapped.sessions} {wrapped.sessions === 1 ? "sesja" : "sesji"} do obejrzenia w klimacie
-          Spotify Wrapped.
+          {t("pulpit.wrapped.sessionCount", { count: wrapped.sessions })}
         </div>
       </div>
       <div className="row" style={{ gap: 8, position: "relative", flexShrink: 0 }}>
@@ -113,10 +115,10 @@ function WrappedBanner({
             borderColor: "rgba(255,255,255,.18)",
           }}
         >
-          Później
+          {t("pulpit.wrapped.laterBtn")}
         </button>
         <Link to={`/podopieczny/wrapped/${wrapped.ym}`} className="btn btn-primary">
-          Otwórz wrapped <Icons.Chev />
+          {t("pulpit.wrapped.openBtn")} <Icons.Chev />
         </Link>
       </div>
     </div>
@@ -164,6 +166,8 @@ export default function TraineeDashboard() {
     wrappedMonths,
     latestWrapped,
   } = useLoaderData<typeof loader>();
+  const { t, i18n } = useTranslation("podopieczny");
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
 
   const firstName = user.displayName.split(" ")[0] ?? user.displayName;
 
@@ -183,16 +187,16 @@ export default function TraineeDashboard() {
       >
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Cześć, {firstName}
+            {t("pulpit.eyebrow", { name: firstName })}
           </div>
-          <h1 style={{ fontSize: 30 }}>Twój trening</h1>
+          <h1 style={{ fontSize: 30 }}>{t("pulpit.title")}</h1>
           <div className="muted" style={{ fontSize: 13.5, marginTop: 4 }}>
-            Twoje sesje i historia treningów.
+            {t("pulpit.subtitle")}
           </div>
         </div>
         {planSummary != null && planSummary.sessions.length > 0 && (
           <Link to="/podopieczny/sesje" className="btn btn-primary btn-lg">
-            <Icons.Plus /> Zarejestruj sesję
+            <Icons.Plus /> {t("pulpit.registerSession")}
           </Link>
         )}
       </div>
@@ -201,8 +205,8 @@ export default function TraineeDashboard() {
 
       {planSummary == null ? (
         <div className="empty" style={{ marginBottom: 22 }}>
-          <h3>Brak aktywnego planu</h3>
-          <div>Trener przygotuje go wkrótce.</div>
+          <h3>{t("pulpit.noPlan.title")}</h3>
+          <div>{t("pulpit.noPlan.subtitle")}</div>
         </div>
       ) : (
         <div
@@ -242,15 +246,21 @@ export default function TraineeDashboard() {
                   }}
                 >
                   <span className="badge-dot" style={{ background: "var(--accent)" }} />
-                  aktywny plan
+                  {t("pulpit.activePlan.badge")}
                 </span>
                 <span
                   className="mono"
                   style={{ fontSize: 11, opacity: 0.7, color: "var(--accent)" }}
                 >
-                  v{planSummary.plan.version}
+                  {t("pulpit.activePlan.versionSuffix", { version: planSummary.plan.version })}
                   {planSummary.plan.publishedAt && (
-                    <> · od {fmtDate(planSummary.plan.publishedAt.toString())}</>
+                    <>
+                      {" "}
+                      ·{" "}
+                      {t("pulpit.activePlan.sinceDate", {
+                        date: fmtDate(planSummary.plan.publishedAt.toString()),
+                      })}
+                    </>
                   )}
                 </span>
               </div>
@@ -258,7 +268,7 @@ export default function TraineeDashboard() {
                 {planSummary.plan.name}
               </h2>
               <div className="mono" style={{ fontSize: 12, opacity: 0.7, marginTop: 8 }}>
-                {planSummary.sessions.length} sesji do wyboru
+                {t("pulpit.activePlan.sessionCount", { count: planSummary.sessions.length })}
               </div>
             </div>
             <Link
@@ -270,7 +280,7 @@ export default function TraineeDashboard() {
                 borderColor: "rgba(255,255,255,.15)",
               }}
             >
-              Lista sesji <Icons.Chev />
+              {t("pulpit.activePlan.listLink")} <Icons.Chev />
             </Link>
           </div>
         </div>
@@ -291,9 +301,9 @@ export default function TraineeDashboard() {
         {planSummary != null && planSummary.sessions.length > 0 && (
           <section>
             <div className="row between" style={{ alignItems: "baseline", marginBottom: 10 }}>
-              <h2 style={{ fontSize: 16 }}>Sesje w planie</h2>
+              <h2 style={{ fontSize: 16 }}>{t("pulpit.planSessions.title")}</h2>
               <Link to="/podopieczny/sesje" className="btn btn-ghost btn-sm">
-                Szczegóły <Icons.Chev />
+                {t("pulpit.planSessions.detailsLink")} <Icons.Chev />
               </Link>
             </div>
             <div className="list">
@@ -314,9 +324,11 @@ export default function TraineeDashboard() {
                     <div style={{ fontSize: 13.5, fontWeight: 500 }}>{s.session.name}</div>
                     <div className="text-xs muted" style={{ marginTop: 2 }}>
                       {s.doneCount === 0
-                        ? "jeszcze nie wykonana"
-                        : `×${s.doneCount}${
-                            s.lastPerformedOn ? ` · ostatnio ${daysAgo(s.lastPerformedOn)}` : ""
+                        ? t("pulpit.planSessions.notDoneYet")
+                        : `${t("pulpit.planSessions.doneCount", { count: s.doneCount })}${
+                            s.lastPerformedOn
+                              ? ` · ${t("pulpit.planSessions.lastPerformed", { when: daysAgo(s.lastPerformedOn, locale) })}`
+                              : ""
                           }`}
                     </div>
                   </div>
@@ -324,12 +336,12 @@ export default function TraineeDashboard() {
                     to={`/podopieczny/loguj/${s.session.id}`}
                     className="btn btn-primary btn-sm"
                   >
-                    <Icons.Plus /> Zarejestruj
+                    <Icons.Plus /> {t("pulpit.planSessions.registerBtn")}
                   </Link>
                   <Link
                     to={`/podopieczny/sesje/${s.session.id}`}
                     className="btn btn-ghost btn-sm btn-icon"
-                    aria-label="Szczegóły sesji"
+                    aria-label={t("pulpit.planSessions.detailsAriaLabel")}
                   >
                     <Icons.Chev />
                   </Link>
@@ -341,17 +353,17 @@ export default function TraineeDashboard() {
 
         <section>
           <div className="row between" style={{ alignItems: "baseline", marginBottom: 10 }}>
-            <h2 style={{ fontSize: 16 }}>Twoja historia</h2>
+            <h2 style={{ fontSize: 16 }}>{t("pulpit.history.title")}</h2>
             {recent.length > 0 && (
               <Link to="/podopieczny/historia" className="btn btn-ghost btn-sm">
-                Wszystkie <Icons.Chev />
+                {t("pulpit.history.allLink")} <Icons.Chev />
               </Link>
             )}
           </div>
           {recent.length === 0 ? (
             <div className="empty">
-              <h3>Brak treningów</h3>
-              <div>Jeszcze nic nie zarejestrowano.</div>
+              <h3>{t("pulpit.history.empty.title")}</h3>
+              <div>{t("pulpit.history.empty.subtitle")}</div>
             </div>
           ) : (
             <div className="list">
@@ -362,11 +374,13 @@ export default function TraineeDashboard() {
                   className="list-row"
                   style={{ gridTemplateColumns: "60px 1fr auto", gap: 12, padding: "12px 16px" }}
                 >
-                  <div className="mono text-xs muted">{fmtDateShort(log.performedOn)}</div>
+                  <div className="mono text-xs muted">{fmtDateShort(log.performedOn, locale)}</div>
                   <div>
                     <div style={{ fontSize: 13.5, fontWeight: 500 }}>{log.sessionName}</div>
                     <div className="text-xs muted" style={{ marginTop: 2 }}>
-                      <span className="mono">{log.exerciseCount}</span> ćwiczeń · trudność{" "}
+                      <span className="mono">{log.exerciseCount}</span>{" "}
+                      {t("pulpit.history.exerciseWord", { count: log.exerciseCount })} ·{" "}
+                      {t("pulpit.history.difficulty")}{" "}
                       {log.avgDifficulty == null ? (
                         "—"
                       ) : (

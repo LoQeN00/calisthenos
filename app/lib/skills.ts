@@ -1,4 +1,11 @@
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import {
+  effectiveExerciseWhere,
+  effectiveSkillWhere,
+  forkedExerciseOriginIds,
+  forkedSkillOriginIds,
+} from "~/lib/catalog";
+import { exerciseAlreadyVariationInView } from "~/lib/catalog-math";
 import type { Db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import { wouldCreateCycle, type Edge } from "~/lib/skill-tree-math";
@@ -17,23 +24,38 @@ export interface SkillListRow {
   name: string;
   description: string;
   variationCount: number;
+  isBrand: boolean;
 }
 
-/** Aktywne umiejętności trenera + liczba wariantów. */
-export async function listSkillsForTrainer(db: Db, trainerId: string): Promise<SkillListRow[]> {
+/** Aktywne umiejętności z efektywnego katalogu trenera (własne ∪ markowe org) + liczba wariantów. */
+export async function listSkillsForTrainer(
+  db: Db,
+  { trainerId, organizationId }: { trainerId: string; organizationId: string | null },
+): Promise<SkillListRow[]> {
+  const forkedOrigins = await forkedSkillOriginIds(db, trainerId);
   const rows = await db
     .select({
       id: schema.skills.id,
       name: schema.skills.name,
       description: schema.skills.description,
       variationCount: sql<number>`COUNT(${schema.skillVariations.id})::int`,
+      trainerId: schema.skills.trainerId,
     })
     .from(schema.skills)
     .leftJoin(schema.skillVariations, eq(schema.skillVariations.skillId, schema.skills.id))
-    .where(and(eq(schema.skills.trainerId, trainerId), isNull(schema.skills.archivedAt)))
+    .where(
+      and(
+        effectiveSkillWhere(organizationId, trainerId, forkedOrigins),
+        isNull(schema.skills.archivedAt),
+      ),
+    )
     .groupBy(schema.skills.id)
     .orderBy(asc(schema.skills.name));
-  return rows.map((r) => ({ ...r, variationCount: Number(r.variationCount) }));
+  return rows.map(({ trainerId: rowTrainerId, ...r }) => ({
+    ...r,
+    variationCount: Number(r.variationCount),
+    isBrand: rowTrainerId == null,
+  }));
 }
 
 export interface VariationRow {
@@ -49,20 +71,29 @@ export interface SkillDetail {
   name: string;
   description: string;
   variations: VariationRow[]; // posortowane rosnąco po ordinal
+  isBrand: boolean;
 }
 
-/** Umiejętność trenera z wariantami. null gdy nie istnieje / nie jego (→ 404). */
+/**
+ * Umiejętność z efektywnego katalogu trenera (własna lub markowa jego org) +
+ * warianty. null gdy nie istnieje / poza zasięgiem (→ 404).
+ */
 export async function getSkillWithVariations(
   db: Db,
-  trainerId: string,
+  { trainerId, organizationId }: { trainerId: string; organizationId: string | null },
   skillId: string,
 ): Promise<SkillDetail | null> {
   const [skill] = await db
     .select()
     .from(schema.skills)
-    .where(and(eq(schema.skills.id, skillId), eq(schema.skills.trainerId, trainerId)))
+    .where(eq(schema.skills.id, skillId))
     .limit(1);
   if (!skill) return null;
+  // Autoryzacja: własna umiejętność trenera LUB markowa z jego organizacji.
+  const authorized =
+    skill.trainerId === trainerId ||
+    (skill.trainerId == null && skill.organizationId === organizationId);
+  if (!authorized) return null;
 
   const variations = await db
     .select({
@@ -82,6 +113,7 @@ export async function getSkillWithVariations(
     name: skill.name,
     description: skill.description,
     variations,
+    isBrand: skill.trainerId == null,
   };
 }
 
@@ -157,9 +189,10 @@ export async function archiveSkill(db: Db, trainerId: string, skillId: string): 
  */
 export async function findSkillForExercise(
   db: Db,
-  trainerId: string,
+  { trainerId, organizationId }: { trainerId: string; organizationId: string | null },
   exerciseId: string,
 ): Promise<{ skillId: string; skillName: string } | null> {
+  const forkedOrigins = await forkedSkillOriginIds(db, trainerId);
   const [row] = await db
     .select({ skillId: schema.skills.id, skillName: schema.skills.name })
     .from(schema.skillVariations)
@@ -167,7 +200,7 @@ export async function findSkillForExercise(
     .where(
       and(
         eq(schema.skillVariations.exerciseId, exerciseId),
-        eq(schema.skills.trainerId, trainerId),
+        effectiveSkillWhere(organizationId, trainerId, forkedOrigins),
         isNull(schema.skills.archivedAt),
       ),
     )
@@ -176,15 +209,20 @@ export async function findSkillForExercise(
 }
 
 /**
- * Dodaje wariant na koniec drabiny (ordinal = max+1). Weryfikuje, że i umiejętność,
- * i ćwiczenie należą do trenera. Łamie UNIQUE(exercise_id) → przyjazny błąd.
+ * Dodaje wariant na koniec drabiny (ordinal = max+1). Umiejętność musi być WŁASNA
+ * trenera (markowych nie edytujemy — trzeba je najpierw sforkować). Ćwiczenie musi
+ * być w efektywnym katalogu (własne ∪ markowe org) i aktywne. Reguła „ćwiczenie jest
+ * wariantem ≤1 umiejętności w obrębie EFEKTYWNEGO widoku trenera" — egzekwowana tu w
+ * repo (globalny UNIQUE(exercise_id) usunięty w T1; precedens: acykliczność prerekwizytów).
  */
 export async function addVariation(
   db: Db,
-  trainerId: string,
+  { trainerId, organizationId }: { trainerId: string; organizationId: string | null },
   skillId: string,
   exerciseId: string,
 ): Promise<void> {
+  // Tylko własna umiejętność trenera — markowe (trainer_id NULL) tu nie wpadną, więc
+  // nie da się dodać wariantu do markowej (poprawne: najpierw fork).
   const [skill] = await db
     .select({ id: schema.skills.id })
     .from(schema.skills)
@@ -192,16 +230,45 @@ export async function addVariation(
     .limit(1);
   if (!skill) throw new SkillError("not found", "Nie znaleziono umiejętności.");
 
+  const forkedExOrigins = await forkedExerciseOriginIds(db, trainerId);
   const [exercise] = await db
     .select({ id: schema.exercises.id, archivedAt: schema.exercises.archivedAt })
     .from(schema.exercises)
-    .where(and(eq(schema.exercises.id, exerciseId), eq(schema.exercises.trainerId, trainerId)))
+    .where(
+      and(
+        eq(schema.exercises.id, exerciseId),
+        effectiveExerciseWhere(organizationId, trainerId, forkedExOrigins),
+      ),
+    )
     .limit(1);
   if (!exercise) throw new SkillError("not found", "Nie znaleziono ćwiczenia.");
   // Picker `listAssignableExercises` już odfiltrowuje zarchiwizowane, ale akcja musi
   // walidować samodzielnie (bezpośredni POST mógłby ominąć picker).
   if (exercise.archivedAt != null) {
     throw new SkillError("archived", "Nie można dodać zarchiwizowanego ćwiczenia jako wariantu.");
+  }
+
+  // Guard „≤1 umiejętność w widoku": zbierz exercise_id będące już wariantami
+  // EFEKTYWNYCH umiejętności trenera (własne ∪ markowe org), z pominięciem docelowej
+  // umiejętności (ponowne wstawienie tego samego ćwiczenia do tej samej umiejętności
+  // i tak zatrzyma UNIQUE(skill_id, exercise_id)).
+  const forkedSkOrigins = await forkedSkillOriginIds(db, trainerId);
+  const taken = await db
+    .select({ exerciseId: schema.skillVariations.exerciseId })
+    .from(schema.skillVariations)
+    .innerJoin(schema.skills, eq(schema.skills.id, schema.skillVariations.skillId))
+    .where(effectiveSkillWhere(organizationId, trainerId, forkedSkOrigins));
+  const takenSet = new Set(
+    taken.filter((r) => r.exerciseId !== null).map((r) => r.exerciseId as string),
+  );
+  // Wyklucz docelową umiejętność: usuwamy z setu jej własne warianty.
+  const ownVariations = await db
+    .select({ exerciseId: schema.skillVariations.exerciseId })
+    .from(schema.skillVariations)
+    .where(eq(schema.skillVariations.skillId, skillId));
+  for (const r of ownVariations) takenSet.delete(r.exerciseId);
+  if (exerciseAlreadyVariationInView(takenSet, exerciseId)) {
+    throw new SkillError("exercise taken", "To ćwiczenie jest już wariantem innej umiejętności.");
   }
 
   const [maxRow] = await db
@@ -213,10 +280,6 @@ export async function addVariation(
   try {
     await db.insert(schema.skillVariations).values({ skillId, exerciseId, ordinal: nextOrdinal });
   } catch (e) {
-    // Postgres unique-violation (23505) wraca jako zwykły Error z postgres-js; klasyfikujemy po nazwie indeksu.
-    if (e instanceof Error && e.message.includes("skill_variations_exercise_uniq")) {
-      throw new SkillError("exercise taken", "To ćwiczenie jest już wariantem innej umiejętności.");
-    }
     // Wyścig: dwa równoległe addVariation policzyły ten sam max(ordinal)+1 → kolizja na (skill_id, ordinal).
     if (e instanceof Error && e.message.includes("skill_variations_skill_ordinal_uniq")) {
       throw new SkillError("ordinal race", "Nie udało się dodać wariantu — spróbuj ponownie.");
@@ -333,37 +396,51 @@ export async function reorderVariations(
 }
 
 /**
- * Ćwiczenia trenera, które NIE są jeszcze wariantem żadnej umiejętności (do pickera).
- * Pojedynczy LEFT JOIN + `skill_variations.id IS NULL` — bez ładowania listy id do pamięci.
- * (UNIQUE(exercise_id) gwarantuje co najwyżej jeden join na ćwiczenie, więc brak duplikatów.)
+ * Ćwiczenia z EFEKTYWNEGO katalogu trenera (własne ∪ markowe org, nie zarchiwizowane),
+ * które NIE są jeszcze wariantem żadnej z jego EFEKTYWNYCH umiejętności (do pickera).
+ * Po usunięciu globalnego UNIQUE(exercise_id) (T1) nie ma już sztuczki z LEFT JOIN —
+ * liczymy zbiór „zajętych" exercise_id i odejmujemy go w pamięci.
  */
 export async function listAssignableExercises(
   db: Db,
-  trainerId: string,
+  { trainerId, organizationId }: { trainerId: string; organizationId: string | null },
 ): Promise<Array<{ id: string; name: string; unit: "REPS" | "SEC" }>> {
-  return await db
-    .select({ id: schema.exercises.id, name: schema.exercises.name, unit: schema.exercises.unit })
-    .from(schema.exercises)
-    .leftJoin(schema.skillVariations, eq(schema.skillVariations.exerciseId, schema.exercises.id))
-    .where(
-      and(
-        eq(schema.exercises.trainerId, trainerId),
-        isNull(schema.exercises.archivedAt),
-        isNull(schema.skillVariations.id),
-      ),
-    )
-    .orderBy(asc(schema.exercises.name));
+  const [forkedExOrigins, forkedSkOrigins] = await Promise.all([
+    forkedExerciseOriginIds(db, trainerId),
+    forkedSkillOriginIds(db, trainerId),
+  ]);
+  const [exercises, taken] = await Promise.all([
+    db
+      .select({ id: schema.exercises.id, name: schema.exercises.name, unit: schema.exercises.unit })
+      .from(schema.exercises)
+      .where(
+        and(
+          effectiveExerciseWhere(organizationId, trainerId, forkedExOrigins),
+          isNull(schema.exercises.archivedAt),
+        ),
+      )
+      .orderBy(asc(schema.exercises.name)),
+    db
+      .select({ exerciseId: schema.skillVariations.exerciseId })
+      .from(schema.skillVariations)
+      .innerJoin(schema.skills, eq(schema.skills.id, schema.skillVariations.skillId))
+      .where(effectiveSkillWhere(organizationId, trainerId, forkedSkOrigins)),
+  ]);
+  const takenSet = new Set(taken.map((r) => r.exerciseId));
+  return exercises.filter((e) => !takenSet.has(e.id));
 }
 
 /**
- * Mapa: ćwiczenie → umiejętność, do której należy (aktywne umiejętności trenera).
- * Używane przez listę Progresji, by pokazać chip „część umiejętności: …" linkujący
- * do drabiny. Jeden wiersz na wariant (UNIQUE(exercise_id) → brak duplikatów).
+ * Mapa: ćwiczenie → umiejętność, do której należy (aktywne EFEKTYWNE umiejętności
+ * trenera: własne ∪ markowe org). Używane przez listę Progresji, by pokazać chip
+ * „część umiejętności: …" linkujący do drabiny. Jeden wiersz na wariant
+ * (UNIQUE(skill_id, exercise_id) + reguła „≤1 umiejętność w widoku" → brak duplikatów).
  */
 export async function listExerciseSkillMap(
   db: Db,
-  trainerId: string,
+  { trainerId, organizationId }: { trainerId: string; organizationId: string | null },
 ): Promise<Array<{ exerciseId: string; skillId: string; skillName: string }>> {
+  const forkedOrigins = await forkedSkillOriginIds(db, trainerId);
   return await db
     .select({
       exerciseId: schema.skillVariations.exerciseId,
@@ -375,7 +452,7 @@ export async function listExerciseSkillMap(
     .innerJoin(schema.exercises, eq(schema.exercises.id, schema.skillVariations.exerciseId))
     .where(
       and(
-        eq(schema.skills.trainerId, trainerId),
+        effectiveSkillWhere(organizationId, trainerId, forkedOrigins),
         isNull(schema.skills.archivedAt),
         isNull(schema.exercises.archivedAt),
       ),
@@ -432,9 +509,7 @@ export async function addPrerequisite(
     throw new SkillError("cycle", "To połączenie utworzyłoby cykl w drzewie.");
   }
   try {
-    await db
-      .insert(schema.skillPrerequisites)
-      .values({ trainerId, skillId, requiresSkillId });
+    await db.insert(schema.skillPrerequisites).values({ trainerId, skillId, requiresSkillId });
   } catch (e) {
     if (e instanceof Error && e.message.includes("skill_prerequisites_edge_uniq")) {
       throw new SkillError("duplicate", "Ten prerekwizyt jest już dodany.");
@@ -495,13 +570,8 @@ export async function listAssignablePrerequisites(
     .where(and(eq(schema.skills.trainerId, trainerId), isNull(schema.skills.archivedAt)))
     .orderBy(asc(schema.skills.name));
   const edges = await listEdgesForTrainer(db, trainerId);
-  const existing = new Set(
-    edges.filter((e) => e.from === skillId).map((e) => e.requires),
-  );
+  const existing = new Set(edges.filter((e) => e.from === skillId).map((e) => e.requires));
   return all.filter(
-    (s) =>
-      s.id !== skillId &&
-      !existing.has(s.id) &&
-      !wouldCreateCycle(edges, skillId, s.id),
+    (s) => s.id !== skillId && !existing.has(s.id) && !wouldCreateCycle(edges, skillId, s.id),
   );
 }

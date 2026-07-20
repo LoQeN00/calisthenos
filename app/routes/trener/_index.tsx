@@ -1,16 +1,12 @@
 import { and, count, desc, eq, gte } from "drizzle-orm";
+import { useTranslation } from "react-i18next";
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
+import { langToIntlLocale, type Lang } from "~/i18n/config";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
-import { daysAgo, fmtDate, pluralizePl, type PlForms } from "~/lib/format";
-
-const OSOBA_AKTYWNA: PlForms = {
-  one: "osoba aktywna",
-  few: "osoby aktywne",
-  many: "osób aktywnych",
-};
+import { daysAgo } from "~/lib/format";
 import { listClientsForTrainer } from "~/lib/workouts";
 
 function isoDaysAgo(n: number): string {
@@ -73,6 +69,8 @@ export async function loader(args: LoaderFunctionArgs) {
 
 export default function TrenerPulpit() {
   const { user, clients, recentLogs, stats } = useLoaderData<typeof loader>();
+  const { t, i18n } = useTranslation("trener");
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
   const greeting = user.displayName.split(" ")[0] ?? user.displayName;
   const noClients = clients.length === 0;
 
@@ -80,20 +78,20 @@ export default function TrenerPulpit() {
     <div>
       <div className="pagehead">
         <div>
-          <h1>Cześć, {greeting}</h1>
+          <h1>{t("pulpit.greeting", { name: greeting })}</h1>
           <div className="sub">
             {noClients
-              ? "Zaproś pierwszego podopiecznego, by zacząć."
-              : `${clients.length} ${pluralizePl(clients.length, OSOBA_AKTYWNA)}.`}
+              ? t("pulpit.subInvite")
+              : t("pulpit.subActive", { count: clients.length })}
           </div>
         </div>
         {noClients ? (
           <Link to="/trener/podopieczni" className="btn btn-primary">
-            <Icons.Plus /> Zaproś podopiecznego
+            <Icons.Plus /> {t("pulpit.ctaInvite")}
           </Link>
         ) : (
           <Link to="/trener/plany/nowy" className="btn btn-primary">
-            <Icons.Plus /> Nowy plan
+            <Icons.Plus /> {t("pulpit.ctaNewPlan")}
           </Link>
         )}
       </div>
@@ -116,12 +114,12 @@ export default function TrenerPulpit() {
             style={{ textDecoration: "none" }}
           >
             <div className="v">{stats.activePlans}</div>
-            <div className="k">aktywnych planów</div>
+            <div className="k">{t("pulpit.stats.activePlans")}</div>
           </Link>
           <span className="vdiv" style={{ height: 36 }} />
           <div className="stat">
             <div className="v">{stats.weekSessions}</div>
-            <div className="k">sesji w 7 dni</div>
+            <div className="k">{t("pulpit.stats.weekSessions")}</div>
           </div>
           <span className="vdiv" style={{ height: 36 }} />
           <Link
@@ -133,7 +131,7 @@ export default function TrenerPulpit() {
             }}
           >
             <div className="v">{stats.drafts}</div>
-            <div className="k">draftów</div>
+            <div className="k">{t("pulpit.stats.drafts")}</div>
           </Link>
         </div>
       )}
@@ -141,17 +139,17 @@ export default function TrenerPulpit() {
       <div className="grid" style={{ gridTemplateColumns: "1.5fr 1fr", gap: 22 }}>
         <section>
           <div className="row between" style={{ alignItems: "baseline", marginBottom: 12 }}>
-            <h2 style={{ fontSize: 17 }}>Podopieczni</h2>
+            <h2 style={{ fontSize: 17 }}>{t("pulpit.clients.heading")}</h2>
             {clients.length > 0 && (
               <Link to="/trener/podopieczni" className="btn btn-ghost btn-sm">
-                Wszyscy <Icons.Chev />
+                {t("pulpit.clients.all")} <Icons.Chev />
               </Link>
             )}
           </div>
           {clients.length === 0 ? (
             <div className="empty">
-              <h3>Brak podopiecznych</h3>
-              <div>Wygeneruj pierwsze zaproszenie w zakładce „Podopieczni".</div>
+              <h3>{t("pulpit.clients.emptyTitle")}</h3>
+              <div>{t("pulpit.clients.emptyBody")}</div>
             </div>
           ) : (
             <div className="list">
@@ -170,11 +168,11 @@ export default function TrenerPulpit() {
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 500 }}>{c.displayName}</div>
                     <div className="text-xs muted" style={{ marginTop: 2 }}>
-                      {c.activePlanName != null ? c.activePlanName : "brak planu"}
+                      {c.activePlanName != null ? c.activePlanName : t("pulpit.clients.noPlan")}
                     </div>
                   </div>
                   <div className="mono text-xs muted">
-                    {c.lastSession ? daysAgo(c.lastSession) : "brak sesji"}
+                    {c.lastSession ? daysAgo(c.lastSession, locale) : t("pulpit.clients.noSession")}
                   </div>
                   <Icons.Chev style={{ color: "var(--muted-2)" }} />
                 </Link>
@@ -185,13 +183,13 @@ export default function TrenerPulpit() {
 
         <section>
           <div className="row between" style={{ alignItems: "baseline", marginBottom: 12 }}>
-            <h2 style={{ fontSize: 17 }}>Ostatnie sesje</h2>
+            <h2 style={{ fontSize: 17 }}>{t("pulpit.recent.heading")}</h2>
             <Icons.History style={{ color: "var(--muted)" }} />
           </div>
           {recentLogs.length === 0 ? (
             <div className="empty">
-              <h3>Brak sesji</h3>
-              <div>Nikt jeszcze nie zarejestrował treningu.</div>
+              <h3>{t("pulpit.recent.emptyTitle")}</h3>
+              <div>{t("pulpit.recent.emptyBody")}</div>
             </div>
           ) : (
             <div className="list">
@@ -209,7 +207,7 @@ export default function TrenerPulpit() {
                       {log.sessionName}
                     </div>
                   </div>
-                  <div className="mono text-xs muted">{daysAgo(log.performedOn)}</div>
+                  <div className="mono text-xs muted">{daysAgo(log.performedOn, locale)}</div>
                 </Link>
               ))}
             </div>
@@ -219,13 +217,13 @@ export default function TrenerPulpit() {
 
       <div style={{ marginTop: 22 }}>
         <Link to="/trener/plany" className="muted text-xs">
-          Plany ›
+          {t("pulpit.footer.plans")}
         </Link>
         <span className="muted text-xs" style={{ margin: "0 10px" }}>
           ·
         </span>
         <Link to="/trener/biblioteka" className="muted text-xs">
-          Biblioteka ćwiczeń ›
+          {t("pulpit.footer.library")}
         </Link>
       </div>
     </div>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Form,
   Link,
@@ -13,47 +14,50 @@ import { Icons } from "~/components/icons";
 import { ListControls } from "~/components/list-controls";
 import { Modal } from "~/components/modal";
 import { Pagination, parsePage } from "~/components/pagination";
+import { langToIntlLocale, type Lang } from "~/i18n/config";
+import { tDyn } from "~/i18n/translate";
 import { createInvite, requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import { getEnv, stripeApiConfigured } from "~/lib/env";
 import { parsePlnToGrosze, MonthlyAmountSchema } from "~/lib/money";
-import { daysAgo, fmtDate, pluralizePl, type PlForms } from "~/lib/format";
+import { daysAgo, fmtDate } from "~/lib/format";
 import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
 import { countClientsForTrainer, listClientsForTrainer, type ClientSort } from "~/lib/workouts";
 
-const OSOBA: PlForms = { one: "osoba", few: "osoby", many: "osób" };
-
+// Walidacja zwraca KLUCZE komunikatów (namespace trenerPodopieczni) — komponent
+// tłumaczy je przez tDyn. Daty/locale liczone w komponencie.
 const InviteSchema = z.object({
-  displayName: z.string().trim().min(1, "Podaj imię i nazwisko.").max(80),
+  displayName: z.string().trim().min(1, "lista.validation.nameRequired").max(80),
   email: z
     .string()
     .trim()
-    .min(1, "Email jest wymagany.")
+    .min(1, "lista.validation.emailRequired")
     .max(254)
     .refine((v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), {
-      message: "Nieprawidłowy email.",
+      message: "lista.validation.emailInvalid",
     }),
 });
 
 const PAGE_SIZE = 30;
 
-const spec: ListControlsSpec = {
+/** Spec używany server-side do parseListControls — etykiety dokładamy w komponencie. */
+const SPEC_BASE: ListControlsSpec = {
   sortOptions: [
-    { key: "name_asc", label: "Nazwisko A–Z" },
-    { key: "name_desc", label: "Nazwisko Z–A" },
-    { key: "last_session", label: "Ostatnia sesja" },
-    { key: "most_sessions", label: "Najwięcej sesji" },
-    { key: "newest", label: "Najnowszy podopieczny" },
+    { key: "name_asc", label: "" },
+    { key: "name_desc", label: "" },
+    { key: "last_session", label: "" },
+    { key: "most_sessions", label: "" },
+    { key: "newest", label: "" },
   ],
   defaultSort: "name_asc",
   filterGroups: [
     {
       param: "plan",
-      label: "Plan",
+      label: "",
       options: [
-        { value: "all", label: "Wszyscy" },
-        { value: "with", label: "Z aktywnym planem" },
-        { value: "without", label: "Bez planu" },
+        { value: "all", label: "" },
+        { value: "with", label: "" },
+        { value: "without", label: "" },
       ],
       defaultValue: "all",
     },
@@ -67,7 +71,7 @@ export async function loader(args: LoaderFunctionArgs) {
   const page = parsePage(url.searchParams);
   const deletedName = url.searchParams.get("usuniety");
 
-  const controls = parseListControls(url.searchParams, spec);
+  const controls = parseListControls(url.searchParams, SPEC_BASE);
   const plan = (controls.filters.plan ?? "all") as "all" | "with" | "without";
 
   const total = await countClientsForTrainer(db, user.id, { q: controls.q, plan });
@@ -84,7 +88,6 @@ export async function loader(args: LoaderFunctionArgs) {
   });
   return {
     clients,
-    spec,
     controls,
     page: safePage,
     totalPages,
@@ -103,7 +106,7 @@ export async function action(args: ActionFunctionArgs) {
     email: fd.get("email"),
   });
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Sprawdź formularz." };
+    return { error: parsed.error.issues[0]?.message ?? "lista.form.fallbackError" };
   }
 
   const amountRaw = String(fd.get("monthlyAmount") ?? "").trim();
@@ -112,7 +115,7 @@ export async function action(args: ActionFunctionArgs) {
     const g = parsePlnToGrosze(amountRaw);
     const parsedAmt = g === null ? null : MonthlyAmountSchema.safeParse(g);
     if (!parsedAmt || !parsedAmt.success) {
-      return { error: "Kwota miesięczna jest nieprawidłowa (min. 2 zł)." };
+      return { error: "lista.validation.amountInvalid" };
     }
     monthlyAmountGrosze = parsedAmt.data;
   }
@@ -135,10 +138,35 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function TrenerPodopieczniList() {
-  const { clients, spec, controls, page, totalPages, total, deletedName, stripeAvailable } =
+  const { clients, controls, page, totalPages, total, deletedName, stripeAvailable } =
     useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const { t, i18n } = useTranslation("trenerPodopieczni");
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
   const [showInviteModal, setShowInviteModal] = useState(false);
+
+  const spec: ListControlsSpec = {
+    ...SPEC_BASE,
+    sortOptions: [
+      { key: "name_asc", label: t("lista.sort.name_asc") },
+      { key: "name_desc", label: t("lista.sort.name_desc") },
+      { key: "last_session", label: t("lista.sort.last_session") },
+      { key: "most_sessions", label: t("lista.sort.most_sessions") },
+      { key: "newest", label: t("lista.sort.newest") },
+    ],
+    filterGroups: [
+      {
+        param: "plan",
+        label: t("lista.filter.plan"),
+        options: [
+          { value: "all", label: t("lista.filter.planAll") },
+          { value: "with", label: t("lista.filter.planWith") },
+          { value: "without", label: t("lista.filter.planWithout") },
+        ],
+        defaultValue: "all",
+      },
+    ],
+  };
 
   const hasInvite = actionData != null && "invite" in actionData && actionData.invite != null;
 
@@ -153,17 +181,15 @@ export default function TrenerPodopieczniList() {
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Trener
+            {t("lista.eyebrow")}
           </div>
-          <h1>Podopieczni</h1>
+          <h1>{t("lista.title")}</h1>
           <div className="sub">
-            {total === 0
-              ? "Brak podopiecznych. Wygeneruj pierwsze zaproszenie."
-              : `${total} ${pluralizePl(total, OSOBA)}.`}
+            {total === 0 ? t("lista.empty") : t("lista.total", { count: total })}
           </div>
         </div>
         <button type="button" onClick={() => setShowInviteModal(true)} className="btn btn-primary">
-          <Icons.Plus /> Zaproś podopiecznego
+          <Icons.Plus /> {t("lista.invite")}
         </button>
       </div>
 
@@ -180,7 +206,7 @@ export default function TrenerPodopieczniList() {
             background: "var(--accent-soft)",
           }}
         >
-          Podopieczny „{deletedName}" został usunięty wraz ze wszystkimi danymi.
+          {t("lista.deleted", { name: deletedName })}
         </output>
       )}
 
@@ -191,19 +217,19 @@ export default function TrenerPodopieczniList() {
       <Modal
         open={showInviteModal}
         onClose={() => setShowInviteModal(false)}
-        title="Zaproś podopiecznego"
+        title={t("lista.form.title")}
       >
         <Form method="post">
           <div className="modal-body">
             <div className="field">
-              <label htmlFor="inv-name">Imię i nazwisko</label>
+              <label htmlFor="inv-name">{t("lista.form.name")}</label>
               <input
                 id="inv-name"
                 name="displayName"
                 type="text"
                 required
                 maxLength={80}
-                placeholder="np. Mateusz Kozłowski"
+                placeholder={t("lista.form.namePlaceholder")}
                 className="input"
                 ref={(el) => {
                   // Focus the first field when the modal mounts.
@@ -212,36 +238,36 @@ export default function TrenerPodopieczniList() {
               />
             </div>
             <div className="field">
-              <label htmlFor="inv-email">Email</label>
+              <label htmlFor="inv-email">{t("lista.form.email")}</label>
               <input
                 id="inv-email"
                 name="email"
                 type="email"
                 required
                 maxLength={254}
-                placeholder="mateusz@example.pl"
+                placeholder={t("lista.form.emailPlaceholder")}
                 className="input"
               />
             </div>
             {stripeAvailable && (
               <div className="field">
-                <label htmlFor="inv-amount">Kwota miesięczna (zł) — opcjonalnie</label>
+                <label htmlFor="inv-amount">{t("lista.form.amount")}</label>
                 <input
                   id="inv-amount"
                   name="monthlyAmount"
                   type="text"
                   inputMode="decimal"
-                  placeholder="np. 200"
+                  placeholder={t("lista.form.amountPlaceholder")}
                   className="input"
                 />
                 <p className="text-xs muted" style={{ margin: "4px 0 0" }}>
-                  Podopieczny doda kartę przy dołączaniu. Zostaw puste, aby zaprosić bez płatności.
+                  {t("lista.form.amountHint")}
                 </p>
               </div>
             )}
             {actionData != null && "error" in actionData && actionData.error != null && (
               <p role="alert" style={{ color: "var(--danger)", fontSize: 13, margin: 0 }}>
-                {actionData.error}
+                {tDyn(t, actionData.error)}
               </p>
             )}
           </div>
@@ -251,10 +277,10 @@ export default function TrenerPodopieczniList() {
               onClick={() => setShowInviteModal(false)}
               className="btn btn-ghost"
             >
-              Anuluj
+              {t("lista.form.cancel")}
             </button>
             <button type="submit" className="btn btn-primary">
-              <Icons.Link /> Wygeneruj link
+              <Icons.Link /> {t("lista.form.generate")}
             </button>
           </div>
         </Form>
@@ -263,7 +289,7 @@ export default function TrenerPodopieczniList() {
       <ListControls
         spec={spec}
         state={controls}
-        searchPlaceholder="Szukaj po nazwisku lub emailu…"
+        searchPlaceholder={t("lista.searchPlaceholder")}
       />
 
       {total === 0 ? null : (
@@ -272,9 +298,9 @@ export default function TrenerPodopieczniList() {
             className="list-head"
             style={{ display: "grid", gridTemplateColumns: "2fr 1.4fr 1.2fr 0.4fr", gap: 14 }}
           >
-            <div>Podopieczny</div>
-            <div>Aktywny plan</div>
-            <div>Ostatnia sesja</div>
+            <div>{t("lista.table.trainee")}</div>
+            <div>{t("lista.table.activePlan")}</div>
+            <div>{t("lista.table.lastSession")}</div>
             <div />
           </div>
           {clients.map((c) => (
@@ -290,7 +316,7 @@ export default function TrenerPodopieczniList() {
                   <div style={{ fontSize: 14, fontWeight: 500 }}>{c.displayName}</div>
                   {c.joinedOn && (
                     <div className="text-xs muted" style={{ marginTop: 2 }}>
-                      od {fmtDate(c.joinedOn)}
+                      {t("lista.table.since", { date: fmtDate(c.joinedOn, locale) })}
                     </div>
                   )}
                 </div>
@@ -302,14 +328,14 @@ export default function TrenerPodopieczniList() {
                     {c.activePlanName}
                   </span>
                 ) : (
-                  <span className="text-xs muted">brak aktywnego planu</span>
+                  <span className="text-xs muted">{t("lista.table.noPlan")}</span>
                 )}
               </div>
               <div className="text-sm">
                 {c.lastSession ? (
-                  <span className="muted">ostatnia {daysAgo(c.lastSession)}</span>
+                  <span className="muted">{t("lista.table.lastAgo", { ago: daysAgo(c.lastSession, locale) })}</span>
                 ) : (
-                  <span className="muted">brak sesji</span>
+                  <span className="muted">{t("lista.table.noSessions")}</span>
                 )}
                 {c.totalSessions > 0 && (
                   <span className="muted" style={{ marginLeft: 6 }}>
@@ -329,7 +355,7 @@ export default function TrenerPodopieczniList() {
         page={page}
         totalPages={totalPages}
         total={total}
-        totalLabel={pluralizePl(total, OSOBA)}
+        totalLabel={t("lista.totalWord", { count: total })}
       />
     </div>
   );
@@ -340,6 +366,7 @@ function InviteCreatedCard({
 }: {
   invite: { url: string; displayName: string; email: string | null };
 }) {
+  const { t } = useTranslation("trenerPodopieczni");
   return (
     <div
       className="card"
@@ -360,7 +387,7 @@ function InviteCreatedCard({
           marginBottom: 6,
         }}
       >
-        Link wygenerowany · ważny 14 dni
+        {t("lista.inviteCard.generated")}
       </div>
       <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 10 }}>
         {invite.displayName}
@@ -371,7 +398,7 @@ function InviteCreatedCard({
         )}
       </div>
       <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 12 }}>
-        Skopiuj i wyślij podopiecznemu. Po przyjęciu zaproszenia konto pojawi się na liście poniżej.
+        {t("lista.inviteCard.instructions")}
       </div>
       <div className="row" style={{ gap: 8, alignItems: "stretch", flexWrap: "wrap" }}>
         <div
@@ -389,10 +416,10 @@ function InviteCreatedCard({
         >
           {invite.url}
         </div>
-        <CopyButton value={invite.url} variant="primary" label="Kopiuj link" />
+        <CopyButton value={invite.url} variant="primary" label={t("lista.inviteCard.copy")} />
       </div>
       <div className="mono" style={{ fontSize: 11, opacity: 0.6, marginTop: 10 }}>
-        Token pokazujemy tylko teraz. Jeśli zgubisz link, wygeneruj nowy.
+        {t("lista.inviteCard.tokenNote")}
       </div>
     </div>
   );

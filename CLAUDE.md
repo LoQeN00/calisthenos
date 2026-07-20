@@ -55,6 +55,7 @@ Każdy wpis linkuje do `README.md` danego katalogu — tam jest opis plików.
 - [`app/routes/`](app/routes/README.md) — trasy RR7 (loadery/akcje/komponenty)
   - [`app/routes/trener/`](app/routes/trener/README.md) — widoki trenera (`/trener/*`)
   - [`app/routes/podopieczny/`](app/routes/podopieczny/README.md) — widoki podopiecznego (`/podopieczny/*`)
+  - [`app/routes/marka/`](app/routes/marka/README.md) — widoki prezesa marki (`/marka/*`, rola `brand_admin`): powłoka + autorstwo katalogu marki (ćwiczenia, umiejętności, drzewo) + zarządzanie ambasadorami (trenerzy org: lista, profil, zaproszenie, dezaktywacja/reaktywacja); Regiony/Ustawienia „wkrótce"
 - [`app/components/`](app/components/README.md) — współdzielone komponenty UI
 - [`app/lib/`](app/lib/README.md) — logika domenowa i infrastruktura
   - [`app/lib/auth/`](app/lib/auth/README.md) — sesje, hasła, cookie, zaproszenia
@@ -63,7 +64,12 @@ Każdy wpis linkuje do `README.md` danego katalogu — tam jest opis plików.
   - [`app/lib/google/`](app/lib/google/README.md) — OAuth2 + Google Calendar/Meet sync (wychodząca, best-effort, opcjonalna)
   - [`app/lib/stripe/`](app/lib/stripe/README.md) — płatności Stripe Connect (klient, połączenia konta, status subskrypcji; opcjonalna)
   - [`app/lib/storage/`](app/lib/storage/README.md) — interfejs `FileStorage` + impl. lokalna
+  - `app/lib/brand-catalog.ts` — repozytorium katalogu markowego dla prezesa (`brand_admin`): CRUD markowych ćwiczeń/umiejętności/wariantów/prerekwizytów + drzewo DAG; scope do `organizationId`; reużywa `skill-tree-math`; `skills.ts` trenera nienaruszone
+  - `app/lib/ambassadors.ts` — repozytorium ambasadorów (trenerzy org) dla prezesa: lista z metrykami, profil, zaproszenie (→ `invite.ts`), dezaktywacja/reaktywacja + best-effort pauza subskrypcji; org-scoped
+  - `app/lib/ambassador-types.ts` — `AmbassadorInviteSchema` (Zod): walidacja danych zaproszenia ambasadora
 - [`app/styles/`](app/styles/README.md) — globalne tokeny CSS
+- [`app/i18n/`](app/i18n/README.md) — konfiguracja i18next, `pickLang`, `resources`, typowanie `CustomTypeOptions`
+- [`app/locales/`](app/locales/README.md) — słowniki JSON (`pl/`, `fr/`) + test parzystości kluczy
 
 ### Pozostałe katalogi
 - [`scripts/`](scripts/README.md) — skrypty operacyjne (seed)
@@ -74,6 +80,8 @@ Każdy wpis linkuje do `README.md` danego katalogu — tam jest opis plików.
   - [`design-system/fonts/`](design-system/fonts/README.md) — źródłowe woff2
   - [`design-system/preview/`](design-system/preview/README.md) — statyczne karty podglądu
 - [`docs/`](docs/README.md) — dokumentacja, plany, logi
+  - [`docs/ddd/`](docs/ddd/README.md) — metodyka DDD: pełne flow analizy strategicznej (generyczny playbook — 8 kroków, techniki, context mapping)
+    - [`docs/ddd/kalisthenos/`](docs/ddd/kalisthenos/README.md) — konkretne wyniki analizy strategicznej DDD dla kalisthenos (brownfield, kroki 1–7), prowadzone fazami; indeks + tablica statusu + plan/runbook faz
   - [`docs/superpowers/`](docs/superpowers/README.md) — spec, plany, logi build/deploy
     - [`docs/superpowers/plans/`](docs/superpowers/plans/README.md)
     - [`docs/superpowers/specs/`](docs/superpowers/specs/README.md)
@@ -111,6 +119,16 @@ w `.gitignore`), `design-system/_src/` (rozpakowany prototyp, read-only).
 - **Schemat to źródło prawdy.** Zmiana modelu danych = edycja
   `app/lib/db/schema.ts`, potem `npm run db:generate` (nowa migracja) — **nigdy
   ręcznie nie edytuj plików w `migrations/`**.
+- **Efektywny katalog (ćwiczenia/umiejętności) = markowe ∪ własne.** Wiersz katalogu
+  jest albo markowy (`trainer_id NULL`, `organization_id`), albo trenerski
+  (`trainer_id`, `organization_id NULL`); CHECK `*_owner_check` pilnuje dokładnie
+  jednego właściciela. Trener WIDZI markowe pozycje swojej organizacji + własne, ale
+  ZAPISUJE tylko na własnych — markowe są read-only. „Dostosuj" robi fork
+  copy-on-write na własność trenera (`origin_id` → oryginał; `forkExercise`/`forkSkill`
+  w `app/lib/catalog.ts`, czyste helpery w `catalog-math.ts`). Markowe demo ćwiczeń
+  jest widoczne w obrębie organizacji (`fileIsBrandDemoInOrg`). Funkcje katalogu
+  przyjmują `{ trainerId, organizationId }`; podopieczny dziedziczy org trenera
+  (`resolveCatalogOrgId`).
 - **UI po polsku.** Cała warstwa produktu jest polskojęzyczna; angielskie zostają
   tylko nazwy ćwiczeń (Pull-up, Front Lever…). Brand `kalisthenos` zawsze małą
   literą. Zasady języka/tonu/wizualne: [`design-system/README.md`](design-system/README.md).

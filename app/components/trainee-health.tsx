@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import { Icons } from "~/components/icons";
 import {
@@ -6,6 +7,7 @@ import {
   SegmentedBarLegend,
   type BarSegment,
 } from "~/components/stat-widgets";
+import { langToIntlLocale, type Lang } from "~/i18n/config";
 import { daysAgo } from "~/lib/format";
 import type {
   BodyPhotoCoverage,
@@ -100,6 +102,8 @@ function Tile({
 }
 
 export function HealthTilesCard({ health }: { health: HealthStats }) {
+  const { t, i18n } = useTranslation();
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
   const activityTone =
     health.daysSinceLastSession == null
       ? "var(--muted)"
@@ -135,47 +139,53 @@ export function HealthTilesCard({ health }: { health: HealthStats }) {
       }}
     >
       <Tile
-        label="Aktywność"
+        label={t("health.tile.activity")}
         valueLine={
           health.daysSinceLastSession == null
-            ? "brak sesji"
-            : daysAgo(isoFromDaysAgo(health.daysSinceLastSession))
+            ? t("health.tile.noSessions")
+            : daysAgo(isoFromDaysAgo(health.daysSinceLastSession), locale)
         }
         sub={
           health.avgIntervalDays != null
-            ? `7d: ${health.sessionsLast7} · 30d: ${health.sessionsLast30} · co ~${health.avgIntervalDays} dni`
+            ? `7d: ${health.sessionsLast7} · 30d: ${health.sessionsLast30} · ${t(
+                "health.tile.interval",
+                { count: health.avgIntervalDays },
+              )}`
             : `7d: ${health.sessionsLast7} · 30d: ${health.sessionsLast30}`
         }
         tone={activityTone}
       />
       <Tile
-        label="Średnie RPE"
+        label={t("health.tile.avgRpe")}
         valueLine={health.recentAvgRpe === 0 ? "—" : `${health.recentAvgRpe}/10`}
         sub={
           health.historicalAvgRpe === 0
-            ? "ostatnich 5 sesji"
-            : `vs ${health.historicalAvgRpe} historycznie ${trendArrow(health.rpeTrend)}`
+            ? t("health.tile.lastSessions")
+            : t("health.tile.vsHistorical", {
+                value: health.historicalAvgRpe,
+                arrow: trendArrow(health.rpeTrend),
+              })
         }
         tone={rpeTone}
       />
       <Tile
-        label="Czerwona strefa"
+        label={t("health.tile.redZone")}
         valueLine={health.hasAnyLog30d ? `${health.redZonePct}%` : "—"}
         sub={
           !health.hasAnyLog30d
-            ? "brak sesji w 30 dni"
+            ? t("health.tile.noSessions30d")
             : health.redZonePct > 40
-              ? "plan może być za ostry"
+              ? t("health.tile.tooHard")
               : health.redZonePct < 5
-                ? "plan może być za lekki"
-                : "RPE 9–10, 30 dni"
+                ? t("health.tile.tooLight")
+                : t("health.tile.redZoneSub")
         }
         tone={redTone}
       />
       <Tile
-        label="Ukończone w całości"
+        label={t("health.tile.allDone")}
         valueLine={health.hasAnyLog30d ? `${health.allDonePct}%` : "—"}
-        sub={health.hasAnyLog30d ? "sesji w 30 dni" : "brak sesji w 30 dni"}
+        sub={health.hasAnyLog30d ? t("health.tile.sessions30d") : t("health.tile.noSessions30d")}
         tone={adTone}
       />
     </div>
@@ -187,12 +197,13 @@ export function HealthTilesCard({ health }: { health: HealthStats }) {
 // ============================================================
 
 export function PlateauCard({ plateau }: { plateau: PlateauExercise[] }) {
+  const { t } = useTranslation();
   if (plateau.length === 0) return null;
   return (
-    <Section title="Plateau — uważne oko" icon={<Icons.Sparkle />}>
+    <Section title={t("health.plateau.title")} icon={<Icons.Sparkle />}>
       <div className="card" style={{ padding: 14 }}>
         <div className="text-xs muted" style={{ marginBottom: 10 }}>
-          Powtórzenia stoją w miejscu, a RPE nie spada — kandydaci do regresji lub zmiany wariantu.
+          {t("health.plateau.intro")}
         </div>
         <div className="col" style={{ gap: 8 }}>
           {plateau.map((p) => (
@@ -212,19 +223,19 @@ export function PlateauCard({ plateau }: { plateau: PlateauExercise[] }) {
               <div style={{ flex: 1, minWidth: 200 }}>
                 <div style={{ fontSize: 14, fontWeight: 500 }}>{p.exerciseName}</div>
                 <div className="text-xs muted" style={{ marginTop: 2 }}>
-                  {p.sessionsConsidered} sesji obserwacji · PR <span className="mono">{p.pr}</span>{" "}
-                  · {p.unit}
+                  {t("health.plateau.observation", { sessions: p.sessionsConsidered })}{" "}
+                  <span className="mono">{p.pr}</span> · {p.unit}
                 </div>
               </div>
               <div className="row" style={{ gap: 12 }}>
                 <div style={{ textAlign: "right" }}>
-                  <div className="mono muted text-xs">śr. reps</div>
+                  <div className="mono muted text-xs">{t("health.plateau.avgReps")}</div>
                   <div className="mono" style={{ fontWeight: 600 }}>
                     {p.recentAvgReps}
                   </div>
                 </div>
                 <div style={{ textAlign: "right" }}>
-                  <div className="mono muted text-xs">śr. RPE</div>
+                  <div className="mono muted text-xs">{t("health.plateau.avgRpe")}</div>
                   <div className="mono" style={{ fontWeight: 600, color: "var(--warn)" }}>
                     {p.recentAvgRpe}
                   </div>
@@ -242,12 +253,12 @@ export function PlateauCard({ plateau }: { plateau: PlateauExercise[] }) {
 // PlanUsageCard
 // ============================================================
 
-function PlanRow({ label, value }: { label: string; value: number }) {
+function PlanRow({ label, value, locale }: { label: string; value: number; locale: string }) {
   return (
     <div className="row between" style={{ fontSize: 13 }}>
       <span className="muted">{label}</span>
       <span className="mono" style={{ fontWeight: 600 }}>
-        {value.toLocaleString("pl-PL")}
+        {value.toLocaleString(locale)}
       </span>
     </div>
   );
@@ -260,10 +271,16 @@ export function PlanUsageCard({
   usage: { planName: string | null; sessions: PlanSessionUsage[] };
   totals: CurrentPlanTotals;
 }) {
+  const { t, i18n } = useTranslation();
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
   if (!usage.planName && !totals.planName) return null;
   return (
     <Section
-      title={`Aktywny plan${totals.planName ? ` — ${totals.planName}` : ""}`}
+      title={
+        totals.planName
+          ? t("health.plan.activeNamed", { name: totals.planName })
+          : t("health.plan.active")
+      }
       icon={<Icons.Plans />}
     >
       <div className="grid" style={{ gridTemplateColumns: "1.2fr 1fr", gap: 14 }}>
@@ -278,10 +295,10 @@ export function PlanUsageCard({
               marginBottom: 8,
             }}
           >
-            Wykorzystanie sesji
+            {t("health.plan.sessionUsage")}
           </div>
           {usage.sessions.length === 0 ? (
-            <div className="text-xs muted">Plan bez sesji.</div>
+            <div className="text-xs muted">{t("health.plan.noSessions")}</div>
           ) : (
             <div className="col" style={{ gap: 6 }}>
               {usage.sessions.map((s) => (
@@ -304,7 +321,7 @@ export function PlanUsageCard({
                     ×{s.doneCount}
                   </span>
                   <span className="mono text-xs muted" style={{ minWidth: 80, textAlign: "right" }}>
-                    {s.lastPerformedOn ? daysAgo(s.lastPerformedOn) : "—"}
+                    {s.lastPerformedOn ? daysAgo(s.lastPerformedOn, locale) : "—"}
                   </span>
                 </div>
               ))}
@@ -322,14 +339,22 @@ export function PlanUsageCard({
               marginBottom: 8,
             }}
           >
-            Łącznie na tym planie
+            {t("health.plan.totalOnPlan")}
           </div>
           <div className="col" style={{ gap: 6 }}>
-            <PlanRow label="Sesji" value={totals.totalSessionsOnPlan} />
-            <PlanRow label="Serii" value={totals.totalSets} />
-            <PlanRow label="Powtórzeń" value={totals.totalReps} />
+            <PlanRow
+              label={t("health.plan.sessions")}
+              value={totals.totalSessionsOnPlan}
+              locale={locale}
+            />
+            <PlanRow label={t("health.plan.sets")} value={totals.totalSets} locale={locale} />
+            <PlanRow label={t("health.plan.reps")} value={totals.totalReps} locale={locale} />
             {totals.totalSeconds > 0 && (
-              <PlanRow label="Sekund pod tension" value={totals.totalSeconds} />
+              <PlanRow
+                label={t("health.plan.secondsUnderTension")}
+                value={totals.totalSeconds}
+                locale={locale}
+              />
             )}
           </div>
         </div>
@@ -366,8 +391,10 @@ export function CoverageCard({
   photos: BodyPhotoCoverage;
   traineeId: string;
 }) {
+  const { t, i18n } = useTranslation();
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
   return (
-    <Section title="Coverage" icon={<Icons.Camera />}>
+    <Section title={t("health.coverage.title")} icon={<Icons.Camera />}>
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         <div className="card" style={{ padding: 14 }}>
           <div
@@ -380,15 +407,18 @@ export function CoverageCard({
               marginBottom: 6,
             }}
           >
-            Wideo serii (30 dni)
+            {t("health.coverage.setVideo")}
           </div>
           <div className="mono" style={{ fontSize: 22, fontWeight: 600 }}>
             {video.total === 0 ? "—" : `${video.pct}%`}
           </div>
           <div className="text-xs muted" style={{ marginTop: 4 }}>
             {video.total === 0
-              ? "brak serii w 30 dni"
-              : `${video.withVideo} z ${video.total} serii z nagraniem`}
+              ? t("health.coverage.noSets30d")
+              : t("health.coverage.setsWithVideo", {
+                  withVideo: video.withVideo,
+                  total: video.total,
+                })}
           </div>
         </div>
         <div className="card" style={{ padding: 14 }}>
@@ -402,26 +432,28 @@ export function CoverageCard({
                 color: "var(--muted)",
               }}
             >
-              Sylwetka
+              {t("health.coverage.physique")}
             </div>
             <Link
               to={`/trener/podopieczni/${traineeId}/sylwetka`}
               className="text-xs"
               style={{ color: "var(--muted)" }}
             >
-              Zobacz <Icons.Chev />
+              {t("health.coverage.see")} <Icons.Chev />
             </Link>
           </div>
           <div className="mono" style={{ fontSize: 22, fontWeight: 600 }}>
-            {photos.daysSinceLast == null ? "—" : daysAgo(isoFromDaysAgo(photos.daysSinceLast))}
+            {photos.daysSinceLast == null
+              ? "—"
+              : daysAgo(isoFromDaysAgo(photos.daysSinceLast), locale)}
           </div>
           <div className="text-xs muted" style={{ marginTop: 4 }}>
-            ostatnie zdjęcie · {photos.totalPhotos} łącznie
+            {t("health.coverage.lastPhoto", { count: photos.totalPhotos })}
           </div>
           <div className="row" style={{ gap: 6, marginTop: 10 }}>
-            <ViewChip label="Przód" on={photos.views.front} />
-            <ViewChip label="Bok" on={photos.views.side} />
-            <ViewChip label="Tył" on={photos.views.back} />
+            <ViewChip label={t("health.coverage.front")} on={photos.views.front} />
+            <ViewChip label={t("health.coverage.side")} on={photos.views.side} />
+            <ViewChip label={t("health.coverage.back")} on={photos.views.back} />
           </div>
         </div>
       </div>
@@ -442,6 +474,7 @@ export function TagDistributionCard({
   untagged: number;
   total: number;
 }) {
+  const { t } = useTranslation();
   if (total === 0) return null;
   const PALETTE = ["var(--accent)", "var(--ok)", "var(--warn)", "var(--danger)", "var(--muted)"];
   const segments: BarSegment[] = shares.map((s, i) => ({
@@ -451,18 +484,16 @@ export function TagDistributionCard({
   }));
   if (untagged > 0) {
     segments.push({
-      label: "bez kategorii",
+      label: t("health.tags.untagged"),
       value: untagged,
       color: "var(--surface-2)",
     });
   }
   return (
-    <Section title="Rozkład kategorii (30 dni)" icon={<Icons.Filter />}>
+    <Section title={t("health.tags.title")} icon={<Icons.Filter />}>
       <div className="card" style={{ padding: 14 }}>
         {shares.length === 0 && untagged > 0 ? (
-          <div className="text-xs muted">
-            Ćwiczenia bez tagów — dodaj kategorie w bibliotece, by zobaczyć balans.
-          </div>
+          <div className="text-xs muted">{t("health.tags.noTags")}</div>
         ) : (
           <>
             <SegmentedBar segments={segments} height={12} />
@@ -479,8 +510,9 @@ export function TagDistributionCard({
 // ============================================================
 
 export function ActivityHeatmapCard({ days }: { days: HeatmapDay[] }) {
+  const { t } = useTranslation();
   return (
-    <Section title="Aktywność" icon={<Icons.Calendar />}>
+    <Section title={t("health.activity.title")} icon={<Icons.Calendar />}>
       <div className="card" style={{ padding: 14 }}>
         <Heatmap days={days} />
       </div>

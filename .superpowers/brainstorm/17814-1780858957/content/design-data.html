@@ -1,0 +1,56 @@
+<h2>Design · sekcja 3–4: dane / repo + pliki</h2>
+<p class="subtitle">Osobne repo i trasy marki; złożona logika reużyta z czystych modułów. Trenerskie funkcje zapisu — nietknięte.</p>
+
+<div class="section">
+  <div class="label">3 · Nowy moduł brand-catalog.ts (brand-scoped, owner = organization_id)</div>
+  <div class="mockup"><div class="mockup-body" style="line-height:1.7;font-size:13px">
+    <b>Odczyt:</b> listBrandExercises(org), getBrandExercise(org,id), listBrandSkills(org),
+    getBrandSkillWithVariations(org,id), getBrandSkillTree(org), listAssignableBrandExercises(org,skillId),
+    listAssignableBrandPrereqs(org,skillId).<br>
+    <b>Zapis:</b> createBrandExercise / updateBrandExercise / archive · createBrandSkill / updateBrandSkill / archive ·
+    addBrandVariation / removeBrandVariation / reorderBrandVariations · addBrandPrereq / removeBrandPrereq.<br>
+    Każda bierze <code>organizationId</code> i filtruje po nim → niezgodność = <b>404</b> (tenant-scope).
+  </div></div>
+</div>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">REUŻYTE (zero kopii logiki)</div>
+    <div class="mockup-body" style="line-height:1.7;font-size:12.5px">
+      • skill-tree-math.ts — wouldCreateCycle, assignLayers, orderWithinLayer<br>
+      • catalog-math.ts — czyste transformacje<br>
+      • komponenty: exercise-fields, skill-tree (SkillTreeView/VariationLadder), list-controls, file-dropzone<br>
+      • normalizeTags, list-params
+    </div>
+  </div>
+  <div class="mockup">
+    <div class="mockup-header">NIETKNIĘTE</div>
+    <div class="mockup-body" style="line-height:1.7;font-size:12.5px">
+      • skills.ts (createSkill/addVariation… — trener)<br>
+      • catalog.ts reads dla trenera (effective view)<br>
+      • trasy /trener/*<br>
+      <span style="color:var(--muted)">→ brak ryzyka regresji u trenera</span>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">4 · Zmiana schematu: files (własność marki)</div>
+  <div class="mockup"><div class="mockup-body" style="line-height:1.7;font-size:13px">
+    <code>files.trainer_id</code> → <b>nullable</b>; nowe <code>files.organization_id</code> (FK, restrict);
+    CHECK <code>files_owner_check</code> = dokładnie jeden właściciel (lustro exercises/skills).
+    <code>uploaded_by</code> = id prezesa.<br>
+    <b>uploadFile</b> (file-uploads.ts) przyjmuje właściciela: trener LUB marka (org). <b>Serwowanie</b>
+    (files.$fileId): markowe demo już czytelne przez <code>fileIsBrandDemoInOrg</code>; upewniamy się, że
+    <code>resolveCatalogOrgId</code> zwraca org dla brand_admin.<br>
+    <span style="color:var(--muted)">Dotyka uploadu + podpisanych URL + tenant-scope → uruchomi /security-review.</span>
+  </div></div>
+</div>
+
+<div class="section">
+  <div class="label">authz</div>
+  <div class="mockup"><div class="mockup-body" style="line-height:1.7;font-size:13px">
+    Org-scope prezesa: repo filtruje po <code>user.organizationId</code>; pozycja spoza org → 404.
+    Markowy wiersz pozostaje read-only dla trenera (bez zmian w regule trenera).
+  </div></div>
+</div>

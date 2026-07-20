@@ -1,6 +1,8 @@
+import { useTranslation } from "react-i18next";
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { VideoButton } from "~/components/video-modal";
+import { langToIntlLocale, type Lang } from "~/i18n/config";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import { signFileUrl } from "~/lib/files";
@@ -53,6 +55,8 @@ function initialsOf(name: string): string {
 
 export default function TrenerWorkoutLogDetail() {
   const { log, trainee, exercises, totalExpectedSets } = useLoaderData<typeof loader>();
+  const { t, i18n } = useTranslation("trenerPodopieczni");
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
   const totalSets = exercises.reduce((a, e) => a + e.sets.length, 0);
   const skippedSets = Math.max(0, totalExpectedSets - totalSets);
   const allDiff = exercises
@@ -66,7 +70,7 @@ export default function TrenerWorkoutLogDetail() {
   return (
     <div>
       <div className="crumbs">
-        <Link to="/trener/podopieczni">Podopieczni</Link>
+        <Link to="/trener/podopieczni">{t("log.crumb")}</Link>
         <span className="sep">›</span>
         <Link to={`/trener/podopieczni/${trainee.id}`}>{trainee.displayName}</Link>
         <span className="sep">›</span>
@@ -85,7 +89,7 @@ export default function TrenerWorkoutLogDetail() {
       >
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            {fmtDate(log.performedOn)} · {daysAgo(log.performedOn)}
+            {fmtDate(log.performedOn, locale)} · {daysAgo(log.performedOn, locale)}
           </div>
           <h1 style={{ fontSize: 24 }}>{log.sessionName}</h1>
           <div
@@ -96,7 +100,7 @@ export default function TrenerWorkoutLogDetail() {
               <span className="mono" style={{ color: "var(--ink)", fontWeight: 600 }}>
                 {exercises.length}
               </span>{" "}
-              ćwiczeń
+              {t("log.exercises")}
             </span>
             <span>·</span>
             <span>
@@ -105,26 +109,22 @@ export default function TrenerWorkoutLogDetail() {
               </span>{" "}
               {totalExpectedSets > 0 ? (
                 <>
-                  z{" "}
-                  <span className="mono" style={{ color: "var(--ink)", fontWeight: 600 }}>
-                    {totalExpectedSets}
-                  </span>{" "}
-                  serii
+                  {t("log.ofSets", { total: totalExpectedSets })}
                 </>
               ) : (
-                "serii"
+                t("log.sets")
               )}
             </span>
             {skippedSets > 0 && (
               <span style={{ color: "var(--warn)", fontWeight: 600 }}>
-                · {skippedSets} pominięt{skippedSets === 1 ? "a" : "ych"}
+                · {t("log.skipped", { count: skippedSets })}
               </span>
             )}
             {avgDiff != null && (
               <>
                 <span>·</span>
                 <span>
-                  śr. trudność{" "}
+                  {t("log.avgDifficulty")}{" "}
                   <span className="mono" style={{ color: "var(--ink)", fontWeight: 600 }}>
                     {avgDiff}/10
                   </span>
@@ -166,7 +166,7 @@ export default function TrenerWorkoutLogDetail() {
                   marginBottom: 4,
                 }}
               >
-                Notatka podopiecznego
+                {t("log.traineeNote")}
               </div>
               {log.note}
             </div>
@@ -230,9 +230,9 @@ export default function TrenerWorkoutLogDetail() {
                           borderColor: "var(--warn)",
                           color: "var(--warn)",
                         }}
-                        title={`${skippedHere} z ${ex.expectedSets} serii pominięte`}
+                        title={t("log.setsTooltip", { done: skippedHere, total: ex.expectedSets })}
                       >
-                        {setCount}/{ex.expectedSets} serii
+                        {t("log.setsBadge", { done: setCount, total: ex.expectedSets })}
                       </span>
                     )}
                   </div>
@@ -247,10 +247,10 @@ export default function TrenerWorkoutLogDetail() {
                         letterSpacing: ".08em",
                       }}
                     >
-                      Średnio
+                      {t("log.average")}
                     </div>
                     <div className="mono" style={{ fontSize: 14, fontWeight: 600 }}>
-                      {avgReps.toFixed(1)} {ex.exercise.unit === "SEC" ? "s" : "rep"}
+                      {avgReps.toFixed(1)} {ex.exercise.unit === "SEC" ? t("log.unitSec") : t("log.unitRep")}
                     </div>
                   </div>
                   {hasRpe && (
@@ -263,7 +263,7 @@ export default function TrenerWorkoutLogDetail() {
                           letterSpacing: ".08em",
                         }}
                       >
-                        Trudność
+                        {t("log.difficulty")}
                       </div>
                       <div
                         className="mono"
@@ -296,13 +296,13 @@ export default function TrenerWorkoutLogDetail() {
                       marginBottom: 4,
                     }}
                   >
-                    <span className="label-mini">Seria</span>
+                    <span className="label-mini">{t("log.set")}</span>
                     <span className="label-mini">
-                      {ex.exercise.unit === "REPS" ? "Powt." : "Sek."}
+                      {ex.exercise.unit === "REPS" ? t("log.reps") : t("log.secs")}
                     </span>
-                    {hasRpe && <span className="label-mini">Trudn.</span>}
-                    {hasRpe && <span className="label-mini">Wizualnie</span>}
-                    <span className="label-mini">Video</span>
+                    {hasRpe && <span className="label-mini">{t("log.difficultyShort")}</span>}
+                    {hasRpe && <span className="label-mini">{t("log.visually")}</span>}
+                    <span className="label-mini">{t("log.video")}</span>
                   </div>
                   {rows.map(({ ordinal, logged }, rowIdx) =>
                     logged == null ? (
@@ -331,7 +331,7 @@ export default function TrenerWorkoutLogDetail() {
                             fontWeight: 600,
                           }}
                         >
-                          Pominięta
+                          {t("log.skippedLabel")}
                           {ex.expectedReps > 0 && (
                             <span
                               className="muted"
@@ -342,8 +342,8 @@ export default function TrenerWorkoutLogDetail() {
                                 fontWeight: 400,
                               }}
                             >
-                              · plan: {ex.expectedReps}{" "}
-                              {ex.exercise.unit === "SEC" ? "sek." : "powt."}
+                              · {t("log.planPrefix")} {ex.expectedReps}{" "}
+                              {ex.exercise.unit === "SEC" ? t("log.planSecs") : t("log.planReps")}
                             </span>
                           )}
                         </span>
@@ -365,7 +365,7 @@ export default function TrenerWorkoutLogDetail() {
                         <span className="mono">
                           <span style={{ fontWeight: 600, fontSize: 15 }}>{logged.log.reps}</span>{" "}
                           <span className="muted text-xs">
-                            {ex.exercise.unit === "SEC" ? "sek" : "rep"}
+                            {ex.exercise.unit === "SEC" ? t("log.secUnit") : t("log.repsUnit")}
                           </span>
                         </span>
                         {hasRpe && (
@@ -401,8 +401,8 @@ export default function TrenerWorkoutLogDetail() {
                           {logged.videoUrl ? (
                             <VideoButton
                               src={logged.videoUrl}
-                              title={`${ex.exercise.name} · seria ${ordinal + 1}`}
-                              label="video"
+                              title={t("log.videoTitle", { name: ex.exercise.name, n: ordinal + 1 })}
+                              label={t("log.videoLabel")}
                               size="sm"
                             />
                           ) : (

@@ -1,4 +1,5 @@
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
+import { useTranslation } from "react-i18next";
 import { Icons } from "~/components/icons";
 import { VideoButton } from "~/components/video-modal";
 import { requireUser } from "~/lib/auth";
@@ -37,6 +38,7 @@ type LoaderData = Awaited<ReturnType<typeof loader>>;
 
 export default function TraineeSessionDetail() {
   const { plan, sessionView, sessionIdx, blocks } = useLoaderData<typeof loader>();
+  const { t } = useTranslation("podopieczny");
   const totalSets = blocks.reduce((a, b) => {
     if (b.block.kind === "dropset") return a + (b.block.sets ?? 0);
     return a + b.items.reduce((aa, it) => aa + (it.item.sets ?? 0), 0);
@@ -62,7 +64,7 @@ export default function TraineeSessionDetail() {
       >
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Sesja {sessionIdx + 1}
+            {t("sesje.detail.eyebrow", { number: sessionIdx + 1 })}
           </div>
           <h1 style={{ fontSize: 26 }}>{sessionView.session.name}</h1>
           <div
@@ -73,21 +75,23 @@ export default function TraineeSessionDetail() {
               <span className="mono" style={{ color: "var(--ink)", fontWeight: 600 }}>
                 {blocks.length}
               </span>{" "}
-              bloków
+              {t("sesje.detail.blocks", { count: blocks.length })}
             </span>
             <span>·</span>
             <span>
               <span className="mono" style={{ color: "var(--ink)", fontWeight: 600 }}>
                 {blocks.reduce((a, b) => a + b.items.length, 0)}
               </span>{" "}
-              ćwiczeń
+              {t("sesje.detail.exercises", {
+                count: blocks.reduce((a, b) => a + b.items.length, 0),
+              })}
             </span>
             <span>·</span>
             <span>
               <span className="mono" style={{ color: "var(--ink)", fontWeight: 600 }}>
                 {totalSets}
               </span>{" "}
-              serii zaplanowanych
+              {t("sesje.detail.plannedSets", { count: totalSets })}
             </span>
           </div>
         </div>
@@ -95,7 +99,7 @@ export default function TraineeSessionDetail() {
           to={`/podopieczny/loguj/${sessionView.session.id}`}
           className="btn btn-primary btn-lg"
         >
-          <Icons.Plus /> Zarejestruj wykonanie
+          <Icons.Plus /> {t("sesje.detail.registerBtn")}
         </Link>
       </div>
 
@@ -111,7 +115,7 @@ export default function TraineeSessionDetail() {
           className="btn btn-primary btn-lg"
           style={{ width: "100%", justifyContent: "center" }}
         >
-          <Icons.Plus /> Zarejestruj wykonanie tej sesji
+          <Icons.Plus /> {t("sesje.detail.registerBtnFull")}
         </Link>
       </div>
     </div>
@@ -125,6 +129,7 @@ function BlockView({
   bi: number;
   block: LoaderData["blocks"][number];
 }) {
+  const { t } = useTranslation("podopieczny");
   return (
     <div className="card card-padless">
       <div
@@ -146,11 +151,11 @@ function BlockView({
             letterSpacing: ".06em",
           }}
         >
-          Blok {String.fromCharCode(65 + bi)}
+          {t("sesje.detail.blockLabel", { letter: String.fromCharCode(65 + bi) })}
         </div>
         {b.block.kind === "superset" && (
           <span className="badge">
-            <Icons.Link /> Superset · naprzemiennie
+            <Icons.Link /> {t("sesje.detail.supersetBadge")}
           </span>
         )}
         {b.block.kind === "dropset" && (
@@ -162,7 +167,7 @@ function BlockView({
               borderColor: "transparent",
             }}
           >
-            <Icons.Drop /> Drop set · {b.items.length} dropów bez przerwy
+            <Icons.Drop /> {t("sesje.detail.dropsetBadge", { count: b.items.length })}
           </span>
         )}
       </div>
@@ -183,7 +188,7 @@ function BlockView({
                 className="mono muted"
                 style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: ".06em" }}
               >
-                Serie
+                {t("sesje.detail.sets")}
               </div>
               <div className="mono" style={{ fontSize: 18, fontWeight: 600 }}>
                 {b.block.sets ?? 0}
@@ -194,7 +199,7 @@ function BlockView({
                 className="mono muted"
                 style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: ".06em" }}
               >
-                Przerwa po serii
+                {t("sesje.detail.restAfterSet")}
               </div>
               <div className="mono" style={{ fontSize: 18, fontWeight: 600 }}>
                 {b.block.restSeconds != null ? `${b.block.restSeconds}s` : "—"}
@@ -228,6 +233,7 @@ function DropRow({
   di: number;
   total: number;
 }) {
+  const { t } = useTranslation("podopieczny");
   const ex = it.exercise;
   return (
     <div>
@@ -260,7 +266,8 @@ function DropRow({
           </div>
           <div className="row" style={{ gap: 14, alignItems: "center" }}>
             <div className="mono" style={{ fontSize: 13, fontWeight: 600 }}>
-              {it.item.reps} {ex.unit === "SEC" ? "sek" : "powt."}
+              {it.item.reps}{" "}
+              {ex.unit === "SEC" ? t("sesje.detail.secUnit") : t("sesje.detail.repsUnit")}
             </div>
             {ex.description.length > 0 && (
               <div className="text-xs muted" style={{ flex: 1 }}>
@@ -289,7 +296,7 @@ function DropRow({
           }}
         >
           <Icons.ChevDown style={{ fontSize: 12 }} />
-          bez przerwy
+          {t("sesje.detail.noBreak")}
         </div>
       )}
     </div>
@@ -305,6 +312,7 @@ function ExerciseRow({
   ei: number;
   kind: "single" | "superset" | "dropset";
 }) {
+  const { t } = useTranslation("podopieczny");
   const ex = it.exercise;
   return (
     <div style={{ flex: 1 }}>
@@ -319,20 +327,20 @@ function ExerciseRow({
             className="mono muted"
             style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em" }}
           >
-            część {ei === 0 ? "A" : "B"}
+            {t("sesje.detail.supersetPart", { part: ei === 0 ? "A" : "B" })}
           </span>
         )}
         {it.demoUrl && <VideoButton src={it.demoUrl} title={ex.name} />}
       </div>
       <div style={{ flex: 1 }}>
         <div className="row" style={{ gap: 18, marginBottom: 8 }}>
-          <Stat label="Serie" value={String(it.item.sets ?? 0)} />
+          <Stat label={t("sesje.detail.sets")} value={String(it.item.sets ?? 0)} />
           <Stat
-            label={ex.unit === "REPS" ? "Powtórzenia" : "Sekundy"}
+            label={ex.unit === "REPS" ? t("sesje.detail.repetitions") : t("sesje.detail.seconds")}
             value={String(it.item.reps)}
           />
           <Stat
-            label="Przerwa"
+            label={t("sesje.detail.rest")}
             value={it.item.restSeconds != null ? `${it.item.restSeconds}s` : "—"}
           />
         </div>

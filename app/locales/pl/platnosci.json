@@ -1,0 +1,58 @@
+{
+  "subStatus": {
+    "none": "Brak subskrypcji",
+    "incomplete": "Nieukończona",
+    "active": "Aktywna",
+    "past_due": "Zaległość",
+    "unpaid": "Nieopłacona",
+    "canceled": "Anulowana",
+    "paused": "Wstrzymana"
+  },
+  "invoiceStatus": {
+    "paid": "Opłacona",
+    "open": "Oczekująca",
+    "void": "Anulowana",
+    "uncollectible": "Nieściągalna",
+    "draft": "Szkic",
+    "failed": "Nieudana"
+  },
+  "eyebrow": "Podopieczny",
+  "title": "Płatności",
+  "subtitle": "Twoja subskrypcja treningowa.",
+  "alert": {
+    "activated": "Subskrypcja aktywowana — dziękujemy!",
+    "canceled": "Płatność anulowana."
+  },
+  "onboarding": {
+    "heading": "Witaj! 👋",
+    "withPricePrefix": "Twój trener ustalił abonament",
+    "withPriceSuffix": "miesięcznie. Dodaj kartę, aby aktywować.",
+    "noPrice": "Płatności skonfigurujesz tutaj, gdy trener ustali kwotę.",
+    "later": "Zrobię to później"
+  },
+  "subscription": {
+    "heading": "Subskrypcja",
+    "statusLabel": "Status:",
+    "pastDueAlert": "Ostatnia płatność się nie powiodła. Zaktualizuj metodę płatności, aby utrzymać subskrypcję.",
+    "amountLabel": "Kwota:",
+    "perMonth": "/ miesięcznie",
+    "paidUntil": "Opłacone do: {{date}}",
+    "noPriceYet": "Trener nie ustalił jeszcze kwoty.",
+    "offerTrainerPrefix": "Prowadzenie treningowe u",
+    "yourTrainer": "Twojego trenera",
+    "payNowLabel": "Teraz zapłacisz:",
+    "thenPrefix": "Następnie:",
+    "thenSuffix": "miesięcznie",
+    "autoRenew": "Subskrypcja odnawia się automatycznie. Możesz ją anulować w każdej chwili w panelu płatności (poniżej, po aktywacji).",
+    "subscribe": "Subskrybuj",
+    "managePayments": "Zarządzaj płatnościami",
+    "pause": "Wstrzymaj subskrypcję",
+    "pausedNote": "Subskrypcja wstrzymana — nie pobieramy płatności.",
+    "resume": "Wznów subskrypcję"
+  },
+  "history": {
+    "heading": "Historia płatności",
+    "empty": "Brak płatności.",
+    "invoice": "Faktura"
+  }
+}

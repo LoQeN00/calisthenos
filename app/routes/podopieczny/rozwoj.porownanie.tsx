@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { ComparisonChart, ComparisonChartLegend } from "~/components/progression-charts";
 import { requireUser } from "~/lib/auth";
@@ -23,15 +24,16 @@ export async function loader(args: LoaderFunctionArgs) {
   return { comparison, range, ids };
 }
 
-const RANGE_LABELS: Array<{ value: ProgressionRange; label: string }> = [
-  { value: "4w", label: "4 tyg" },
-  { value: "3m", label: "3 mies" },
-  { value: "6m", label: "6 mies" },
-  { value: "all", label: "cały" },
-];
-
 export default function PodopiecznyRozwojPorownanie() {
   const { comparison, range, ids } = useLoaderData<typeof loader>();
+  const { t } = useTranslation("podopieczny");
+
+  const rangeLabels: Array<{ value: ProgressionRange; label: string }> = [
+    { value: "4w", label: t("rozwoj.porownanie.range4w") },
+    { value: "3m", label: t("rozwoj.porownanie.range3m") },
+    { value: "6m", label: t("rozwoj.porownanie.range6m") },
+    { value: "all", label: t("rozwoj.porownanie.rangeAll") },
+  ];
 
   // Defense in depth: the list disables Compare under 2, but a hand-edited URL
   // could land here with too few exercises.
@@ -39,16 +41,16 @@ export default function PodopiecznyRozwojPorownanie() {
     return (
       <div>
         <div className="crumbs">
-          <Link to="/podopieczny/rozwoj">Rozwój</Link>
+          <Link to="/podopieczny/rozwoj">{t("rozwoj.title")}</Link>
           <span className="sep">›</span>
-          <span className="current">Porównanie</span>
+          <span className="current">{t("rozwoj.porownanie.crumb")}</span>
         </div>
         <div className="card" style={{ padding: 22, textAlign: "center" }}>
           <div className="sub" style={{ marginBottom: 14 }}>
-            Wybierz co najmniej 2 ćwiczenia na liście Rozwoju, aby je porównać.
+            {t("rozwoj.porownanie.tooFewTitle")}
           </div>
           <Link to="/podopieczny/rozwoj" className="btn">
-            Wróć do Rozwoju
+            {t("rozwoj.porownanie.backBtn")}
           </Link>
         </div>
       </div>
@@ -60,21 +62,18 @@ export default function PodopiecznyRozwojPorownanie() {
   return (
     <div>
       <div className="crumbs">
-        <Link to="/podopieczny/rozwoj">Rozwój</Link>
+        <Link to="/podopieczny/rozwoj">{t("rozwoj.title")}</Link>
         <span className="sep">›</span>
-        <span className="current">Porównanie</span>
+        <span className="current">{t("rozwoj.porownanie.crumb")}</span>
       </div>
 
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Podopieczny · Rozwój
+            {t("rozwoj.porownanie.eyebrow")}
           </div>
-          <h1>Porównanie progresji</h1>
-          <div className="sub">
-            Każda linia to o ile % urósł rekord od początku okresu — wspólna oś % zestawia różne
-            jednostki (powt. i sek.).
-          </div>
+          <h1>{t("rozwoj.porownanie.title")}</h1>
+          <div className="sub">{t("rozwoj.porownanie.subtitle")}</div>
         </div>
       </div>
 
@@ -87,10 +86,10 @@ export default function PodopiecznyRozwojPorownanie() {
           className="text-xs muted"
           style={{ textTransform: "uppercase", letterSpacing: ".04em" }}
         >
-          Okres
+          {t("rozwoj.porownanie.periodLabel")}
         </span>
         <div className="row wrap" style={{ gap: 6 }}>
-          {RANGE_LABELS.map((r) => {
+          {rangeLabels.map((r) => {
             const active = r.value === range;
             return (
               <Link
@@ -121,14 +120,14 @@ export default function PodopiecznyRozwojPorownanie() {
       {/* Chart card */}
       <section style={{ marginBottom: 22 }}>
         <div className="card" style={{ padding: 18 }}>
-          <h2 style={{ fontSize: 16, marginBottom: 12 }}>Zmiana od startu okresu</h2>
+          <h2 style={{ fontSize: 16, marginBottom: 12 }}>{t("rozwoj.porownanie.chartTitle")}</h2>
           {comparison.series.length >= 1 ? (
             <>
               <ComparisonChart series={comparison.series} />
               <ComparisonChartLegend series={comparison.series} />
             </>
           ) : (
-            <div className="muted text-sm">Za mało danych, aby wykreślić porównanie.</div>
+            <div className="muted text-sm">{t("rozwoj.porownanie.noData")}</div>
           )}
         </div>
       </section>
@@ -137,7 +136,7 @@ export default function PodopiecznyRozwojPorownanie() {
       {comparison.series.length >= 1 && (
         <div className="card" style={{ padding: "12px 16px", marginBottom: 16 }}>
           <div className="k" style={{ marginBottom: 8 }}>
-            Konkretnie w tym okresie
+            {t("rozwoj.porownanie.detailsTitle")}
           </div>
           <div className="col" style={{ gap: 4 }}>
             {comparison.series.map((s) => {
@@ -174,7 +173,7 @@ export default function PodopiecznyRozwojPorownanie() {
       {comparison.skipped.length > 0 && (
         <div className="card" style={{ padding: 16 }}>
           <div className="k" style={{ marginBottom: 8 }}>
-            Pominięte
+            {t("rozwoj.porownanie.skippedTitle")}
           </div>
           <ul className="text-xs muted" style={{ margin: 0, paddingLeft: 18 }}>
             {comparison.skipped.map((s) => (

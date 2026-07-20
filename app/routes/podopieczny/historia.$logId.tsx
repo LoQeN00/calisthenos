@@ -1,7 +1,9 @@
 import { useEffect, useRef } from "react";
 import { Link, useLoaderData, useSearchParams, type LoaderFunctionArgs } from "react-router";
+import { useTranslation } from "react-i18next";
 import { Icons } from "~/components/icons";
 import { useToast } from "~/components/toast-provider";
+import { langToIntlLocale, type Lang } from "~/i18n/config";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import { signFileUrl } from "~/lib/files";
@@ -37,6 +39,8 @@ export async function loader(args: LoaderFunctionArgs) {
 
 export default function TraineeLogDetail() {
   const { log, exercises, totalExpectedSets } = useLoaderData<typeof loader>();
+  const { t, i18n } = useTranslation("podopieczny");
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
   const totalSets = exercises.reduce((a, e) => a + e.sets.length, 0);
   const skippedSets = Math.max(0, totalExpectedSets - totalSets);
   const allDiff = exercises
@@ -52,7 +56,7 @@ export default function TraineeLogDetail() {
   return (
     <div>
       <div className="crumbs">
-        <Link to="/podopieczny/historia">Historia</Link>
+        <Link to="/podopieczny/historia">{t("historia.detail.crumb")}</Link>
         <span className="sep">›</span>
         <span className="current">{log.sessionName}</span>
       </div>
@@ -60,31 +64,37 @@ export default function TraineeLogDetail() {
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            {fmtDate(log.performedOn)} · {daysAgo(log.performedOn)}
+            {t("historia.detail.eyebrow", {
+              date: fmtDate(log.performedOn),
+              ago: daysAgo(log.performedOn, locale),
+            })}
           </div>
           <h1>{log.sessionName}</h1>
           <div className="sub">
-            <span className="mono">{exercises.length}</span> ćwiczeń ·{" "}
+            <span className="mono">{exercises.length}</span>{" "}
+            {t("historia.detail.exercises", { count: exercises.length })} ·{" "}
             <span className="mono">{totalSets}</span>
             {totalExpectedSets > 0 ? (
               <>
                 {" "}
-                z <span className="mono">{totalExpectedSets}</span> serii
+                {t("historia.detail.of")} <span className="mono">{totalExpectedSets}</span>{" "}
+                {t("historia.detail.sets", { count: totalExpectedSets })}
               </>
             ) : (
-              " serii"
+              ` ${t("historia.detail.sets", { count: totalSets })}`
             )}
             {skippedSets > 0 && (
               <>
                 {" · "}
                 <strong style={{ color: "var(--warn)" }}>
-                  {skippedSets} pominięt{skippedSets === 1 ? "a" : "ych"}
+                  {skippedSets} {t("historia.detail.skipped", { count: skippedSets })}
                 </strong>
               </>
             )}
             {avgDiff != null && (
               <>
-                {" · śr. trudność "}
+                {" · "}
+                {t("historia.detail.avgDifficulty")}{" "}
                 <strong style={{ color: "var(--ink)" }} className="mono">
                   {avgDiff}/10
                 </strong>
@@ -123,6 +133,7 @@ function usePRToasts(
   const [searchParams, setSearchParams] = useSearchParams();
   const toast = useToast();
   const firedRef = useRef(false);
+  const { t } = useTranslation("podopieczny");
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: fires once on first render with ?pr=…
   useEffect(() => {
@@ -136,9 +147,14 @@ function usePRToasts(
     const names = ids.map((id) => byId.get(id)?.name).filter((n): n is string => !!n);
 
     if (names.length === 1) {
-      toast(`🏆 Nowy rekord w ${names[0]}!`, { durationMs: 5000 });
+      toast(`🏆 ${t("historia.detail.prToast", { count: 1, name: names[0] })}`, {
+        durationMs: 5000,
+      });
     } else if (names.length > 1) {
-      toast(`🏆 Nowe rekordy: ${names.join(", ")}`, { durationMs: 6000 });
+      toast(
+        `🏆 ${t("historia.detail.prToast", { count: names.length, names: names.join(", ") })}`,
+        { durationMs: 6000 },
+      );
     }
 
     // Strip the param so a refresh doesn't refire.
@@ -160,6 +176,7 @@ type ExWithSigned = {
 };
 
 function ExerciseLogCard({ exercise: ex, index }: { exercise: ExWithSigned; index: number }) {
+  const { t } = useTranslation("podopieczny");
   const totalReps = ex.sets.reduce((a, s) => a + s.log.reps, 0);
   const avgReps = ex.sets.length === 0 ? 0 : Math.round((totalReps / ex.sets.length) * 10) / 10;
   // Czy ten wpis ma jakąkolwiek ocenę RPE (data-driven) — ćwiczenia bez RPE
@@ -200,12 +217,13 @@ function ExerciseLogCard({ exercise: ex, index }: { exercise: ExWithSigned; inde
                 fontSize: 10,
               }}
             >
-              {ex.sets.length}/{ex.expectedSets} serii
+              {ex.sets.length}/{ex.expectedSets}{" "}
+              {t("historia.detail.sets", { count: ex.expectedSets })}
             </span>
           )}
         </div>
         <div className="mono text-xs muted" style={{ textAlign: "right" }}>
-          śr. {avgReps} {ex.exercise.unit === "SEC" ? "s" : "rep"}
+          {t("historia.list.row.avg")} {avgReps} {ex.exercise.unit === "SEC" ? "s" : "rep"}
         </div>
       </div>
       <div style={{ padding: 12, display: "grid", gap: 6 }}>
@@ -243,6 +261,7 @@ function SkippedSetRow({
   expectedReps: number;
   unit: "REPS" | "SEC";
 }) {
+  const { t } = useTranslation("podopieczny");
   return (
     <div
       style={{
@@ -267,7 +286,7 @@ function SkippedSetRow({
           fontWeight: 600,
         }}
       >
-        Pominięta
+        {t("historia.detail.skippedRow.label")}
         {expectedReps > 0 && (
           <span
             className="muted"
@@ -278,7 +297,11 @@ function SkippedSetRow({
               fontWeight: 400,
             }}
           >
-            · plan: {expectedReps} {unit === "SEC" ? "sek." : "powt."}
+            ·{" "}
+            {t("historia.detail.skippedRow.plan", {
+              reps: expectedReps,
+              unit: unit === "SEC" ? t("sesje.detail.secUnit") : t("sesje.detail.repsUnit"),
+            })}
           </span>
         )}
       </span>
@@ -301,6 +324,7 @@ function SetRowDisplay({
   unit: "REPS" | "SEC";
   videoUrl: string | null;
 }) {
+  const { t } = useTranslation("podopieczny");
   const tone =
     difficulty === null
       ? "var(--muted)"
@@ -361,7 +385,7 @@ function SetRowDisplay({
           className="btn btn-sm"
           style={{ height: 26, padding: "0 8px", fontSize: 11 }}
         >
-          <Icons.Play /> video
+          <Icons.Play /> {t("historia.list.row.video")}
         </a>
       ) : (
         <span style={{ width: 1 }} />

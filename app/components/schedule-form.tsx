@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { tDyn } from "~/i18n/translate";
 
 export type Cadence = "weekly" | "biweekly" | "monthly";
 
@@ -19,21 +21,17 @@ interface ScheduleFormProps {
   defaultStartsOn: string;
 }
 
-const CADENCES: { value: Cadence; label: string; hint: string }[] = [
-  { value: "weekly", label: "Co tydzień", hint: "ten sam dzień tygodnia" },
-  { value: "biweekly", label: "Co 2 tygodnie", hint: "co druga seria" },
-  { value: "monthly", label: "Co miesiąc", hint: "ten sam dzień miesiąca" },
-];
+const CADENCE_VALUES: Cadence[] = ["weekly", "biweekly", "monthly"];
 
 // 0=niedziela..6=sobota (zgodnie z Date.getUTCDay / schema.weekday).
-const WEEKDAYS = [
-  { value: 1, label: "Poniedziałek" },
-  { value: 2, label: "Wtorek" },
-  { value: 3, label: "Środa" },
-  { value: 4, label: "Czwartek" },
-  { value: 5, label: "Piątek" },
-  { value: 6, label: "Sobota" },
-  { value: 0, label: "Niedziela" },
+const WEEKDAY_VALUES: { value: number; key: string }[] = [
+  { value: 1, key: "mon" },
+  { value: 2, key: "tue" },
+  { value: 3, key: "wed" },
+  { value: 4, key: "thu" },
+  { value: 5, key: "fri" },
+  { value: 6, key: "sat" },
+  { value: 0, key: "sun" },
 ];
 
 /**
@@ -42,7 +40,14 @@ const WEEKDAYS = [
  * dodaje `intent=save-schedule` oraz przycisk submit.
  */
 export function ScheduleForm({ defaultValue, defaultStartsOn }: ScheduleFormProps) {
+  const { t } = useTranslation("trenerKonsultacje");
   const [cadence, setCadence] = useState<Cadence>(defaultValue?.cadence ?? "weekly");
+
+  const cadences = CADENCE_VALUES.map((value) => ({
+    value,
+    label: tDyn(t, `scheduleForm.cadence.${value}Label`),
+    hint: tDyn(t, `scheduleForm.cadence.${value}Hint`),
+  }));
 
   const time = (defaultValue?.timeOfDay ?? "18:00").slice(0, 5);
   const weekday = defaultValue?.weekday ?? 3; // domyślnie środa
@@ -54,10 +59,10 @@ export function ScheduleForm({ defaultValue, defaultStartsOn }: ScheduleFormProp
       {/* Częstotliwość — radio-pills */}
       <div>
         <div className="field-label" style={{ marginBottom: 8 }}>
-          Częstotliwość
+          {t("scheduleForm.frequency")}
         </div>
         <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-          {CADENCES.map((c) => {
+          {cadences.map((c) => {
             const selected = cadence === c.value;
             return (
               <label
@@ -105,7 +110,7 @@ export function ScheduleForm({ defaultValue, defaultStartsOn }: ScheduleFormProp
       >
         {isMonthly ? (
           <div className="field">
-            <label htmlFor="sf-dayOfMonth">Dzień miesiąca</label>
+            <label htmlFor="sf-dayOfMonth">{t("scheduleForm.dayOfMonthLabel")}</label>
             <select
               id="sf-dayOfMonth"
               className="input"
@@ -119,16 +124,16 @@ export function ScheduleForm({ defaultValue, defaultStartsOn }: ScheduleFormProp
               ))}
             </select>
             <div className="text-xs muted" style={{ marginTop: 4 }}>
-              Maksymalnie 28 — bezpieczne dla każdego miesiąca.
+              {t("scheduleForm.dayOfMonthHint")}
             </div>
           </div>
         ) : (
           <div className="field">
-            <label htmlFor="sf-weekday">Dzień tygodnia</label>
+            <label htmlFor="sf-weekday">{t("scheduleForm.weekdayLabel")}</label>
             <select id="sf-weekday" className="input" name="weekday" defaultValue={String(weekday)}>
-              {WEEKDAYS.map((d) => (
+              {WEEKDAY_VALUES.map((d) => (
                 <option key={d.value} value={d.value}>
-                  {d.label}
+                  {tDyn(t, `scheduleForm.weekdays.${d.key}`)}
                 </option>
               ))}
             </select>
@@ -136,12 +141,12 @@ export function ScheduleForm({ defaultValue, defaultStartsOn }: ScheduleFormProp
         )}
 
         <div className="field">
-          <label htmlFor="sf-timeOfDay">Godzina</label>
+          <label htmlFor="sf-timeOfDay">{t("scheduleForm.time")}</label>
           <input id="sf-timeOfDay" className="input" type="time" name="timeOfDay" defaultValue={time} required />
         </div>
 
         <div className="field">
-          <label htmlFor="sf-durationMin">Czas trwania (min)</label>
+          <label htmlFor="sf-durationMin">{t("scheduleForm.duration")}</label>
           <input
             id="sf-durationMin"
             className="input"
@@ -155,7 +160,7 @@ export function ScheduleForm({ defaultValue, defaultStartsOn }: ScheduleFormProp
         </div>
 
         <div className="field">
-          <label htmlFor="sf-startsOn">Start od</label>
+          <label htmlFor="sf-startsOn">{t("scheduleForm.startsOn")}</label>
           <input
             id="sf-startsOn"
             className="input"
@@ -169,7 +174,7 @@ export function ScheduleForm({ defaultValue, defaultStartsOn }: ScheduleFormProp
 
       {/* Link spotkania (opcjonalny) */}
       <div className="field">
-        <label htmlFor="sf-meetingUrl">Stały link spotkania (opcjonalnie)</label>
+        <label htmlFor="sf-meetingUrl">{t("scheduleForm.meetingUrlLabel")}</label>
         <input
           id="sf-meetingUrl"
           className="input"
@@ -180,7 +185,7 @@ export function ScheduleForm({ defaultValue, defaultStartsOn }: ScheduleFormProp
           placeholder="https://meet.google.com/…"
         />
         <div className="text-xs muted" style={{ marginTop: 4 }}>
-          Trafia na każdy nowy termin tej serii. Można nadpisać na pojedynczym terminie.
+          {t("scheduleForm.meetingUrlHint")}
         </div>
       </div>
     </div>

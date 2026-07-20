@@ -1,0 +1,271 @@
+{
+  "app": { "name": "kalisthenos" },
+  "nav": {
+    "logout": "Se déconnecter",
+    "userMenu": "Menu utilisateur",
+    "trener": {
+      "eyebrow": "ENTRAÎNEUR",
+      "section": "Entraîneur",
+      "dashboard": "Tableau de bord",
+      "trainees": "Élèves",
+      "library": "Bibliothèque d'exercices",
+      "plans": "Plans",
+      "skills": "Compétences",
+      "consultations": "Consultations",
+      "payments": "Paiements",
+      "integrations": "Intégrations"
+    },
+    "podopieczny": {
+      "eyebrow": "ÉLÈVE",
+      "section": "Élève",
+      "myPlan": "Mon plan",
+      "sessions": "Séances",
+      "history": "Historique",
+      "development": "Développement",
+      "physique": "Physique",
+      "consultations": "Consultations",
+      "payments": "Paiements"
+    },
+    "marka": {
+      "eyebrow": "MARQUE"
+    }
+  },
+  "action": { "save": "Enregistrer", "cancel": "Annuler", "back": "Retour" },
+  "menu": {
+    "lightMode": "Mode clair",
+    "darkMode": "Mode sombre"
+  },
+  "controls": {
+    "search": "Rechercher…",
+    "sort": "Trier",
+    "apply": "Appliquer"
+  },
+  "pagination": {
+    "label": "Pagination",
+    "previous": "Précédente",
+    "next": "Suivante",
+    "page": "Page {{num}}"
+  },
+  "confirm": {
+    "title": "Confirmer",
+    "ok": "OK",
+    "confirm": "Confirmer",
+    "cancel": "Annuler"
+  },
+  "skillTree": {
+    "state": {
+      "mastered": "maîtrisé",
+      "in_progress": "en cours",
+      "available": "prêt à démarrer",
+      "locked": "verrouillé"
+    },
+    "empty": {
+      "title": "Aucune compétence dans l'arbre.",
+      "body": "Ajoute des compétences et relie-les par des prérequis pour voir l'arbre."
+    },
+    "edgesAria": "Liens de prérequis entre les compétences",
+    "nodeAriaState": "{{name}} — {{state}}",
+    "nodeAriaVariations_one": "{{name}} — {{count}} variante",
+    "nodeAriaVariations_few": "{{name}} — {{count}} variantes",
+    "nodeAriaVariations_other": "{{name}} — {{count}} variantes",
+    "variations_one": "{{count}} variante",
+    "variations_few": "{{count}} variantes",
+    "variations_other": "{{count}} variantes",
+    "level": {
+      "prereqsMet": "prérequis remplis",
+      "locked": "verrouillé",
+      "noVariations": "aucune variante",
+      "current": "niveau {{current}}/{{total}}",
+      "levels_one": "{{count}} niveau",
+      "levels_few": "{{count}} niveaux",
+      "levels_other": "{{count}} niveaux"
+    },
+    "legend": {
+      "leadsToLocked": "mène à une compétence verrouillée"
+    },
+    "ladder": {
+      "empty": "Aucune variante — complète dans l'éditeur de compétences.",
+      "youAreHere": "Tu es ici"
+    }
+  },
+  "progression": {
+    "range": {
+      "label": "Période",
+      "4w": "4 sem",
+      "3m": "3 mois",
+      "6m": "6 mois",
+      "all": "tout"
+    },
+    "kpi": {
+      "pr": "Record (PR)",
+      "lastSession": "Dernière séance",
+      "periodChange": "Évolution sur la période",
+      "sessionsInPeriod": "Séances sur la période",
+      "avgRpe": "RPE moy. {{value}}"
+    },
+    "heroChart": {
+      "title": "Record dans le temps",
+      "weekly": "vue hebdomadaire",
+      "subtitle": "Meilleure série de chaque séance."
+    },
+    "volumeChart": {
+      "title": "Travail total de la séance",
+      "subtitle": "Somme des répétitions de toutes les séries."
+    },
+    "status": {
+      "up": "▲ en hausse",
+      "flat": "= stable",
+      "down": "▼ en baisse",
+      "downBadge": "▼ baisse",
+      "new": "nouveau"
+    },
+    "rpeLegend": {
+      "label": "couleur = difficulté (RPE) :",
+      "easy": "facile",
+      "mid": "moyen",
+      "hard": "difficile"
+    },
+    "chartAria": {
+      "line": "Graphique du record dans le temps",
+      "volume": "Travail total de la séance",
+      "comparison": "Comparaison de progression des exercices"
+    },
+    "tooltip": {
+      "newPr": "nouveau record ★"
+    },
+    "notEnough": "pas assez de données",
+    "compareEmpty": "sélectionne au moins 2 exercices à comparer",
+    "compareNoPoints": "aucun point à comparer",
+    "list": {
+      "cancel": "Annuler",
+      "compare": "Comparer",
+      "compareWithCount": "Comparer ({{count}})",
+      "selectHint": "Sélectionne au moins 2 exercices pour les comparer.",
+      "emptyTitle": "Aucun exercice hors compétences",
+      "emptyBody": "Ici apparaîtront les exercices des journaux qui ne sont pas une variante d'une compétence.",
+      "subtitle": "{{sessions}} · dernière fois : {{ago}} ({{date}})",
+      "sessions_one": "{{count}} séance",
+      "sessions_few": "{{count}} séances",
+      "sessions_other": "{{count}} séances",
+      "record": "record",
+      "personalRecord": "Record personnel"
+    },
+    "unit": {
+      "reps": "rép.",
+      "sec": "s"
+    }
+  },
+  "photo": {
+    "view": {
+      "front": "face",
+      "side": "profil",
+      "back": "dos"
+    },
+    "openAria": "Ouvrir la photo du {{date}}",
+    "openAriaWithView": "Ouvrir la photo du {{date}} — {{view}}",
+    "compare": {
+      "title": "Comparaison",
+      "zoomHint": "clique sur la photo pour l'agrandir",
+      "noPhotos": "aucune photo",
+      "onePhoto": "une seule photo",
+      "daysDiff_one": "{{count}} jour d'écart",
+      "daysDiff_few": "{{count}} jours d'écart",
+      "daysDiff_other": "{{count}} jours d'écart",
+      "first": "première",
+      "latest": "dernière"
+    },
+    "lightbox": {
+      "dialogAria": "Photo du {{date}}",
+      "dialogAriaNoPhoto": "Photo",
+      "imgAlt": "Physique — {{date}}, {{view}}",
+      "download": "Télécharger",
+      "close": "Fermer",
+      "noNote": "aucune note",
+      "prev": "Photo précédente",
+      "next": "Photo suivante",
+      "deleteConfirmTitle": "Supprimer la photo ?",
+      "deleteConfirmMessage": "Cette action est irréversible.",
+      "deleteConfirmText": "Supprimer",
+      "deleteAria": "Supprimer la photo"
+    }
+  },
+  "stats": {
+    "heatmapAria": "Heatmap d'activité",
+    "noSessions": "aucune",
+    "sessionsCount_one": "{{count}} séance",
+    "sessionsCount_few": "{{count}} séances",
+    "sessionsCount_other": "{{count}} séances",
+    "noData": "données insuffisantes"
+  },
+  "fileDropzone": {
+    "formatVideo": "MP4, MOV ou WebM",
+    "formatImage": "JPG, PNG ou WebP",
+    "errorFormat": "Format non pris en charge : {{type}}. Requis : {{formats}}.",
+    "errorTooLarge": "Fichier trop volumineux : {{size}} Mo · limite {{limit}} Mo.",
+    "clickToPick": "Clique pour choisir",
+    "orDrop": "ou dépose le fichier ici",
+    "upTo": "jusqu’à {{mb}} Mo",
+    "preview": "Aperçu",
+    "uploading": "envoi…",
+    "change": "Changer",
+    "removeAria": "Supprimer le fichier sélectionné",
+    "removeTitle": "Supprimer"
+  },
+  "health": {
+    "tile": {
+      "activity": "Activité",
+      "noSessions": "aucune séance",
+      "interval_one": "env. tous les {{count}} jour",
+      "interval_few": "env. tous les {{count}} jours",
+      "interval_other": "env. tous les {{count}} jours",
+      "avgRpe": "RPE moyen",
+      "lastSessions": "5 dernières séances",
+      "vsHistorical": "vs {{value}} historique {{arrow}}",
+      "redZone": "Zone rouge",
+      "noSessions30d": "aucune séance sur 30 jours",
+      "tooHard": "le plan est peut-être trop dur",
+      "tooLight": "le plan est peut-être trop léger",
+      "redZoneSub": "RPE 9–10, 30 jours",
+      "allDone": "Terminé en entier",
+      "sessions30d": "des séances sur 30 jours"
+    },
+    "plateau": {
+      "title": "Plateau — l'œil attentif",
+      "intro": "Les répétitions stagnent et le RPE ne baisse pas — candidats à une régression ou à un changement de variante.",
+      "observation": "{{sessions}} séances d'observation · PR",
+      "avgReps": "rép. moy.",
+      "avgRpe": "RPE moy."
+    },
+    "plan": {
+      "active": "Plan actif",
+      "activeNamed": "Plan actif — {{name}}",
+      "sessionUsage": "Utilisation des séances",
+      "noSessions": "Plan sans séance.",
+      "totalOnPlan": "Total sur ce plan",
+      "sessions": "Séances",
+      "sets": "Séries",
+      "reps": "Répétitions",
+      "secondsUnderTension": "Secondes sous tension"
+    },
+    "coverage": {
+      "title": "Couverture",
+      "setVideo": "Vidéo des séries (30 jours)",
+      "noSets30d": "aucune série sur 30 jours",
+      "setsWithVideo": "{{withVideo}} séries sur {{total}} avec enregistrement",
+      "physique": "Physique",
+      "see": "Voir",
+      "lastPhoto": "dernière photo · {{count}} au total",
+      "front": "Face",
+      "side": "Profil",
+      "back": "Dos"
+    },
+    "tags": {
+      "title": "Répartition des catégories (30 jours)",
+      "noTags": "Exercices sans tags — ajoute des catégories dans la bibliothèque pour voir l'équilibre.",
+      "untagged": "sans catégorie"
+    },
+    "activity": {
+      "title": "Activité"
+    }
+  }
+}

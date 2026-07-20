@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { ProgressionList } from "~/components/progression-list";
 import { SkillTreeView } from "~/components/skill-tree";
@@ -10,18 +11,47 @@ import {
   sortProgressionRows,
   summarizeStatuses,
 } from "~/lib/progression-math";
+import { resolveCatalogOrgId } from "~/lib/catalog";
 import { getSkillTreeForTrainee } from "~/lib/skill-tree";
 import { listExerciseSkillMap } from "~/lib/skills";
+
+const SPEC_BASE: ListControlsSpec = {
+  sortOptions: [
+    { key: "recent", label: "" },
+    { key: "attention", label: "" },
+  ],
+  defaultSort: "recent",
+  filterGroups: [
+    {
+      param: "tag",
+      label: "",
+      options: [{ value: "all", label: "" }],
+      defaultValue: "all",
+    },
+  ],
+  searchable: false,
+};
 
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainee" });
   if (!user.trainerId) throw new Response("Konto bez przypisanego trenera.", { status: 400 });
   const url = new URL(args.request.url);
 
+  // Katalog markowy należy do organizacji TRENERA — rozwiąż org po trainerId
+  // (org podopiecznego może być inna/niezsynchronizowana, więc jej nie używamy).
+  const trainerOrgId = await resolveCatalogOrgId(db, {
+    organizationId: null,
+    trainerId: user.trainerId,
+  });
+
   const [tree, allRows, skillMap] = await Promise.all([
-    getSkillTreeForTrainee(db, user.trainerId, user.id),
+    getSkillTreeForTrainee(
+      db,
+      { trainerId: user.trainerId, organizationId: trainerOrgId },
+      user.id,
+    ),
     listProgressionExercises(db, user.id),
-    listExerciseSkillMap(db, user.trainerId),
+    listExerciseSkillMap(db, { trainerId: user.trainerId, organizationId: trainerOrgId }),
   ]);
 
   // Ćwiczenia będące wariantem dowolnej umiejętności — wyłączone z listy (żyją w drzewie).
@@ -33,44 +63,46 @@ export async function loader(args: LoaderFunctionArgs) {
   for (const r of rows) for (const t of r.tags) tagSet.add(t);
   const tagOptions = [...tagSet].sort((a, b) => a.localeCompare(b, "pl"));
 
-  const spec: ListControlsSpec = {
-    sortOptions: [
-      { key: "recent", label: "Ostatnio trenowane" },
-      { key: "attention", label: "Wymaga uwagi" },
-    ],
-    defaultSort: "recent",
-    filterGroups: [
-      {
-        param: "tag",
-        label: "Kategoria",
-        options: [
-          { value: "all", label: "Wszystkie" },
-          ...tagOptions.map((t) => ({ value: t, label: t })),
-        ],
-        defaultValue: "all",
-      },
-    ],
-    searchable: false,
-  };
-  const controls = parseListControls(url.searchParams, spec);
+  const controls = parseListControls(url.searchParams, SPEC_BASE);
   const tag = controls.filters.tag ?? "all";
   const filtered = tag === "all" ? rows : rows.filter((r) => r.tags.includes(tag));
   const visible = sortProgressionRows(filtered, controls.sort as "recent" | "attention");
 
-  return { tree, rows: visible, summary, spec, controls };
+  return { tree, rows: visible, summary, tagOptions, controls };
 }
 
 export default function PodopiecznyRozwoj() {
-  const { tree, rows, summary, spec, controls } = useLoaderData<typeof loader>();
+  const { tree, rows, summary, tagOptions, controls } = useLoaderData<typeof loader>();
+  const { t } = useTranslation("podopieczny");
+
+  const spec: ListControlsSpec = {
+    ...SPEC_BASE,
+    sortOptions: [
+      { key: "recent", label: t("rozwoj.sortOptions.recent") },
+      { key: "attention", label: t("rozwoj.sortOptions.attention") },
+    ],
+    filterGroups: [
+      {
+        param: "tag",
+        label: t("rozwoj.filterCategory"),
+        options: [
+          { value: "all", label: t("rozwoj.filterAll") },
+          ...tagOptions.map((tag) => ({ value: tag, label: tag })),
+        ],
+        defaultValue: "all",
+      },
+    ],
+  };
+
   return (
     <div>
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Podopieczny
+            {t("rozwoj.eyebrow")}
           </div>
-          <h1>Rozwój</h1>
-          <div className="sub">Twoje drzewo umiejętności i postęp w ćwiczeniach.</div>
+          <h1>{t("rozwoj.title")}</h1>
+          <div className="sub">{t("rozwoj.subtitle")}</div>
         </div>
       </div>
 
@@ -82,7 +114,7 @@ export default function PodopiecznyRozwoj() {
 
       <div style={{ marginTop: 28 }}>
         <ProgressionList
-          title="Pozostałe ćwiczenia"
+          title={t("rozwoj.remainingTitle")}
           rows={rows}
           summary={summary}
           spec={spec}

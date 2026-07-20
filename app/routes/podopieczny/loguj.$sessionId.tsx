@@ -8,13 +8,14 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
+import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { FileDropzone } from "~/components/file-dropzone";
 import { Icons } from "~/components/icons";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import { UploadCleanupQueue, UploadError, uploadFile } from "~/lib/file-uploads";
-import { pluralizePl, todayISO, type PlForms } from "~/lib/format";
+import { todayISO } from "~/lib/format";
 import { detectNewPRsForLog } from "~/lib/stats";
 import {
   findActivePlanForTrainee,
@@ -39,15 +40,26 @@ export async function loader(args: LoaderFunctionArgs) {
   return { user, plan, session: detail.session, entries: detail.entries };
 }
 
+type ActionError =
+  | { key: "errors.noTrainer"; params?: Record<string, unknown> }
+  | { key: "errors.noPlan"; params?: Record<string, unknown> }
+  | { key: "errors.checkDate"; params?: Record<string, unknown> }
+  | { key: "errors.noSets"; params?: Record<string, unknown> }
+  | { key: "errors.repsAndDiff"; params: { name: string; num: number } }
+  | { key: "errors.repsOnly"; params: { name: string; num: number } }
+  | { key: "errors.repsRange"; params: { name: string; num: number } }
+  | { key: "errors.diffRange"; params: { name: string; num: number } }
+  | { key: string; params?: Record<string, unknown> };
+
 export async function action(args: ActionFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainee" });
   if (!user.trainerId) {
-    return { error: "Konto bez przypisanego trenera." };
+    return { errorKey: "errors.noTrainer" as const };
   }
   const sessionId = args.params.sessionId ?? "";
 
   const plan = await findActivePlanForTrainee(db, user.id);
-  if (!plan) return { error: "Nie masz aktywnego planu." };
+  if (!plan) return { errorKey: "errors.noPlan" as const };
 
   const detail = await loadSessionForLogging(db, plan.id, sessionId);
   if (!detail) {
@@ -57,7 +69,7 @@ export async function action(args: ActionFunctionArgs) {
   const fd = await args.request.formData();
   const performedOnParse = PerformedOnSchema.safeParse(fd.get("performedOn"));
   if (!performedOnParse.success) {
-    return { error: "Sprawdź pole daty." };
+    return { errorKey: "errors.checkDate" as const };
   }
   const noteParse = NoteSchema.safeParse(fd.get("note") ?? undefined);
   const note = (noteParse.success ? noteParse.data?.trim() : "") || null;
@@ -94,8 +106,8 @@ export async function action(args: ActionFunctionArgs) {
 
         const tracksRpe = entry.tracksRpe;
 
-        // Pusty wiersz: dla ćwiczeń z RPE „pusty” = brak reps/diff/wideo;
-        // dla ćwiczeń bez RPE „pusty” = brak reps/wideo (trudności i tak nie ma).
+        // Pusty wiersz: dla ćwiczeń z RPE „pusty" = brak reps/diff/wideo;
+        // dla ćwiczeń bez RPE „pusty" = brak reps/wideo (trudności i tak nie ma).
         const isBlank = tracksRpe ? !hasReps && !hasDiff && !hasVideo : !hasReps && !hasVideo;
         if (isBlank) {
           allSetsFilled = false;
@@ -105,16 +117,16 @@ export async function action(args: ActionFunctionArgs) {
         // Wiersz częściowy: reps zawsze wymagane; trudność tylko gdy tracksRpe.
         if (!hasReps || (tracksRpe && !hasDiff)) {
           return {
-            error: tracksRpe
-              ? `Ćwiczenie ${entry.exerciseName}, seria #${sIdx + 1}: uzupełnij liczbę powtórzeń i trudność (1-10).`
-              : `Ćwiczenie ${entry.exerciseName}, seria #${sIdx + 1}: uzupełnij liczbę powtórzeń.`,
+            errorKey: tracksRpe ? "errors.repsAndDiff" : "errors.repsOnly",
+            errorParams: { name: entry.exerciseName, num: sIdx + 1 },
           };
         }
 
         const reps = Number(repsRaw);
         if (!Number.isFinite(reps) || reps < 1 || reps > 1000) {
           return {
-            error: `Ćwiczenie ${entry.exerciseName}, seria #${sIdx + 1}: liczba powtórzeń poza zakresem (1-1000).`,
+            errorKey: "errors.repsRange",
+            errorParams: { name: entry.exerciseName, num: sIdx + 1 },
           };
         }
 
@@ -123,7 +135,8 @@ export async function action(args: ActionFunctionArgs) {
           difficulty = Number(diffRaw);
           if (!Number.isFinite(difficulty) || difficulty < 1 || difficulty > 10) {
             return {
-              error: `Ćwiczenie ${entry.exerciseName}, seria #${sIdx + 1}: trudność musi być 1-10.`,
+              errorKey: "errors.diffRange",
+              errorParams: { name: entry.exerciseName, num: sIdx + 1 },
             };
           }
         }
@@ -135,7 +148,7 @@ export async function action(args: ActionFunctionArgs) {
             {
               file: videoBlob as File,
               kind: "set_video",
-              trainerId: user.trainerId,
+              owner: { trainerId: user.trainerId },
               uploadedBy: user.id,
             },
             cleanup,
@@ -152,7 +165,7 @@ export async function action(args: ActionFunctionArgs) {
 
     if (!anySetLogged) {
       await cleanup.cleanup();
-      return { error: "Zapisz co najmniej jedną serię." };
+      return { errorKey: "errors.noSets" as const };
     }
 
     const newLogId = await saveWorkoutLog(db, {
@@ -184,20 +197,19 @@ export async function action(args: ActionFunctionArgs) {
   } catch (e) {
     if (e instanceof Response) throw e; // redirect bubbles
     await cleanup.cleanup();
-    if (e instanceof UploadError) return { error: e.userMessage };
-    if (e instanceof WorkoutSaveError) return { error: e.userMessage };
+    if (e instanceof UploadError) return { errorKey: "errors.noSets", errorMessage: e.userMessage };
+    if (e instanceof WorkoutSaveError)
+      return { errorKey: "errors.noSets", errorMessage: e.userMessage };
     throw e;
   }
 }
 
 type SetState = { reps: string; difficulty: string; skipped: boolean };
 
-const CWICZENIE: PlForms = { one: "ćwiczenie", few: "ćwiczenia", many: "ćwiczeń" };
-const SERIA: PlForms = { one: "seria", few: "serie", many: "serii" };
-
 export default function LogForm() {
   const { user, session, entries } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const { t } = useTranslation("podopieczny");
 
   // Lift set-level state up so we can compute progress + power the
   // "copy from #1" affordance. The form's submit still relies on the
@@ -283,23 +295,47 @@ export default function LogForm() {
     return { total, filled, skipped };
   }, [setStates, entries]);
 
+  // Translate action error: if we have an errorMessage (from UploadError/WorkoutSaveError),
+  // use it directly; otherwise translate the errorKey with params.
+  const errorMessage = (() => {
+    if (!actionData) return null;
+    if ("errorMessage" in actionData && actionData.errorMessage) return actionData.errorMessage;
+    if (!("errorKey" in actionData) || !actionData.errorKey) return null;
+    const key = actionData.errorKey;
+    const params =
+      "errorParams" in actionData
+        ? ((actionData.errorParams as Record<string, unknown>) ?? {})
+        : {};
+    const knownKeys = {
+      "errors.noTrainer": t("loguj.errors.noTrainer"),
+      "errors.noPlan": t("loguj.errors.noPlan"),
+      "errors.checkDate": t("loguj.errors.checkDate"),
+      "errors.noSets": t("loguj.errors.noSets"),
+      "errors.repsAndDiff": t("loguj.errors.repsAndDiff", params),
+      "errors.repsOnly": t("loguj.errors.repsOnly", params),
+      "errors.repsRange": t("loguj.errors.repsRange", params),
+      "errors.diffRange": t("loguj.errors.diffRange", params),
+    } as const;
+    return key in knownKeys ? knownKeys[key as keyof typeof knownKeys] : null;
+  })();
+
   return (
     <div>
       <div className="crumbs">
-        <Link to="/podopieczny">Mój plan</Link>
+        <Link to="/podopieczny">{t("loguj.crumb")}</Link>
         <span className="sep">›</span>
         <span className="current">{session.name}</span>
       </div>
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Nowa sesja · {entries.length} {pluralizePl(entries.length, CWICZENIE)}
+            {t("loguj.eyebrow", {
+              count: entries.length,
+              unit: t("loguj.exerciseUnit", { count: entries.length }),
+            })}
           </div>
           <h1>{session.name}</h1>
-          <div className="sub">
-            Zarejestruj wykonane serie. Pominięte serie nie wliczają się do statystyk — kliknij
-            „Pomiń" obok serii, której nie zrobiłeś.
-          </div>
+          <div className="sub">{t("loguj.subtitle")}</div>
         </div>
       </div>
 
@@ -307,7 +343,7 @@ export default function LogForm() {
         <div className="card">
           <div className="grid grid-2" style={{ gap: 14 }}>
             <div className="field">
-              <label htmlFor="log-date">Data</label>
+              <label htmlFor="log-date">{t("loguj.fieldDate")}</label>
               <input
                 id="log-date"
                 name="performedOn"
@@ -318,13 +354,13 @@ export default function LogForm() {
               />
             </div>
             <div className="field">
-              <label htmlFor="log-note">Notatka (opcjonalnie)</label>
+              <label htmlFor="log-note">{t("loguj.fieldNote")}</label>
               <input
                 id="log-note"
                 name="note"
                 type="text"
                 maxLength={2000}
-                placeholder="Jak było? Co czuć, co poszło dobrze…"
+                placeholder={t("loguj.notePlaceholder")}
                 className="input"
               />
             </div>
@@ -333,8 +369,8 @@ export default function LogForm() {
 
         {entries.length === 0 ? (
           <div className="empty">
-            <h3>Brak ćwiczeń</h3>
-            <div>Ta sesja nie ma jeszcze ćwiczeń. Trener musi wypełnić plan.</div>
+            <h3>{t("loguj.noExercises.title")}</h3>
+            <div>{t("loguj.noExercises.subtitle")}</div>
           </div>
         ) : (
           entries.map((entry, eIdx) => (
@@ -352,9 +388,9 @@ export default function LogForm() {
           ))
         )}
 
-        {actionData?.error != null && (
+        {errorMessage != null && (
           <p role="alert" style={{ color: "var(--danger)", fontSize: 13, margin: 0 }}>
-            {actionData.error}
+            {errorMessage}
           </p>
         )}
 
@@ -364,16 +400,16 @@ export default function LogForm() {
 
         <div className="row" style={{ gap: 8, marginTop: 6 }}>
           <button type="submit" className="btn btn-primary btn-lg" disabled={entries.length === 0}>
-            <Icons.Check /> Zapisz sesję
+            <Icons.Check /> {t("loguj.submitBtn")}
           </button>
           <Link to="/podopieczny" className="btn btn-ghost btn-lg">
-            Anuluj
+            {t("loguj.cancelBtn")}
           </Link>
         </div>
       </Form>
 
       <div className="text-xs muted" style={{ marginTop: 18 }}>
-        Zalogowany jako {user.displayName}.
+        {t("loguj.loggedAs", { name: user.displayName })}
       </div>
     </div>
   );
@@ -388,6 +424,7 @@ function ProgressBar({
   skipped: number;
   total: number;
 }) {
+  const { t } = useTranslation("podopieczny");
   const accounted = filled + skipped;
   const pct = total === 0 ? 0 : Math.round((accounted / total) * 100);
   const filledPct = total === 0 ? 0 : (filled / total) * 100;
@@ -409,39 +446,34 @@ function ProgressBar({
         <span style={{ fontSize: 13, fontWeight: 500 }}>
           {allFilled ? (
             <>
-              <Icons.Check style={{ color: "var(--ok)" }} /> Wszystkie serie wypełnione
+              <Icons.Check style={{ color: "var(--ok)" }} /> {t("loguj.progress.allFilled")}
             </>
           ) : allAccounted ? (
             <>
-              <span className="mono">{filled}</span> wypełnion
-              {filled === 1 ? "a" : "ych"}
+              <span className="mono">{filled}</span>{" "}
+              {t("loguj.progress.filledSuffix", { count: filled })}
               {skipped > 0 && (
                 <>
                   {" · "}
                   <span className="mono" style={{ color: "var(--muted)" }}>
                     {skipped}
                   </span>{" "}
-                  <span className="muted">
-                    {pluralizePl(skipped, {
-                      one: "pominięta",
-                      few: "pominięte",
-                      many: "pominiętych",
-                    })}
-                  </span>
+                  <span className="muted">{t("loguj.progress.skipped", { count: skipped })}</span>
                 </>
               )}
             </>
           ) : (
             <>
-              <span className="mono">{filled}</span> z <span className="mono">{total}</span>{" "}
-              {pluralizePl(total, SERIA)} wypełnion{filled === 1 ? "a" : "ych"}
+              <span className="mono">{filled}</span> {t("loguj.progress.of")}{" "}
+              <span className="mono">{total}</span> {t("loguj.progress.sets", { count: total })}{" "}
+              {t("loguj.progress.filledSuffix", { count: filled })}
               {skipped > 0 && (
                 <>
                   {" · "}
                   <span className="mono" style={{ color: "var(--muted)" }}>
                     {skipped}
                   </span>{" "}
-                  <span className="muted">pominięte</span>
+                  <span className="muted">{t("loguj.progress.skipped", { count: skipped })}</span>
                 </>
               )}
               {pending > 0 && (
@@ -450,7 +482,7 @@ function ProgressBar({
                   <span className="mono" style={{ color: "var(--muted)" }}>
                     {pending}
                   </span>{" "}
-                  <span className="muted">do uzupełnienia</span>
+                  <span className="muted">{t("loguj.progress.pending")}</span>
                 </>
               )}
             </>
@@ -507,6 +539,7 @@ function EntryCard({
   onUnskipSet: (sIdx: number) => void;
   onCopyFromFirst: () => void;
 }) {
+  const { t } = useTranslation("podopieczny");
   const showCopyButton = entry.expectedSets > 1;
   const firstFilled =
     sets.length > 0 &&
@@ -526,21 +559,23 @@ function EntryCard({
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="row" style={{ gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
             <span className="mono text-xs muted">
-              Ćwiczenie {eIdx + 1}/{totalEntries}
+              {t("loguj.entryCard.exerciseLabel", { current: eIdx + 1, total: totalEntries })}
             </span>
-            {entry.isDropsetItem && <span className="badge">dropset</span>}
+            {entry.isDropsetItem && (
+              <span className="badge">{t("loguj.entryCard.dropsetBadge")}</span>
+            )}
           </div>
           <div style={{ fontSize: 15, fontWeight: 600, marginTop: 2 }}>{entry.exerciseName}</div>
           <div className="text-xs muted" style={{ marginTop: 3 }}>
-            Cel:{" "}
+            {t("loguj.entryCard.goal")}{" "}
             <strong className="mono" style={{ color: "var(--ink)" }}>
               {entry.expectedSets}
             </strong>{" "}
-            seria(e) ×{" "}
+            {t("loguj.entryCard.sets")} ×{" "}
             <strong className="mono" style={{ color: "var(--ink)" }}>
               {entry.expectedReps}
             </strong>{" "}
-            {entry.unit === "SEC" ? "sek." : "powt."}
+            {entry.unit === "SEC" ? t("loguj.entryCard.secUnit") : t("loguj.entryCard.repsUnit")}
           </div>
           {entry.note != null && entry.note.length > 0 && (
             <div
@@ -561,10 +596,10 @@ function EntryCard({
             onClick={onCopyFromFirst}
             disabled={!firstFilled}
             className="btn btn-sm"
-            title="Skopiuj liczby i trudność z serii #1 do pozostałych pustych"
+            title={t("loguj.entryCard.copyTitle")}
             style={{ flexShrink: 0 }}
           >
-            Wypełnij jak #1
+            {t("loguj.entryCard.copyBtn")}
           </button>
         )}
       </div>
@@ -623,6 +658,7 @@ function SetRow({
   onChange: (patch: Partial<SetState>) => void;
   onSkip: () => void;
 }) {
+  const { t } = useTranslation("podopieczny");
   const diffName = `e_${eIdx}_s_${sIdx}_diff`;
 
   // Picking a difficulty implies "I did this set" — backfill reps with the
@@ -648,7 +684,9 @@ function SetRow({
       }}
     >
       <div className="row between" style={{ alignItems: "center", marginBottom: -2 }}>
-        <span className="mono text-xs muted">Seria #{sIdx + 1}</span>
+        <span className="mono text-xs muted">
+          {t("loguj.setRow.seriesLabel", { number: sIdx + 1 })}
+        </span>
         <button
           type="button"
           onClick={onSkip}
@@ -659,9 +697,9 @@ function SetRow({
             padding: "2px 8px",
             height: 24,
           }}
-          title="Oznacz tę serię jako pominiętą (nie wlicza się do statystyk)"
+          title={t("loguj.setRow.skipTitle")}
         >
-          <Icons.X style={{ fontSize: 11 }} /> Pomiń
+          <Icons.X style={{ fontSize: 11 }} /> {t("loguj.setRow.skipBtn")}
         </button>
       </div>
       <div
@@ -677,7 +715,7 @@ function SetRow({
             htmlFor={`reps-${eIdx}-${sIdx}`}
             style={{ fontSize: 10 }}
           >
-            {unit === "SEC" ? "Sekundy" : "Powtórzenia"}
+            {unit === "SEC" ? t("loguj.setRow.seconds") : t("loguj.setRow.repetitions")}
           </label>
           <input
             id={`reps-${eIdx}-${sIdx}`}
@@ -705,7 +743,7 @@ function SetRow({
       {tracksRpe ? (
         <div>
           <div className="uppercase-label" style={{ fontSize: 10, marginBottom: 4 }}>
-            Trudność 1–10
+            {t("loguj.setRow.difficulty")}
           </div>
           <div className="diff-radio">
             {Array.from({ length: 10 }, (_, i) => i + 1).map((v) => (
@@ -727,7 +765,7 @@ function SetRow({
         </div>
       ) : (
         <div className="text-xs muted" style={{ fontStyle: "italic" }}>
-          To ćwiczenie nie zbiera oceny trudności.
+          {t("loguj.setRow.noRpe")}
         </div>
       )}
     </div>
@@ -746,6 +784,7 @@ function SkippedSetRow({
   sIdx: number;
   onUnskip: () => void;
 }) {
+  const { t } = useTranslation("podopieczny");
   return (
     <div
       style={{
@@ -760,7 +799,9 @@ function SkippedSetRow({
       }}
     >
       <div className="row" style={{ gap: 10, alignItems: "center" }}>
-        <span className="mono text-xs muted">Seria #{sIdx + 1}</span>
+        <span className="mono text-xs muted">
+          {t("loguj.setRow.seriesLabel", { number: sIdx + 1 })}
+        </span>
         <span
           className="mono"
           style={{
@@ -771,10 +812,10 @@ function SkippedSetRow({
             fontWeight: 600,
           }}
         >
-          Pominięta
+          {t("loguj.skippedRow.label")}
         </span>
         <span className="text-xs muted" style={{ fontStyle: "italic" }}>
-          nie wlicza się do statystyk
+          {t("loguj.skippedRow.stat")}
         </span>
       </div>
       <button
@@ -783,7 +824,7 @@ function SkippedSetRow({
         className="btn btn-sm btn-ghost"
         style={{ fontSize: 11, padding: "2px 8px", height: 24 }}
       >
-        Cofnij
+        {t("loguj.skippedRow.undoBtn")}
       </button>
     </div>
   );

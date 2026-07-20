@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import { useTranslation } from "react-i18next";
 import {
   Form,
   Link,
@@ -14,6 +15,8 @@ import { ConsultationAlert } from "~/components/consultation-alert";
 import { ConsultationForm } from "~/components/consultation-form";
 import { StatusBadge } from "~/components/consultation-status-badge";
 import { Icons } from "~/components/icons";
+import { type Lang, langToIntlLocale } from "~/i18n/config";
+import { tDyn } from "~/i18n/translate";
 import { requireUser } from "~/lib/auth";
 import { consultationPresentation } from "~/lib/consultation-status";
 import { parseConsultationDocFormData } from "~/lib/consultation-form.server";
@@ -101,7 +104,7 @@ export async function action(args: ActionFunctionArgs) {
     if (intent === "cancel") {
       await cancelOccurrence(db, { trainerId: user.id, consultationId });
       await syncCancelOne(db, { trainerId: user.id, consultationId });
-      return { success: "Termin odwołany." };
+      return { successKey: "akcje.occurrenceCancelled" };
     }
     if (intent === "reschedule") {
       const scheduledAtLocal = String(fd.get("scheduledAt") ?? "");
@@ -113,7 +116,7 @@ export async function action(args: ActionFunctionArgs) {
         durationMin,
       });
       await syncUpsertOne(db, { trainerId: user.id, consultationId });
-      return { success: "Termin przełożony." };
+      return { successKey: "akcje.occurrenceRescheduled" };
     }
     if (intent === "toggle-item") {
       const itemId = String(fd.get("itemId") ?? "");
@@ -123,14 +126,15 @@ export async function action(args: ActionFunctionArgs) {
     }
     if (intent === "document") {
       const parsed = ConsultationDocFormSchema.safeParse(parseConsultationDocFormData(fd));
-      if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Niepoprawne dane." };
+      if (!parsed.success)
+        return { errorRaw: parsed.error.issues[0]?.message, errorKey: "akcje.invalidData" };
       await documentConsultation(db, { trainerId: user.id, consultationId, form: parsed.data });
-      return { success: "Zapisano." };
+      return { successKey: "akcje.saved" };
     }
     return null;
   } catch (e) {
     if (e instanceof Response) throw e;
-    if (e instanceof ConsultationError) return { error: e.userMessage };
+    if (e instanceof ConsultationError) return { errorRaw: e.userMessage };
     throw e;
   }
 }
@@ -138,38 +142,55 @@ export async function action(args: ActionFunctionArgs) {
 export default function TrenerKonsultacjaDetail() {
   const { detail, traineeId, traineeName } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const { t, i18n } = useTranslation("trenerKonsultacje");
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
   const [searchParams] = useSearchParams();
   const isDocument = searchParams.get("document") === "1";
 
   const { consultation: c, items } = detail;
   const listUrl = `/trener/podopieczni/${traineeId}/konsultacje`;
 
+  // action() zwraca klucze i18n (errorKey/successKey) albo gotowy tekst z lib (errorRaw).
+  const alert: { error?: string; success?: string } | null = actionData
+    ? {
+        error:
+          ("errorKey" in actionData && actionData.errorKey
+            ? tDyn(t, actionData.errorKey)
+            : undefined) ?? ("errorRaw" in actionData ? actionData.errorRaw : undefined),
+        success:
+          "successKey" in actionData && actionData.successKey
+            ? tDyn(t, actionData.successKey)
+            : undefined,
+      }
+    : null;
+
   // ── DOCUMENT mode ──────────────────────────────────────────
   if (isDocument) {
     return (
       <div>
         <div className="crumbs">
-          <Link to="/trener/podopieczni">Podopieczni</Link>
+          <Link to="/trener/podopieczni">{t("szczegoly.crumbTrainees")}</Link>
           <span className="sep">›</span>
           <Link to={`/trener/podopieczni/${traineeId}`}>{traineeName}</Link>
           <span className="sep">›</span>
-          <Link to={listUrl}>Konsultacje</Link>
+          <Link to={listUrl}>{t("szczegoly.crumbConsultations")}</Link>
           <span className="sep">›</span>
           <Link to={`${listUrl}/${c.id}`}>{c.title}</Link>
           <span className="sep">›</span>
-          <span className="current">Dokumentowanie</span>
+          <span className="current">{t("szczegoly.crumbDocumentation")}</span>
         </div>
 
         <div className="pagehead">
           <div>
             <div className="eyebrow" style={{ marginBottom: 6 }}>
-              Termin · <span className="mono">{fmtDateTime(c.scheduledAt)}</span>
+              {t("szczegoly.termEyebrow")}
+              <span className="mono">{fmtDateTime(c.scheduledAt, locale)}</span>
             </div>
-            <h1>Udokumentuj spotkanie</h1>
+            <h1>{t("szczegoly.documentTitle")}</h1>
           </div>
         </div>
 
-        <ConsultationAlert data={actionData} />
+        <ConsultationAlert data={alert} />
 
         <div className="card" style={{ maxWidth: 760 }}>
           <Form method="post">
@@ -197,10 +218,10 @@ export default function TrenerKonsultacjaDetail() {
               }}
             >
               <Link to={`${listUrl}/${c.id}`} className="btn btn-ghost">
-                Anuluj
+                {t("szczegoly.cancel")}
               </Link>
               <button type="submit" className="btn btn-primary">
-                Zapisz dokumentację
+                {t("szczegoly.saveDocumentation")}
               </button>
             </div>
           </Form>
@@ -223,11 +244,11 @@ export default function TrenerKonsultacjaDetail() {
   return (
     <div>
       <div className="crumbs">
-        <Link to="/trener/podopieczni">Podopieczni</Link>
+        <Link to="/trener/podopieczni">{t("szczegoly.crumbTrainees")}</Link>
         <span className="sep">›</span>
         <Link to={`/trener/podopieczni/${traineeId}`}>{traineeName}</Link>
         <span className="sep">›</span>
-        <Link to={listUrl}>Konsultacje</Link>
+        <Link to={listUrl}>{t("szczegoly.crumbConsultations")}</Link>
         <span className="sep">›</span>
         <span className="current">{c.title}</span>
       </div>
@@ -238,9 +259,9 @@ export default function TrenerKonsultacjaDetail() {
             className="eyebrow"
             style={{ marginBottom: 6, display: "flex", gap: 10, alignItems: "center" }}
           >
-            <span className="mono">{fmtDateTime(c.scheduledAt)}</span>
-            <span>· {c.durationMin} min</span>
-            <StatusBadge label={meta.label} tone={meta.tone} />
+            <span className="mono">{fmtDateTime(c.scheduledAt, locale)}</span>
+            <span>· {t("szczegoly.minUnit", { count: c.durationMin })}</span>
+            <StatusBadge label={tDyn(t, meta.labelKey)} tone={meta.tone} />
           </div>
           <h1>{c.title}</h1>
           {c.meetingUrl && (
@@ -252,7 +273,7 @@ export default function TrenerKonsultacjaDetail() {
                 className="row"
                 style={{ gap: 6, display: "inline-flex", alignItems: "center" }}
               >
-                <Icons.Video /> Link spotkania
+                <Icons.Video /> {t("szczegoly.meetingLink")}
               </a>
             </div>
           )}
@@ -260,7 +281,8 @@ export default function TrenerKonsultacjaDetail() {
         <div className="row" style={{ gap: 8 }}>
           {!isCancelled && (
             <Link to="?document=1" className="btn btn-primary">
-              <Icons.Note /> {isDocumented ? "Edytuj dokumentację" : "Udokumentuj"}
+              <Icons.Note />{" "}
+              {isDocumented ? t("szczegoly.editDocumentation") : t("szczegoly.document")}
             </Link>
           )}
           <Form method="post">
@@ -268,14 +290,13 @@ export default function TrenerKonsultacjaDetail() {
             <ConfirmSubmitButton
               className="btn btn-icon btn-ghost"
               style={{ color: "var(--danger)" }}
-              title="Usuń termin"
-              aria-label="Usuń termin"
+              title={t("szczegoly.deleteTitle")}
+              aria-label={t("szczegoly.deleteTitle")}
               confirmOptions={{
-                title: "Usunąć termin?",
-                message:
-                  "Usunięcie jest nieodwracalne — przepada dokumentacja i punkty do poprawy.",
+                title: t("szczegoly.deleteConfirmTitle"),
+                message: t("szczegoly.deleteConfirmMessage"),
                 destructive: true,
-                confirmText: "Usuń termin",
+                confirmText: t("szczegoly.deleteConfirmText"),
               }}
             >
               <Icons.Trash />
@@ -284,7 +305,7 @@ export default function TrenerKonsultacjaDetail() {
         </div>
       </div>
 
-      <ConsultationAlert data={actionData} />
+      <ConsultationAlert data={alert} />
 
       {/* Notatka podopiecznego (prośba o zmianę) */}
       {c.status === "change_requested" && c.traineeNote && (
@@ -298,7 +319,7 @@ export default function TrenerKonsultacjaDetail() {
           }}
         >
           <div className="field-label" style={{ marginBottom: 6, color: "var(--warn)" }}>
-            Podopieczny prosi o zmianę terminu
+            {t("szczegoly.changeRequestedLabel")}
           </div>
           <p
             style={{
@@ -318,7 +339,7 @@ export default function TrenerKonsultacjaDetail() {
       {!isCancelled && !isDocumented && (
         <div className="card" style={{ marginBottom: 18, maxWidth: 760 }}>
           <div className="field-label" style={{ marginBottom: 10 }}>
-            Zarządzaj terminem
+            {t("szczegoly.manageTerm")}
           </div>
           <Form
             method="post"
@@ -327,7 +348,7 @@ export default function TrenerKonsultacjaDetail() {
           >
             <input type="hidden" name="intent" value="reschedule" />
             <div className="field" style={{ flex: 1, minWidth: 220 }}>
-              <label htmlFor="rs-scheduledAt">Nowy termin</label>
+              <label htmlFor="rs-scheduledAt">{t("szczegoly.newTerm")}</label>
               <input
                 id="rs-scheduledAt"
                 className="input"
@@ -338,7 +359,7 @@ export default function TrenerKonsultacjaDetail() {
               />
             </div>
             <div className="field" style={{ width: 140 }}>
-              <label htmlFor="rs-durationMin">Czas (min)</label>
+              <label htmlFor="rs-durationMin">{t("szczegoly.durationMin")}</label>
               <input
                 id="rs-durationMin"
                 className="input"
@@ -350,7 +371,7 @@ export default function TrenerKonsultacjaDetail() {
               />
             </div>
             <button type="submit" className="btn">
-              <Icons.Calendar /> Przełóż
+              <Icons.Calendar /> {t("szczegoly.reschedule")}
             </button>
           </Form>
           <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
@@ -360,14 +381,13 @@ export default function TrenerKonsultacjaDetail() {
                 className="btn btn-ghost btn-sm"
                 style={{ color: "var(--danger)" }}
                 confirmOptions={{
-                  title: "Odwołać termin?",
-                  message:
-                    "Termin zostanie oznaczony jako odwołany i zniknie z kalendarza podopiecznego.",
+                  title: t("szczegoly.cancelTermConfirmTitle"),
+                  message: t("szczegoly.cancelTermConfirmMessage"),
                   destructive: true,
-                  confirmText: "Odwołaj termin",
+                  confirmText: t("szczegoly.cancelTermConfirmText"),
                 }}
               >
-                Odwołaj termin
+                {t("szczegoly.cancelTerm")}
               </ConfirmSubmitButton>
             </Form>
           </div>
@@ -378,7 +398,7 @@ export default function TrenerKonsultacjaDetail() {
       {c.summary && c.summary.trim().length > 0 && (
         <div className="card" style={{ marginBottom: 18, maxWidth: 760 }}>
           <div className="field-label" style={{ marginBottom: 10 }}>
-            Podsumowanie
+            {t("szczegoly.summaryLabel")}
           </div>
           <p
             style={{
@@ -397,8 +417,8 @@ export default function TrenerKonsultacjaDetail() {
       {/* Okres omówiony */}
       {c.periodFrom && c.periodTo && (
         <div className="text-xs muted" style={{ marginBottom: 18 }}>
-          Okres omówiony: <span className="mono">{fmtDate(c.periodFrom)}</span> —{" "}
-          <span className="mono">{fmtDate(c.periodTo)}</span>
+          {t("szczegoly.periodLabel")} <span className="mono">{fmtDate(c.periodFrom, locale)}</span>{" "}
+          — <span className="mono">{fmtDate(c.periodTo, locale)}</span>
         </div>
       )}
 
@@ -406,15 +426,19 @@ export default function TrenerKonsultacjaDetail() {
       {items.length === 0 ? (
         isDocumented && (
           <div className="empty" style={{ maxWidth: 760 }}>
-            <h3>Brak punktów</h3>
-            <div>Ta konsultacja nie ma żadnych punktów do poprawy.</div>
+            <h3>{t("szczegoly.noItemsTitle")}</h3>
+            <div>{t("szczegoly.noItemsBody")}</div>
           </div>
         )
       ) : (
         <div style={{ maxWidth: 760 }}>
           <div className="field-label" style={{ marginBottom: 10 }}>
-            Do poprawy (
-            {openCount > 0 ? `${openCount} otwartych z ${items.length}` : `${items.length}`})
+            {t("szczegoly.toImproveLabel", {
+              detail:
+                openCount > 0
+                  ? t("szczegoly.openOfTotal", { open: openCount, total: items.length })
+                  : t("szczegoly.totalOnly", { total: items.length }),
+            })}
           </div>
           <div className="list">
             {items.map((item) => {
@@ -460,7 +484,7 @@ export default function TrenerKonsultacjaDetail() {
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {resolved ? "Cofnij do otwartych" : "Oznacz jako poprawione"}
+                      {resolved ? t("szczegoly.revertToOpen") : t("szczegoly.markResolved")}
                     </button>
                   </Form>
                 </div>

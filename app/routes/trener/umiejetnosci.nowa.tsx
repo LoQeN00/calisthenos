@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import {
   Form,
   redirect,
@@ -5,6 +6,7 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
+import { tDyn } from "~/i18n/translate";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import { SkillError, createSkill } from "~/lib/skills";
@@ -23,7 +25,9 @@ export async function action(args: ActionFunctionArgs) {
     description: String(fd.get("description") ?? ""),
   });
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Niepoprawne dane." };
+    // Komunikat walidacji Zod pochodzi z warstwy lib (SkillFormSchema, PL) —
+    // renderowany dosłownie. Fallback to klucz tłumaczenia.
+    return { error: parsed.error.issues[0]?.message ?? "umiejetnosci.nowa.errorInvalid" };
   }
   try {
     const skill = await createSkill(db, user.id, parsed.data.name, parsed.data.description);
@@ -37,38 +41,39 @@ export async function action(args: ActionFunctionArgs) {
 
 export default function NowaUmiejetnosc() {
   const actionData = useActionData<typeof action>();
+  const { t } = useTranslation("trenerPlany");
   return (
     <div style={{ maxWidth: 560 }}>
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Trener
+            {t("umiejetnosci.eyebrow")}
           </div>
-          <h1>Nowa umiejętność</h1>
+          <h1>{t("umiejetnosci.nowa.title")}</h1>
         </div>
       </div>
       <Form method="post" className="card" style={{ padding: 16, display: "grid", gap: 12 }}>
         <label className="col" style={{ gap: 4 }}>
-          <span className="text-sm">Nazwa</span>
+          <span className="text-sm">{t("umiejetnosci.nowa.labelName")}</span>
           <input
             name="name"
             className="input"
             maxLength={120}
             required
-            placeholder="np. Front Lever"
+            placeholder={t("umiejetnosci.nowa.namePlaceholder")}
           />
         </label>
         <label className="col" style={{ gap: 4 }}>
-          <span className="text-sm">Opis (opcjonalny)</span>
+          <span className="text-sm">{t("umiejetnosci.nowa.labelDescription")}</span>
           <textarea name="description" className="input" maxLength={2000} rows={3} />
         </label>
         {actionData != null && "error" in actionData && actionData.error != null && (
           <p role="alert" style={{ color: "var(--danger)", fontSize: 12, margin: 0 }}>
-            {actionData.error}
+            {actionData.error.startsWith("umiejetnosci.") ? tDyn(t, actionData.error) : actionData.error}
           </p>
         )}
         <button type="submit" className="btn btn-primary">
-          Utwórz
+          {t("umiejetnosci.nowa.create")}
         </button>
       </Form>
     </div>

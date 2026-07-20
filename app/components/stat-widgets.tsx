@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import { type Lang, langToIntlLocale } from "~/i18n/config";
 import type { HeatmapDay } from "~/lib/stats";
 
 // ============================================================
@@ -14,12 +16,14 @@ interface HeatmapProps {
 }
 
 export function Heatmap({ days, cellSize = 12, cellGap = 3 }: HeatmapProps) {
+  const { t, i18n } = useTranslation();
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
   if (days.length === 0) return null;
   const weeks = Math.ceil(days.length / 7);
   const width = weeks * (cellSize + cellGap) - cellGap;
   const height = 7 * (cellSize + cellGap) - cellGap;
 
-  const monthLabels = computeMonthLabels(days, cellSize + cellGap);
+  const monthLabels = computeMonthLabels(days, cellSize + cellGap, locale);
 
   return (
     <div style={{ overflowX: "auto", paddingBottom: 2 }}>
@@ -28,7 +32,7 @@ export function Heatmap({ days, cellSize = 12, cellGap = 3 }: HeatmapProps) {
         height={height + 16}
         viewBox={`0 0 ${width} ${height + 16}`}
         role="img"
-        aria-label="Heatmapa aktywności"
+        aria-label={t("stats.heatmapAria")}
         style={{ display: "block" }}
       >
         {monthLabels.map((m) => (
@@ -60,7 +64,7 @@ export function Heatmap({ days, cellSize = 12, cellGap = 3 }: HeatmapProps) {
                 ry={2}
                 fill={colorForCount(day.count)}
               >
-                <title>{`${day.date}: ${day.count === 0 ? "brak" : `${day.count} sesji`}`}</title>
+                <title>{`${day.date}: ${day.count === 0 ? t("stats.noSessions") : t("stats.sessionsCount", { count: day.count })}`}</title>
               </rect>
             );
           })}
@@ -80,28 +84,16 @@ function colorForCount(count: number): string {
 function computeMonthLabels(
   days: HeatmapDay[],
   weekColWidth: number,
+  locale: string,
 ): Array<{ label: string; x: number }> {
-  const MONTHS = [
-    "sty",
-    "lut",
-    "mar",
-    "kwi",
-    "maj",
-    "cze",
-    "lip",
-    "sie",
-    "wrz",
-    "paź",
-    "lis",
-    "gru",
-  ];
+  const fmt = new Intl.DateTimeFormat(locale, { month: "short", timeZone: "UTC" });
   const labels: Array<{ label: string; x: number }> = [];
   let lastMonth = -1;
   for (let i = 0; i < days.length; i += 7) {
     const d = new Date(days[i]!.date);
     const m = d.getUTCMonth();
     if (m !== lastMonth) {
-      labels.push({ label: MONTHS[m]!, x: (i / 7) * weekColWidth });
+      labels.push({ label: fmt.format(Date.UTC(2000, m, 1)), x: (i / 7) * weekColWidth });
       lastMonth = m;
     }
   }
@@ -130,11 +122,7 @@ export function Sparkline({
   showLastDot = true,
 }: SparklineProps) {
   if (values.length < 2) {
-    return (
-      <span className="muted text-xs" style={{ fontStyle: "italic" }}>
-        za mało danych
-      </span>
-    );
+    return <SparklineEmpty />;
   }
   const min = Math.min(...values);
   const max = Math.max(...values);
@@ -173,6 +161,15 @@ export function Sparkline({
       />
       {showLastDot && <circle cx={last.x} cy={last.y} r={2.5} fill={stroke} />}
     </svg>
+  );
+}
+
+function SparklineEmpty() {
+  const { t } = useTranslation();
+  return (
+    <span className="muted text-xs" style={{ fontStyle: "italic" }}>
+      {t("stats.noData")}
+    </span>
   );
 }
 

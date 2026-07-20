@@ -12,6 +12,8 @@ export type StatusTone = "ok" | "warn" | "neutral";
 export interface StatusPresentation {
   label: string;
   tone: StatusTone;
+  /** Klucz i18next (namespace `platnosci`) — addytywny, callerzy mogą używać `label` lub `t(labelKey)`. */
+  labelKey: string;
 }
 
 const KNOWN: Record<string, SubscriptionStatus> = {
@@ -31,13 +33,13 @@ export function mapStripeStatus(stripeStatus: string): SubscriptionStatus {
 }
 
 const PRESENTATION: Record<SubscriptionStatus, StatusPresentation> = {
-  none: { label: "Brak subskrypcji", tone: "neutral" },
-  incomplete: { label: "Nieukończona", tone: "warn" },
-  active: { label: "Aktywna", tone: "ok" },
-  past_due: { label: "Zaległość", tone: "warn" },
-  unpaid: { label: "Nieopłacona", tone: "warn" },
-  canceled: { label: "Anulowana", tone: "neutral" },
-  paused: { label: "Wstrzymana", tone: "neutral" },
+  none: { label: "Brak subskrypcji", tone: "neutral", labelKey: "platnosci:subStatus.none" },
+  incomplete: { label: "Nieukończona", tone: "warn", labelKey: "platnosci:subStatus.incomplete" },
+  active: { label: "Aktywna", tone: "ok", labelKey: "platnosci:subStatus.active" },
+  past_due: { label: "Zaległość", tone: "warn", labelKey: "platnosci:subStatus.past_due" },
+  unpaid: { label: "Nieopłacona", tone: "warn", labelKey: "platnosci:subStatus.unpaid" },
+  canceled: { label: "Anulowana", tone: "neutral", labelKey: "platnosci:subStatus.canceled" },
+  paused: { label: "Wstrzymana", tone: "neutral", labelKey: "platnosci:subStatus.paused" },
 };
 
 export function subscriptionPresentation(status: SubscriptionStatus): StatusPresentation {
@@ -55,4 +57,17 @@ export function invoiceStatusLabel(status: string): string {
     failed: "Nieudana",
   };
   return M[status] ?? status;
+}
+
+/** Status faktury → klucz i18next (namespace `platnosci`). Nieznany status → null. */
+export function invoiceStatusLabelKey(status: string): string | null {
+  const KNOWN_KEYS: Record<string, string> = {
+    paid: "platnosci:invoiceStatus.paid",
+    open: "platnosci:invoiceStatus.open",
+    void: "platnosci:invoiceStatus.void",
+    uncollectible: "platnosci:invoiceStatus.uncollectible",
+    draft: "platnosci:invoiceStatus.draft",
+    failed: "platnosci:invoiceStatus.failed",
+  };
+  return KNOWN_KEYS[status] ?? null;
 }

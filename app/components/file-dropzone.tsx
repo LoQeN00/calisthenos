@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigation } from "react-router";
 import { Icons } from "./icons";
 
@@ -34,6 +35,7 @@ export function FileDropzone({
   hint,
   idSuffix,
 }: FileDropzoneProps) {
+  const { t } = useTranslation();
   const generatedId = useId();
   const inputId = idSuffix ? `fdz-${name}-${idSuffix}` : generatedId;
   const inputRef = useRef<HTMLInputElement>(null);
@@ -63,7 +65,8 @@ export function FileDropzone({
 
   const acceptAttr = kind === "video" ? VIDEO_ACCEPT : IMAGE_ACCEPT;
   const acceptedList = acceptAttr.split(",");
-  const formatLabel = kind === "video" ? "MP4, MOV lub WebM" : "JPG, PNG lub WebP";
+  const formatLabel =
+    kind === "video" ? t("fileDropzone.formatVideo") : t("fileDropzone.formatImage");
 
   const accept = (picked: File | null) => {
     if (!picked) {
@@ -72,14 +75,17 @@ export function FileDropzone({
       return;
     }
     if (picked.type && !acceptedList.includes(picked.type)) {
-      setError(`Nieobsługiwany format: ${picked.type}. Wymagane: ${formatLabel}.`);
+      setError(t("fileDropzone.errorFormat", { type: picked.type, formats: formatLabel }));
       if (inputRef.current) inputRef.current.value = "";
       setFile(null);
       return;
     }
     if (maxBytes && picked.size > maxBytes) {
       setError(
-        `Plik za duży: ${(picked.size / 1_000_000).toFixed(1)} MB · limit ${Math.floor(maxBytes / 1_000_000)} MB.`,
+        t("fileDropzone.errorTooLarge", {
+          size: (picked.size / 1_000_000).toFixed(1),
+          limit: Math.floor(maxBytes / 1_000_000),
+        }),
       );
       if (inputRef.current) inputRef.current.value = "";
       setFile(null);
@@ -248,11 +254,11 @@ export function FileDropzone({
             <Icons.Upload />
           </span>
           <span style={{ fontSize: 14 }}>
-            <strong>Kliknij aby wybrać</strong> lub upuść plik tutaj
+            <strong>{t("fileDropzone.clickToPick")}</strong> {t("fileDropzone.orDrop")}
           </span>
           <span className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
             {hint ??
-              `${formatLabel}${maxBytes ? ` · do ${Math.floor(maxBytes / 1_000_000)} MB` : ""}`}
+              `${formatLabel}${maxBytes ? ` · ${t("fileDropzone.upTo", { mb: Math.floor(maxBytes / 1_000_000) })}` : ""}`}
           </span>
         </button>
       )}
@@ -282,6 +288,7 @@ function FullFilled({
   onChange: () => void;
   onClear: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div
       style={{
@@ -321,7 +328,7 @@ function FullFilled({
         {previewUrl && kind === "image" && (
           <img
             src={previewUrl}
-            alt="Podgląd"
+            alt={t("fileDropzone.preview")}
             style={{ width: "100%", height: "100%", objectFit: "cover" }}
           />
         )}
@@ -341,12 +348,14 @@ function FullFilled({
         </div>
         <div className="mono" style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
           {sizeMb} MB
-          {isSubmitting && <span style={{ color: "var(--ok)", marginLeft: 8 }}>· wysyłanie…</span>}
+          {isSubmitting && (
+            <span style={{ color: "var(--ok)", marginLeft: 8 }}>· {t("fileDropzone.uploading")}</span>
+          )}
         </div>
       </div>
       <div className="row" style={{ gap: 6 }}>
         <button type="button" className="btn btn-sm" onClick={onChange} disabled={isSubmitting}>
-          Zmień
+          {t("fileDropzone.change")}
         </button>
         <button
           type="button"
@@ -354,8 +363,8 @@ function FullFilled({
           style={{ color: "var(--danger)" }}
           onClick={onClear}
           disabled={isSubmitting}
-          aria-label="Usuń wybrany plik"
-          title="Usuń"
+          aria-label={t("fileDropzone.removeAria")}
+          title={t("fileDropzone.removeTitle")}
         >
           <Icons.X />
         </button>
@@ -379,6 +388,7 @@ function CompactFilled({
   onChange: () => void;
   onClear: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div
       style={{
@@ -445,7 +455,7 @@ function CompactFilled({
         </span>
         {isSubmitting ? (
           <span className="mono" style={{ fontSize: 10, color: "var(--ok)" }}>
-            wysyłanie…
+            {t("fileDropzone.uploading")}
           </span>
         ) : (
           <Icons.Check />
@@ -467,8 +477,8 @@ function CompactFilled({
           display: "grid",
           placeItems: "center",
         }}
-        aria-label="Usuń wybrany plik"
-        title="Usuń"
+        aria-label={t("fileDropzone.removeAria")}
+        title={t("fileDropzone.removeTitle")}
       >
         <Icons.X />
       </button>

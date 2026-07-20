@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { AxisBottom, AxisLeft } from "@visx/axis";
 import { localPoint } from "@visx/event";
 import { GridRows } from "@visx/grid";
@@ -7,6 +8,7 @@ import { ParentSize } from "@visx/responsive";
 import { scaleBand, scaleLinear, scalePoint, scaleTime } from "@visx/scale";
 import { Bar, LinePath } from "@visx/shape";
 import { useTooltip, useTooltipInPortal } from "@visx/tooltip";
+import { tDyn } from "~/i18n/translate";
 import type { ComparisonSeries } from "~/lib/progression";
 import type { ChartPoint, ProgressionStatus, StatusSummary } from "~/lib/progression-math";
 
@@ -21,11 +23,22 @@ import type { ChartPoint, ProgressionStatus, StatusSummary } from "~/lib/progres
 type Unit = "REPS" | "SEC";
 
 /** Shared empty-state span, matching stat-widgets.tsx Sparkline. */
-function NotEnough({ text = "za mało danych" }: { text?: string }) {
+function NotEnough({ text }: { text?: string }) {
+  const { t } = useTranslation();
   return (
     <span className="muted text-xs" style={{ fontStyle: "italic" }}>
-      {text}
+      {text ?? t("progression.notEnough")}
     </span>
+  );
+}
+
+/** Comparison-chart empty states, resolved through i18n. */
+function NotEnoughCompare({ which }: { which: "empty" | "noPoints" }) {
+  const { t } = useTranslation();
+  return (
+    <NotEnough
+      text={which === "empty" ? t("progression.compareEmpty") : t("progression.compareNoPoints")}
+    />
   );
 }
 
@@ -48,11 +61,12 @@ function fmtBest(best: number, unit: Unit): string {
 
 /** Pasek podsumowania statusów nad listą Progresji (obie role). */
 export function StatusSummaryBar({ summary }: { summary: StatusSummary }) {
+  const { t } = useTranslation();
   const items: Array<{ label: string; value: number; color: string }> = [
-    { label: "▲ rośnie", value: summary.up, color: "var(--ok)" },
-    { label: "= stabilnie", value: summary.flat, color: "var(--muted)" },
-    { label: "▼ spada", value: summary.down, color: "var(--danger)" },
-    { label: "nowe", value: summary.new, color: "var(--muted)" },
+    { label: t("progression.status.up"), value: summary.up, color: "var(--ok)" },
+    { label: t("progression.status.flat"), value: summary.flat, color: "var(--muted)" },
+    { label: t("progression.status.down"), value: summary.down, color: "var(--danger)" },
+    { label: t("progression.status.new"), value: summary.new, color: "var(--muted)" },
   ];
   return (
     <div
@@ -132,6 +146,7 @@ function LineChartInner({
   points: ChartPoint[];
   unit: Unit;
 }) {
+  const { t } = useTranslation();
   const innerW = Math.max(width - MARGIN.left - MARGIN.right, 1);
   const innerH = Math.max(height - MARGIN.top - MARGIN.bottom, 1);
 
@@ -192,7 +207,7 @@ function LineChartInner({
 
   return (
     <div ref={containerRef} style={{ position: "relative" }}>
-      <svg width={width} height={height} role="img" aria-label="Wykres rekordu w czasie">
+      <svg width={width} height={height} role="img" aria-label={t("progression.chartAria.line")}>
         <Group left={MARGIN.left} top={MARGIN.top}>
           <GridRows
             scale={yScale}
@@ -309,7 +324,9 @@ function LineChartInner({
             {tooltipData.label} · {fmtBest(tooltipData.best, unit)}
           </div>
           <div>RPE {tooltipData.avgRpe ?? "—"}</div>
-          {tooltipData.isPr && <div style={{ color: "var(--accent)" }}>nowy rekord ★</div>}
+          {tooltipData.isPr && (
+            <div style={{ color: "var(--accent)" }}>{t("progression.tooltip.newPr")}</div>
+          )}
         </TooltipInPortal>
       )}
     </div>
@@ -321,20 +338,21 @@ const fmtPct = (pct: number) => `${pct > 0 ? "+" : ""}${Math.round(pct)}%`;
 
 /** Legenda kolorów RPE pod wykresem rekordu. */
 function RpeLegend() {
+  const { t } = useTranslation();
   const items = [
-    { c: "var(--ok)", t: "łatwo" },
-    { c: "var(--warn)", t: "średnio" },
-    { c: "var(--danger)", t: "ciężko" },
+    { c: "var(--ok)", label: t("progression.rpeLegend.easy") },
+    { c: "var(--warn)", label: t("progression.rpeLegend.mid") },
+    { c: "var(--danger)", label: t("progression.rpeLegend.hard") },
   ];
   return (
     <div className="row wrap" style={{ gap: 12, fontSize: 11, marginTop: 8 }}>
-      <span className="muted">kolor = jak ciężko (RPE):</span>
+      <span className="muted">{t("progression.rpeLegend.label")}</span>
       {items.map((it) => (
-        <span key={it.t} className="row" style={{ gap: 6, alignItems: "center" }}>
+        <span key={it.label} className="row" style={{ gap: 6, alignItems: "center" }}>
           <span
             style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: it.c }}
           />
-          <span className="muted">{it.t}</span>
+          <span className="muted">{it.label}</span>
         </span>
       ))}
     </div>
@@ -380,9 +398,10 @@ function VolumeBarsInner({
     () => scaleLinear<number>({ domain: [0, max], range: [innerH, 0], nice: true }),
     [max, innerH],
   );
+  const { t } = useTranslation();
   const lastKey = points[points.length - 1]!.key;
   return (
-    <svg width={width} height={height} role="img" aria-label="Łączna praca w sesji">
+    <svg width={width} height={height} role="img" aria-label={t("progression.chartAria.volume")}>
       <Group left={VB_MARGIN.left} top={VB_MARGIN.top}>
         <AxisLeft
           scale={y}
@@ -454,9 +473,9 @@ export function ComparisonChart({
   series: ComparisonSeries[];
   height?: number;
 }) {
-  if (series.length === 0) return <NotEnough text="wybierz co najmniej 2 ćwiczenia do porównania" />;
+  if (series.length === 0) return <NotEnoughCompare which="empty" />;
   const hasPoints = series.some((s) => s.points.length > 0);
-  if (!hasPoints) return <NotEnough text="brak punktów do porównania" />;
+  if (!hasPoints) return <NotEnoughCompare which="noPoints" />;
   return (
     <div style={{ width: "100%", height }}>
       <ParentSize debounceTime={30}>
@@ -477,6 +496,7 @@ function ComparisonInner({
   height: number;
   series: ComparisonSeries[];
 }) {
+  const { t } = useTranslation();
   const innerW = Math.max(width - CMP_MARGIN.left - CMP_MARGIN.right, 1);
   const innerH = Math.max(height - CMP_MARGIN.top - CMP_MARGIN.bottom, 1);
 
@@ -557,7 +577,12 @@ function ComparisonInner({
 
   return (
     <div ref={containerRef} style={{ position: "relative" }}>
-      <svg width={width} height={height} role="img" aria-label="Porównanie progresji ćwiczeń">
+      <svg
+        width={width}
+        height={height}
+        role="img"
+        aria-label={t("progression.chartAria.comparison")}
+      >
         <Group left={CMP_MARGIN.left} top={CMP_MARGIN.top}>
           <GridRows scale={yScale} width={innerW} numTicks={4} stroke="var(--line)" opacity={0.4} />
           <AxisLeft
@@ -702,37 +727,39 @@ export function ComparisonChartLegend({ series }: { series: ComparisonSeries[] }
 // 4. ProgressionStatusBadge — small pill describing trend.
 // ============================================================
 
-const STATUS_META: Record<
-  ProgressionStatus,
-  { text: string; color: string; bg: string; ink: string }
-> = {
+const STATUS_META: Record<ProgressionStatus, { color: string; bg: string; ink: string }> = {
   up: {
-    text: "▲ rośnie",
     color: "var(--ok)",
     bg: "rgba(47, 158, 106, 0.14)",
     ink: "var(--ok)",
   },
   flat: {
-    text: "= stabilnie",
     color: "var(--muted)",
     bg: "var(--surface-2)",
     ink: "var(--muted)",
   },
   down: {
-    text: "▼ spadek",
     color: "var(--danger)",
     bg: "rgba(226, 92, 58, 0.14)",
     ink: "var(--danger)",
   },
   new: {
-    text: "nowe",
     color: "var(--accent)",
     bg: "var(--accent-soft)",
     ink: "var(--accent-ink)",
   },
 };
 
+/** i18n key for the badge text per status (down uses the "spadek" wording). */
+const STATUS_TEXT_KEY: Record<ProgressionStatus, string> = {
+  up: "progression.status.up",
+  flat: "progression.status.flat",
+  down: "progression.status.downBadge",
+  new: "progression.status.new",
+};
+
 export function ProgressionStatusBadge({ status }: { status: ProgressionStatus }) {
+  const { t } = useTranslation();
   const m = STATUS_META[status];
   return (
     <span
@@ -749,7 +776,7 @@ export function ProgressionStatusBadge({ status }: { status: ProgressionStatus }
         whiteSpace: "nowrap",
       }}
     >
-      {m.text}
+      {tDyn(t, STATUS_TEXT_KEY[status])}
     </span>
   );
 }

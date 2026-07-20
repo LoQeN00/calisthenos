@@ -1,0 +1,79 @@
+{
+  "breadcrumb": {
+    "podopieczni": "Podopieczni",
+    "rozwoj": "Rozwój"
+  },
+  "rozwoj": {
+    "title": "Rozwój",
+    "current": "Rozwój",
+    "subtitle": "Drzewo umiejętności i postęp w ćwiczeniach. Klik węzeł, by zarządzać poziomem.",
+    "sort": {
+      "recent": "Ostatnio trenowane",
+      "attention": "Wymaga uwagi"
+    },
+    "filter": {
+      "category": "Kategoria",
+      "all": "Wszystkie"
+    },
+    "otherExercises": "Pozostałe ćwiczenia"
+  },
+  "umiejetnosc": {
+    "current": "Rozwój",
+    "subtitle": "Drabina wariantów, awanse i wyniki bieżącego wariantu.",
+    "submit": {
+      "save": "Zapisz zmianę",
+      "setStart": "Ustaw poziom"
+    },
+    "select": {
+      "changeTo": "Zmień na",
+      "startingLevel": "Poziom startowy",
+      "placeholder": "Wybierz wariant…"
+    },
+    "suggestion": {
+      "advance": "rozważ awans",
+      "regress": "rozważ cofnięcie"
+    },
+    "error": {
+      "invalid": "Niepoprawne dane."
+    },
+    "lastAdvanced": "Ostatni awans: {{date}}",
+    "dateLabel": "Data",
+    "noteLabel": "Notatka",
+    "notePlaceholder": "np. czysto 3×5×20 s",
+    "noData": {
+      "noLogs": "Brak danych — podopieczny nie zalogował jeszcze treningu na bieżącym wariancie.",
+      "noLevel": "Ustaw poziom startowy, aby śledzić wyniki w czasie."
+    },
+    "history": {
+      "summary_one": "Historia awansów ({{count}})",
+      "summary_few": "Historia awansów ({{count}})",
+      "summary_other": "Historia awansów ({{count}})",
+      "advance": "awans",
+      "startingLevel": "poziom startowy"
+    }
+  },
+  "cwiczenie": {
+    "current": "Rozwój",
+    "eyebrow": "{{name}} · Rozwój",
+    "subtitle": "Najlepsza seria, objętość i wysiłek w czasie."
+  },
+  "porownanie": {
+    "current": "Porównanie",
+    "empty": {
+      "text": "Wybierz co najmniej 2 ćwiczenia na liście Rozwoju, aby je porównać.",
+      "back": "Wróć do Rozwoju"
+    },
+    "eyebrow": "{{name}} · Rozwój",
+    "title": "Porównanie progresji",
+    "subtitle": "Każda linia to o ile % urósł rekord od początku okresu — wspólna oś % zestawia różne jednostki (powt. i sek.).",
+    "period": "Okres",
+    "range4w": "4 tyg",
+    "range3m": "3 mies",
+    "range6m": "6 mies",
+    "rangeAll": "cały",
+    "chartTitle": "Zmiana od startu okresu",
+    "notEnough": "Za mało danych, aby wykreślić porównanie.",
+    "concrete": "Konkretnie w tym okresie",
+    "skipped": "Pominięte"
+  }
+}

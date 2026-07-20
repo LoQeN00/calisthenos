@@ -116,5 +116,21 @@ export default [
     // Aktywacja subskrypcji — OUTSIDE the layout, bo to dokąd gate w _layout.tsx
     // odsyła nieopłaconych podopiecznych (gdyby było w children → pętla redirectów).
     route("aktywuj", "routes/podopieczny/aktywuj.tsx"),
+    // Konto wstrzymane — OUTSIDE the layout (tak jak aktywuj), bo gate w _layout.tsx
+    // odsyła podopiecznych zawieszonych trenerów (w children → pętla redirectów).
+    route("wstrzymane", "routes/podopieczny/wstrzymane.tsx"),
+  ]),
+  ...prefix("marka", [
+    layout("routes/marka/_layout.tsx", [
+      index("routes/marka/_index.tsx"),
+      route("biblioteka", "routes/marka/biblioteka._index.tsx"),
+      route("biblioteka/nowe", "routes/marka/biblioteka.nowe.tsx"),
+      route("biblioteka/:exerciseId", "routes/marka/biblioteka.$exerciseId.tsx"),
+      route("umiejetnosci", "routes/marka/umiejetnosci._index.tsx"),
+      route("umiejetnosci/nowa", "routes/marka/umiejetnosci.nowa.tsx"),
+      route("umiejetnosci/:skillId", "routes/marka/umiejetnosci.$skillId.tsx"),
+      route("ambasadorzy", "routes/marka/ambasadorzy._index.tsx"),
+      route("ambasadorzy/:trainerId", "routes/marka/ambasadorzy.$trainerId.tsx"),
+    ]),
   ]),
 ] satisfies RouteConfig;

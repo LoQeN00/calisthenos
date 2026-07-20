@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { Form } from "react-router";
 import { ConfirmSubmitButton } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
+import { type Lang, langToIntlLocale } from "~/i18n/config";
 import type { BodyPhotoView } from "~/lib/db/schema";
 import { fmtDate } from "~/lib/format";
-import { BODY_VIEW_LABELS } from "./photo-card";
+import { bodyViewLabel } from "./photo-card";
 
 // ============================================================
 // PhotoLightbox — full-screen photo viewer with prev/next, download, delete.
@@ -47,6 +49,8 @@ export function PhotoLightbox({
   onNavigate,
   deleteAction,
 }: PhotoLightboxProps) {
+  const { t, i18n } = useTranslation();
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
   const dialogRef = useRef<HTMLDialogElement>(null);
   const idx = currentId == null ? -1 : photos.findIndex((p) => p.id === currentId);
   const open = idx >= 0;
@@ -113,7 +117,11 @@ export function PhotoLightbox({
       onClick={onDialogClick}
       onKeyDown={undefined}
       className="photo-lightbox"
-      aria-label={photo ? `Zdjęcie z ${fmtDate(photo.takenOn)}` : "Zdjęcie"}
+      aria-label={
+        photo
+          ? t("photo.lightbox.dialogAria", { date: fmtDate(photo.takenOn, locale) })
+          : t("photo.lightbox.dialogAriaNoPhoto")
+      }
       style={{
         border: 0,
         padding: 0,
@@ -165,6 +173,10 @@ function LightboxBody({
   onClose: () => void;
   deleteAction?: string;
 }) {
+  const { t, i18n } = useTranslation();
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
+  const viewLabel = bodyViewLabel(t, photo.view);
+  const dateLabel = fmtDate(photo.takenOn, locale);
   return (
     <div
       style={{
@@ -201,10 +213,10 @@ function LightboxBody({
               fontWeight: 600,
             }}
           >
-            {BODY_VIEW_LABELS[photo.view]}
+            {viewLabel}
           </span>
           <span className="mono" style={{ fontSize: 13, fontWeight: 500 }}>
-            {fmtDate(photo.takenOn)}
+            {dateLabel}
           </span>
           <span className="mono" style={{ fontSize: 11, opacity: 0.55, marginLeft: 4 }}>
             {idx + 1} / {total}
@@ -217,12 +229,12 @@ function LightboxBody({
             className="btn btn-primary"
             style={{ height: 34 }}
           >
-            <Icons.Download /> Pobierz
+            <Icons.Download /> {t("photo.lightbox.download")}
           </a>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Zamknij"
+            aria-label={t("photo.lightbox.close")}
             style={{
               width: 34,
               height: 34,
@@ -253,7 +265,7 @@ function LightboxBody({
       >
         <img
           src={photo.url}
-          alt={`Sylwetka — ${fmtDate(photo.takenOn)}, ${BODY_VIEW_LABELS[photo.view]}`}
+          alt={t("photo.lightbox.imgAlt", { date: dateLabel, view: viewLabel })}
           style={{
             maxWidth: "100%",
             maxHeight: "100%",
@@ -298,7 +310,7 @@ function LightboxBody({
                 fontStyle: "italic",
               }}
             >
-              brak notatki
+              {t("photo.lightbox.noNote")}
             </div>
           )}
         </div>
@@ -308,10 +320,10 @@ function LightboxBody({
             <input type="hidden" name="photoId" value={photo.id} />
             <ConfirmSubmitButton
               confirmOptions={{
-                title: "Usunąć zdjęcie?",
-                message: "Tej operacji nie da się cofnąć.",
+                title: t("photo.lightbox.deleteConfirmTitle"),
+                message: t("photo.lightbox.deleteConfirmMessage"),
                 destructive: true,
-                confirmText: "Usuń",
+                confirmText: t("photo.lightbox.deleteConfirmText"),
               }}
               className="btn"
               style={{
@@ -320,9 +332,9 @@ function LightboxBody({
                 color: "#fff",
                 height: 34,
               }}
-              aria-label="Usuń zdjęcie"
+              aria-label={t("photo.lightbox.deleteAria")}
             >
-              <Icons.Trash /> Usuń
+              <Icons.Trash /> {t("photo.lightbox.deleteConfirmText")}
             </ConfirmSubmitButton>
           </Form>
         )}
@@ -338,11 +350,12 @@ function NavButton({
   side: "left" | "right";
   onClick: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <button
       type="button"
       onClick={onClick}
-      aria-label={side === "left" ? "Poprzednie zdjęcie" : "Następne zdjęcie"}
+      aria-label={side === "left" ? t("photo.lightbox.prev") : t("photo.lightbox.next")}
       style={{
         position: "absolute",
         top: "50%",

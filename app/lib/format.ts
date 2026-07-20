@@ -1,3 +1,36 @@
+function parseDate(iso: string): Date {
+  // `iso` is either YYYY-MM-DD (from Postgres `date`) or a full ISO timestamp.
+  // The Date constructor handles both, but YYYY-MM-DD is interpreted as UTC midnight
+  // which is what we want for date-only values.
+  return new Date(iso);
+}
+
+/**
+ * Formatuje datę ISO jako czytelny string w podanym locale.
+ *
+ * Domyślnie pl-PL z krótką nazwą miesiąca (np. "5 sty 2026") — wstecznie
+ * kompatybilne ze wszystkimi callerami, które wołają fmtDate(iso).
+ *
+ * Dla innych locale (np. "fr-FR") Intl dobiera lokalny format miesiąca.
+ */
+export function fmtDate(iso: string, locale = "pl-PL"): string {
+  const d = parseDate(iso);
+  return new Intl.DateTimeFormat(locale, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(d);
+}
+
+export function fmtDateShort(iso: string, locale = "pl-PL"): string {
+  const d = parseDate(iso);
+  return new Intl.DateTimeFormat(locale, {
+    day: "numeric",
+    month: "short",
+  }).format(d);
+}
+
+// Skrócone nazwy miesięcy PL — używane tylko w fmtDateTime (UTC, stały format).
 const MONTH_SHORT_PL = [
   "sty",
   "lut",
@@ -13,29 +46,29 @@ const MONTH_SHORT_PL = [
   "gru",
 ];
 
-function parseDate(iso: string): Date {
-  // `iso` is either YYYY-MM-DD (from Postgres `date`) or a full ISO timestamp.
-  // The Date constructor handles both, but YYYY-MM-DD is interpreted as UTC midnight
-  // which is what we want for date-only values.
-  return new Date(iso);
-}
-
-export function fmtDate(iso: string): string {
+/**
+ * Data + godzina w UTC (v1 = jedna strefa aplikacji).
+ *
+ * Domyślnie pl-PL ze stałym ręcznym formatem ("11 cze 2026, 18:00") — wstecznie
+ * kompatybilne ze wszystkimi callerami. Dla innych locale (np. "fr-FR") Intl
+ * dobiera lokalny format, wciąż renderując w strefie UTC.
+ */
+export function fmtDateTime(iso: string, locale = "pl-PL"): string {
   const d = parseDate(iso);
-  return `${d.getDate()} ${MONTH_SHORT_PL[d.getMonth()]} ${d.getFullYear()}`;
-}
-
-export function fmtDateShort(iso: string): string {
-  const d = parseDate(iso);
-  return `${d.getDate()} ${MONTH_SHORT_PL[d.getMonth()]}`;
-}
-
-/** Data + godzina w UTC (v1 = jedna strefa aplikacji). */
-export function fmtDateTime(iso: string): string {
-  const d = parseDate(iso);
-  const hh = String(d.getUTCHours()).padStart(2, "0");
-  const mm = String(d.getUTCMinutes()).padStart(2, "0");
-  return `${d.getUTCDate()} ${MONTH_SHORT_PL[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${hh}:${mm}`;
+  if (locale === "pl-PL") {
+    const hh = String(d.getUTCHours()).padStart(2, "0");
+    const mm = String(d.getUTCMinutes()).padStart(2, "0");
+    return `${d.getUTCDate()} ${MONTH_SHORT_PL[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${hh}:${mm}`;
+  }
+  return new Intl.DateTimeFormat(locale, {
+    timeZone: "UTC",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(d);
 }
 
 /** Sama godzina w UTC. */
@@ -46,16 +79,21 @@ export function fmtTime(iso: string): string {
   return `${hh}:${mm}`;
 }
 
-export function daysAgo(iso: string): string {
+/**
+ * Czas względny ("wczoraj", "3 dni temu", …) w podanym locale przez
+ * `Intl.RelativeTimeFormat`. Domyślnie pl-PL — wstecznie kompatybilne z callerami
+ * wołającymi `daysAgo(iso)`. Dla fr-FR Intl zwraca "hier", "il y a 3 jours" itd.
+ */
+export function daysAgo(iso: string, locale = "pl-PL"): string {
   const d = parseDate(iso);
   const now = new Date();
   const diff = Math.floor((now.getTime() - d.getTime()) / (24 * 60 * 60 * 1000));
-  if (diff < 0) return "dzisiaj";
-  if (diff === 0) return "dzisiaj";
-  if (diff === 1) return "wczoraj";
-  if (diff < 7) return `${diff} dni temu`;
-  if (diff < 30) return `${Math.floor(diff / 7)} tyg. temu`;
-  return `${Math.floor(diff / 30)} mies. temu`;
+  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  if (diff <= 0) return rtf.format(0, "day");
+  if (diff === 1) return rtf.format(-1, "day");
+  if (diff < 7) return rtf.format(-diff, "day");
+  if (diff < 30) return rtf.format(-Math.floor(diff / 7), "week");
+  return rtf.format(-Math.floor(diff / 30), "month");
 }
 
 export function todayISO(): string {

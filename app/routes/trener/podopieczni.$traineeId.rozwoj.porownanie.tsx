@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { ComparisonChart, ComparisonChartLegend } from "~/components/progression-charts";
 import { requireUser } from "~/lib/auth";
@@ -26,15 +27,16 @@ export async function loader(args: LoaderFunctionArgs) {
   return { trainee, comparison, range, ids };
 }
 
-const RANGE_LABELS: Array<{ value: ProgressionRange; label: string }> = [
-  { value: "4w", label: "4 tyg" },
-  { value: "3m", label: "3 mies" },
-  { value: "6m", label: "6 mies" },
-  { value: "all", label: "cały" },
-];
-
 export default function TrenerRozwojPorownanie() {
   const { trainee, comparison, range, ids } = useLoaderData<typeof loader>();
+  const { t } = useTranslation("trenerRozwoj");
+
+  const rangeLabels: Array<{ value: ProgressionRange; label: string }> = [
+    { value: "4w", label: t("porownanie.range4w") },
+    { value: "3m", label: t("porownanie.range3m") },
+    { value: "6m", label: t("porownanie.range6m") },
+    { value: "all", label: t("porownanie.rangeAll") },
+  ];
 
   const rozwojPath = `/trener/podopieczni/${trainee.id}/rozwoj`;
 
@@ -44,20 +46,20 @@ export default function TrenerRozwojPorownanie() {
     return (
       <div>
         <div className="crumbs">
-          <Link to="/trener/podopieczni">Podopieczni</Link>
+          <Link to="/trener/podopieczni">{t("breadcrumb.podopieczni")}</Link>
           <span className="sep">›</span>
           <Link to={`/trener/podopieczni/${trainee.id}`}>{trainee.displayName}</Link>
           <span className="sep">›</span>
-          <Link to={rozwojPath}>Rozwój</Link>
+          <Link to={rozwojPath}>{t("breadcrumb.rozwoj")}</Link>
           <span className="sep">›</span>
-          <span className="current">Porównanie</span>
+          <span className="current">{t("porownanie.current")}</span>
         </div>
         <div className="card" style={{ padding: 22, textAlign: "center" }}>
           <div className="sub" style={{ marginBottom: 14 }}>
-            Wybierz co najmniej 2 ćwiczenia na liście Rozwoju, aby je porównać.
+            {t("porownanie.empty.text")}
           </div>
           <Link to={rozwojPath} className="btn">
-            Wróć do Rozwoju
+            {t("porownanie.empty.back")}
           </Link>
         </div>
       </div>
@@ -69,25 +71,22 @@ export default function TrenerRozwojPorownanie() {
   return (
     <div>
       <div className="crumbs">
-        <Link to="/trener/podopieczni">Podopieczni</Link>
+        <Link to="/trener/podopieczni">{t("breadcrumb.podopieczni")}</Link>
         <span className="sep">›</span>
         <Link to={`/trener/podopieczni/${trainee.id}`}>{trainee.displayName}</Link>
         <span className="sep">›</span>
-        <Link to={rozwojPath}>Rozwój</Link>
+        <Link to={rozwojPath}>{t("breadcrumb.rozwoj")}</Link>
         <span className="sep">›</span>
-        <span className="current">Porównanie</span>
+        <span className="current">{t("porownanie.current")}</span>
       </div>
 
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            {trainee.displayName} · Rozwój
+            {t("porownanie.eyebrow", { name: trainee.displayName })}
           </div>
-          <h1>Porównanie progresji</h1>
-          <div className="sub">
-            Każda linia to o ile % urósł rekord od początku okresu — wspólna oś % zestawia różne
-            jednostki (powt. i sek.).
-          </div>
+          <h1>{t("porownanie.title")}</h1>
+          <div className="sub">{t("porownanie.subtitle")}</div>
         </div>
       </div>
 
@@ -100,10 +99,10 @@ export default function TrenerRozwojPorownanie() {
           className="text-xs muted"
           style={{ textTransform: "uppercase", letterSpacing: ".04em" }}
         >
-          Okres
+          {t("porownanie.period")}
         </span>
         <div className="row wrap" style={{ gap: 6 }}>
-          {RANGE_LABELS.map((r) => {
+          {rangeLabels.map((r) => {
             const active = r.value === range;
             return (
               <Link
@@ -134,14 +133,14 @@ export default function TrenerRozwojPorownanie() {
       {/* Chart card */}
       <section style={{ marginBottom: 22 }}>
         <div className="card" style={{ padding: 18 }}>
-          <h2 style={{ fontSize: 16, marginBottom: 12 }}>Zmiana od startu okresu</h2>
+          <h2 style={{ fontSize: 16, marginBottom: 12 }}>{t("porownanie.chartTitle")}</h2>
           {comparison.series.length >= 1 ? (
             <>
               <ComparisonChart series={comparison.series} />
               <ComparisonChartLegend series={comparison.series} />
             </>
           ) : (
-            <div className="muted text-sm">Za mało danych, aby wykreślić porównanie.</div>
+            <div className="muted text-sm">{t("porownanie.notEnough")}</div>
           )}
         </div>
       </section>
@@ -150,7 +149,7 @@ export default function TrenerRozwojPorownanie() {
       {comparison.series.length >= 1 && (
         <div className="card" style={{ padding: "12px 16px", marginBottom: 16 }}>
           <div className="k" style={{ marginBottom: 8 }}>
-            Konkretnie w tym okresie
+            {t("porownanie.concrete")}
           </div>
           <div className="col" style={{ gap: 4 }}>
             {comparison.series.map((s) => {
@@ -187,7 +186,7 @@ export default function TrenerRozwojPorownanie() {
       {comparison.skipped.length > 0 && (
         <div className="card" style={{ padding: 16 }}>
           <div className="k" style={{ marginBottom: 8 }}>
-            Pominięte
+            {t("porownanie.skipped")}
           </div>
           <ul className="text-xs muted" style={{ margin: 0, paddingLeft: 18 }}>
             {comparison.skipped.map((s) => (

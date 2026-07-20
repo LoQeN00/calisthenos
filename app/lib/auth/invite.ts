@@ -19,7 +19,11 @@ export function hashToken(token: string): string {
 }
 
 export interface CreateInviteInput {
-  trainerId: string;
+  targetRole?: "trainee" | "trainer"; // default "trainee"
+  trainerId?: string | null; // wymagany dla trainee
+  organizationId?: string | null; // wymagany dla trainer
+  regionId?: string | null; // trainer: region nowego ambasadora
+  invitedByUserId?: string | null; // trainer: kto zaprasza (prezes)
   displayName: string;
   email?: string | null;
   replacesUserId?: string | null;
@@ -29,15 +33,26 @@ export interface CreateInviteInput {
 export async function createInvite(db: Db, input: CreateInviteInput) {
   const { token, hash } = newToken();
   const expiresAt = new Date(Date.now() + INVITE_DURATION_DAYS * 24 * 3600 * 1000);
+  const targetRole = input.targetRole ?? "trainee";
+  const isTrainer = targetRole === "trainer";
+  // Normalizacja wg roli — domyka kontrakt niezależnie od wołającego, żeby pola
+  // jednej ścieżki nie wyciekły do drugiej (np. trener-invite z `replacesUserId`
+  // ominąłby gałąź roli w consume i reaktywował obce konto). Trener: bez pól
+  // podopiecznego (trainer_id/replaces/kwota). Podopieczny: bez pól trenera
+  // (org/region/invited_by). CHECK `invites_target_check` to dodatkowo egzekwuje.
   const [invite] = await db
     .insert(schema.invites)
     .values({
-      trainerId: input.trainerId,
+      targetRole,
+      trainerId: isTrainer ? null : (input.trainerId ?? null),
+      organizationId: isTrainer ? (input.organizationId ?? null) : null,
+      regionId: isTrainer ? (input.regionId ?? null) : null,
+      invitedByUserId: isTrainer ? (input.invitedByUserId ?? null) : null,
       displayName: input.displayName,
       email: input.email ?? null,
       tokenHash: hash,
-      replacesUserId: input.replacesUserId ?? null,
-      monthlyAmountGrosze: input.monthlyAmountGrosze ?? null,
+      replacesUserId: isTrainer ? null : (input.replacesUserId ?? null),
+      monthlyAmountGrosze: isTrainer ? null : (input.monthlyAmountGrosze ?? null),
       expiresAt,
     })
     .returning();
@@ -102,14 +117,26 @@ export async function consumeInvite(
     } else {
       const created = await tx
         .insert(schema.users)
-        .values({
-          email: input.chosenEmail,
-          displayName: input.chosenDisplayName,
-          role: "trainee",
-          trainerId: invite.trainerId,
-          passwordHash: input.newPasswordHash,
-          joinedOn: new Date().toISOString().slice(0, 10),
-        })
+        .values(
+          invite.targetRole === "trainer"
+            ? {
+                email: input.chosenEmail,
+                displayName: input.chosenDisplayName,
+                role: "trainer" as const,
+                organizationId: invite.organizationId,
+                regionId: invite.regionId,
+                passwordHash: input.newPasswordHash,
+                joinedOn: new Date().toISOString().slice(0, 10),
+              }
+            : {
+                email: input.chosenEmail,
+                displayName: input.chosenDisplayName,
+                role: "trainee" as const,
+                trainerId: invite.trainerId,
+                passwordHash: input.newPasswordHash,
+                joinedOn: new Date().toISOString().slice(0, 10),
+              },
+        )
         .returning();
       user = created[0]!;
     }

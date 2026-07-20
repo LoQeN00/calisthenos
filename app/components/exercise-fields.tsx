@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 
 export function CategoryPicker({
@@ -7,6 +8,7 @@ export function CategoryPicker({
   categories: { id: string; name: string }[];
   selected: string[];
 }) {
+  const { t } = useTranslation("trener");
   const selectedSet = new Set(selected);
   return (
     <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
@@ -22,7 +24,7 @@ export function CategoryPicker({
           marginBottom: 8,
         }}
       >
-        Kategorie
+        {t("categoryPicker.legend")}
       </legend>
       {categories.length === 0 ? (
         <div
@@ -34,11 +36,11 @@ export function CategoryPicker({
             background: "var(--surface)",
           }}
         >
-          Brak kategorii.{" "}
+          {t("categoryPicker.emptyPrefix")}
           <Link to="/trener/biblioteka" style={{ color: "var(--ink)" }}>
-            Dodaj kategorie w bibliotece
-          </Link>{" "}
-          (rozwiń „Zarządzaj kategoriami").
+            {t("categoryPicker.emptyLink")}
+          </Link>
+          {t("categoryPicker.emptySuffix")}
         </div>
       ) : (
         <div className="row wrap" style={{ gap: 6 }}>

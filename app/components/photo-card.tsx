@@ -1,11 +1,16 @@
+import { useTranslation } from "react-i18next";
+import { langToIntlLocale, type Lang } from "~/i18n/config";
+import { tDyn } from "~/i18n/translate";
 import type { BodyPhotoView } from "~/lib/db/schema";
 import { fmtDate } from "~/lib/format";
 
-export const BODY_VIEW_LABELS: Record<BodyPhotoView, string> = {
-  front: "przód",
-  side: "bok",
-  back: "tył",
-};
+// biome-ignore lint/suspicious/noExplicitAny: loose `t` typing for cross-component helper
+type TFn = (...args: any[]) => string;
+
+/** Localized label for a body-photo view (przód/bok/tył). Shared with the compare/lightbox views. */
+export function bodyViewLabel(t: TFn, view: BodyPhotoView): string {
+  return tDyn(t, `photo.view.${view}`);
+}
 
 export interface PhotoCardProps {
   id: string;
@@ -22,12 +27,17 @@ export interface PhotoCardProps {
  * owns download + delete actions so the card stays a clean preview.
  */
 export function PhotoCard({ id, url, takenOn, view, note, onOpen }: PhotoCardProps) {
+  const { t, i18n } = useTranslation();
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
   return (
     <button
       type="button"
       onClick={() => onOpen(id)}
       className="photo-card-btn"
-      aria-label={`Otwórz zdjęcie z ${fmtDate(takenOn)} — ${BODY_VIEW_LABELS[view]}`}
+      aria-label={t("photo.openAriaWithView", {
+        date: fmtDate(takenOn, locale),
+        view: bodyViewLabel(t, view),
+      })}
       style={{
         position: "relative",
         aspectRatio: "3 / 4",
@@ -67,7 +77,7 @@ export function PhotoCard({ id, url, takenOn, view, note, onOpen }: PhotoCardPro
           fontWeight: 600,
         }}
       >
-        {BODY_VIEW_LABELS[view]}
+        {bodyViewLabel(t, view)}
       </span>
       <div
         style={{
@@ -89,7 +99,7 @@ export function PhotoCard({ id, url, takenOn, view, note, onOpen }: PhotoCardPro
           fontWeight: 600,
         }}
       >
-        <div>{fmtDate(takenOn)}</div>
+        <div>{fmtDate(takenOn, locale)}</div>
         {note != null && note.length > 0 && (
           <div
             style={{

@@ -17,6 +17,8 @@ export type ConsultationTone =
 export interface ConsultationPresentation {
   label: string;
   tone: ConsultationTone;
+  /** Klucz i18next (namespace `konsultacje`) — addytywny, callerzy mogą używać `label` lub `t(labelKey)`. */
+  labelKey: string;
 }
 
 /** Kolor tekstu badge per ton (zmienne z tokens.css). */
@@ -74,19 +76,29 @@ export function consultationPresentation(args: PresentationArgs): ConsultationPr
   const { status, scheduledAtISO, nowMs, viewer } = args;
   switch (status) {
     case "confirmed":
-      return { label: "potwierdzony", tone: "confirmed" };
+      return { label: "potwierdzony", tone: "confirmed", labelKey: "konsultacje:status.confirmed" };
     case "change_requested":
-      return { label: "prośba o zmianę", tone: "change" };
+      return { label: "prośba o zmianę", tone: "change", labelKey: "konsultacje:status.change" };
     case "cancelled":
-      return { label: "odwołany", tone: "cancelled" };
+      return { label: "odwołany", tone: "cancelled", labelKey: "konsultacje:status.cancelled" };
     case "documented":
-      return { label: "udokumentowany", tone: "done" };
+      return { label: "udokumentowany", tone: "done", labelKey: "konsultacje:status.done" };
     default: {
       // planned
-      if (viewer === "trainee") return { label: "do potwierdzenia", tone: "pending" };
+      if (viewer === "trainee")
+        return {
+          label: "do potwierdzenia",
+          tone: "pending",
+          labelKey: "konsultacje:status.pending",
+        };
       const isPast = new Date(scheduledAtISO).getTime() < nowMs;
-      if (isPast) return { label: "do udokumentowania", tone: "pending" };
-      return { label: "zaplanowany", tone: "scheduled" };
+      if (isPast)
+        return {
+          label: "do udokumentowania",
+          tone: "pending",
+          labelKey: "konsultacje:status.pendingDoc",
+        };
+      return { label: "zaplanowany", tone: "scheduled", labelKey: "konsultacje:status.scheduled" };
     }
   }
 }

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { ExerciseProgressionPanel } from "~/components/exercise-progression-panel";
 import { VariationLadder } from "~/components/skill-tree";
@@ -33,10 +34,11 @@ export async function loader(args: LoaderFunctionArgs) {
 
 export default function PodopiecznyRozwojWezel() {
   const { entry, view, range } = useLoaderData<typeof loader>();
+  const { t } = useTranslation("podopieczny");
   return (
     <div>
       <div className="crumbs">
-        <Link to="/podopieczny/rozwoj">Rozwój</Link>
+        <Link to="/podopieczny/rozwoj">{t("rozwoj.umiejetnosc.crumb")}</Link>
         <span className="sep">›</span>
         <span className="current">{entry.skillName}</span>
       </div>
@@ -44,10 +46,10 @@ export default function PodopiecznyRozwojWezel() {
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Podopieczny
+            {t("rozwoj.umiejetnosc.eyebrow")}
           </div>
           <h1>{entry.skillName}</h1>
-          <div className="sub">Twoja pozycja na drabinie i wyniki bieżącego wariantu.</div>
+          <div className="sub">{t("rozwoj.umiejetnosc.subtitle")}</div>
         </div>
       </div>
 
@@ -55,7 +57,7 @@ export default function PodopiecznyRozwojWezel() {
         <VariationLadder variations={entry.variations} />
         {entry.lastAdvancedOn && (
           <div className="text-xs muted" style={{ marginTop: 10 }}>
-            Ostatni awans: {fmtDate(entry.lastAdvancedOn)}
+            {t("rozwoj.umiejetnosc.lastAdvanced", { date: fmtDate(entry.lastAdvancedOn) })}
           </div>
         )}
       </div>
@@ -66,8 +68,8 @@ export default function PodopiecznyRozwojWezel() {
         <div className="card" style={{ padding: 18 }}>
           <div className="muted text-sm">
             {entry.currentVariationId
-              ? "Brak danych — zaloguj trening na tym wariancie, aby zobaczyć wyniki w czasie."
-              : "Trener nie ustawił jeszcze Twojego poziomu na tej umiejętności."}
+              ? t("rozwoj.umiejetnosc.noDataVariant")
+              : t("rozwoj.umiejetnosc.noLevel")}
           </div>
         </div>
       )}

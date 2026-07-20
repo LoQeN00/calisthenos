@@ -1,12 +1,11 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import type { Db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import { getSkillMapForTrainee } from "~/lib/skill-progression";
 import { listSkillsForTrainer } from "~/lib/skills";
 import {
-  assignLayers,
+  layoutNodes,
   nodeState,
-  orderWithinLayer,
   topoOrder,
   type Edge,
   type NodeState,
@@ -30,16 +29,16 @@ export interface SkillTree {
   edges: Edge[];
 }
 
-/** Aktywne umiejętności trenera + ich krawędzie. Współdzielone przez oba widoki. */
+/** Aktywne umiejętności (efektywny katalog) + ich krawędzie. Współdzielone przez oba widoki. */
 async function loadGraph(
   db: Db,
-  trainerId: string,
+  { trainerId, organizationId }: { trainerId: string; organizationId: string | null },
 ): Promise<{
   skills: Array<{ id: string; name: string; variationCount: number }>;
   edges: Edge[];
 }> {
   // Reuse: listSkillsForTrainer daje aktywne umiejętności + variationCount (patrz skills.ts).
-  const skills = await listSkillsForTrainer(db, trainerId);
+  const skills = await listSkillsForTrainer(db, { trainerId, organizationId });
   const activeIds = new Set(skills.map((s) => s.id));
 
   const edgeRows = await db
@@ -48,8 +47,21 @@ async function loadGraph(
       requires: schema.skillPrerequisites.requiresSkillId,
     })
     .from(schema.skillPrerequisites)
-    .where(eq(schema.skillPrerequisites.trainerId, trainerId));
-  // Pomijamy krawędzie dotykające zarchiwizowanych umiejętności.
+    .where(
+      // Efektywne krawędzie: własne (trainer_id) ∪ markowe (trainer_id NULL) w tej org.
+      organizationId
+        ? or(
+            eq(schema.skillPrerequisites.trainerId, trainerId),
+            and(
+              isNull(schema.skillPrerequisites.trainerId),
+              eq(schema.skillPrerequisites.organizationId, organizationId),
+            ),
+          )
+        : eq(schema.skillPrerequisites.trainerId, trainerId),
+    );
+  // Pomijamy krawędzie dotykające umiejętności spoza efektywnego zbioru (zarchiwizowane,
+  // a także markowe nadpisane forkiem — fork ma własne sklonowane krawędzie, a markowy
+  // węzeł znika z activeIds, więc jego krawędzie są tu odrzucane).
   const edges = edgeRows.filter((e) => activeIds.has(e.from) && activeIds.has(e.requires));
 
   return {
@@ -58,31 +70,12 @@ async function loadGraph(
   };
 }
 
-function layoutNodes(
-  skills: Array<{ id: string; name: string; variationCount: number }>,
-  edges: Edge[],
-): Map<string, { layer: number; orderInLayer: number }> {
-  const ids = skills.map((s) => s.id);
-  const layers = assignLayers(ids, edges);
-  const nameById = new Map(skills.map((s) => [s.id, s.name]));
-  const byLayer = new Map<number, string[]>();
-  for (const id of ids) {
-    const l = layers.get(id) ?? 0;
-    const arr = byLayer.get(l) ?? [];
-    arr.push(id);
-    byLayer.set(l, arr);
-  }
-  const pos = new Map<string, { layer: number; orderInLayer: number }>();
-  for (const [l, group] of byLayer) {
-    const ordered = orderWithinLayer(group, nameById);
-    ordered.forEach((id, i) => pos.set(id, { layer: l, orderInLayer: i }));
-  }
-  return pos;
-}
-
 /** Drzewo dla autora (trener) — sam szkielet, bez stanów per-podopieczny. */
-export async function getSkillTreeForTrainer(db: Db, trainerId: string): Promise<SkillTree> {
-  const { skills, edges } = await loadGraph(db, trainerId);
+export async function getSkillTreeForTrainer(
+  db: Db,
+  { trainerId, organizationId }: { trainerId: string; organizationId: string | null },
+): Promise<SkillTree> {
+  const { skills, edges } = await loadGraph(db, { trainerId, organizationId });
   const pos = layoutNodes(skills, edges);
   const nodes: TreeNode[] = skills.map((s) => ({
     skillId: s.id,
@@ -100,10 +93,10 @@ export async function getSkillTreeForTrainer(db: Db, trainerId: string): Promise
 /** Drzewo dla podopiecznego — ze stanami węzłów liczonymi w porządku topologicznym. */
 export async function getSkillTreeForTrainee(
   db: Db,
-  trainerId: string,
+  { trainerId, organizationId }: { trainerId: string; organizationId: string | null },
   traineeId: string,
 ): Promise<SkillTree> {
-  const { skills, edges } = await loadGraph(db, trainerId);
+  const { skills, edges } = await loadGraph(db, { trainerId, organizationId });
   const pos = layoutNodes(skills, edges);
 
   // Bieżący wariant + czy są zdarzenia + max ordinal → z mapy umiejętności (kierunek A).
@@ -119,7 +112,10 @@ export async function getSkillTreeForTrainee(
   }
   const state = new Map<string, NodeState>();
   const ordById = new Map<string, number | null>();
-  for (const id of topoOrder(skills.map((s) => s.id), edges)) {
+  for (const id of topoOrder(
+    skills.map((s) => s.id),
+    edges,
+  )) {
     const m = mapBySkill.get(id);
     const hasEvents = m?.currentVariationId != null;
     const maxOrd = m ? Math.max(0, ...m.variations.map((v) => v.ordinal)) : 0;

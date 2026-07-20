@@ -1,0 +1,235 @@
+{
+  "lista": {
+    "eyebrow": "Coach",
+    "title": "Élèves",
+    "empty": "Aucun élève. Générez votre première invitation.",
+    "total_one": "{{count}} personne.",
+    "total_few": "{{count}} personnes.",
+    "total_many": "{{count}} personnes.",
+    "total_other": "{{count}} personnes.",
+    "totalWord_one": "personne",
+    "totalWord_few": "personnes",
+    "totalWord_many": "personnes",
+    "totalWord_other": "personnes",
+    "invite": "Inviter un élève",
+    "deleted": "L’élève « {{name}} » a été supprimé avec toutes ses données.",
+    "form": {
+      "title": "Inviter un élève",
+      "name": "Nom et prénom",
+      "namePlaceholder": "ex. Mateusz Kozłowski",
+      "email": "Email",
+      "emailPlaceholder": "mateusz@example.pl",
+      "amount": "Montant mensuel (zł) — facultatif",
+      "amountPlaceholder": "ex. 200",
+      "amountHint": "L’élève ajoutera sa carte lors de son inscription. Laissez vide pour inviter sans paiement.",
+      "fallbackError": "Vérifiez le formulaire.",
+      "cancel": "Annuler",
+      "generate": "Générer le lien"
+    },
+    "validation": {
+      "nameRequired": "Indiquez le nom et le prénom.",
+      "emailRequired": "L’email est obligatoire.",
+      "emailInvalid": "Email invalide.",
+      "amountInvalid": "Le montant mensuel est invalide (min. 2 zł)."
+    },
+    "table": {
+      "trainee": "Élève",
+      "activePlan": "Plan actif",
+      "lastSession": "Dernière séance",
+      "since": "depuis le {{date}}",
+      "noPlan": "aucun plan actif",
+      "lastAgo": "dernière {{ago}}",
+      "noSessions": "aucune séance"
+    },
+    "inviteCard": {
+      "generated": "Lien généré · valable 14 jours",
+      "instructions": "Copiez-le et envoyez-le à l’élève. Une fois l’invitation acceptée, le compte apparaîtra dans la liste ci-dessous.",
+      "copy": "Copier le lien",
+      "tokenNote": "Nous n’affichons le jeton que maintenant. Si vous perdez le lien, générez-en un nouveau."
+    },
+    "searchPlaceholder": "Rechercher par nom ou email…",
+    "sort": {
+      "name_asc": "Nom A–Z",
+      "name_desc": "Nom Z–A",
+      "last_session": "Dernière séance",
+      "most_sessions": "Plus de séances",
+      "newest": "Élève le plus récent"
+    },
+    "filter": {
+      "plan": "Plan",
+      "planAll": "Tous",
+      "planWith": "Avec un plan actif",
+      "planWithout": "Sans plan"
+    }
+  },
+  "szczegoly": {
+    "crumb": "Élèves",
+    "eyebrow": "Élève",
+    "eyebrowSince": "Élève · depuis le {{date}}",
+    "sessionWord_one": "séance",
+    "sessionWord_few": "séances",
+    "sessionWord_many": "séances",
+    "sessionWord_other": "séances",
+    "lastSessionPrefix": "Dernière séance",
+    "totalPrefix": "au total",
+    "nextConsultation": "Prochaine consultation",
+    "pendingConfirm": "{{count}} à confirmer",
+    "btn": {
+      "progress": "Progression",
+      "body": "Photos physique",
+      "consultations": "Consultations",
+      "payments": "Paiements",
+      "newPlan": "Nouveau plan"
+    },
+    "activePlanBadge": "plan actif",
+    "draftBadge": "brouillon",
+    "planSince": "depuis le {{date}}",
+    "show": "Afficher",
+    "editPlan": "Modifier le plan",
+    "draftVersion": "Version {{version}} (Brouillon)",
+    "draftBasedOn": "— basé sur la version {{version}}",
+    "unfinished": "non terminé",
+    "backToEdit": "Reprendre l’édition",
+    "noPlan": {
+      "title": "Aucun plan",
+      "desc": "Cet élève n’a pas encore de plan d’entraînement attribué."
+    },
+    "history": {
+      "title": "Historique des entraînements",
+      "searchPlaceholder": "Rechercher par nom de séance…",
+      "emptyTitle": "Aucune séance",
+      "emptyDesc": "Cet élève n’a encore rien enregistré.",
+      "exercises": "exercices",
+      "sets": "séries",
+      "avg": "moy.",
+      "video": "vidéo"
+    },
+    "sort": {
+      "date_desc": "Plus récentes",
+      "date_asc": "Plus anciennes",
+      "hardest": "Plus difficiles",
+      "easiest": "Plus faciles",
+      "sets_desc": "Plus de séries"
+    },
+    "filter": {
+      "video": "Vidéo",
+      "videoAll": "Toutes",
+      "videoWith": "Avec vidéo",
+      "videoWithout": "Sans vidéo"
+    },
+    "action": {
+      "noPlanId": "Identifiant de plan manquant.",
+      "planDeleted": "Plan supprimé.",
+      "planArchived": "Plan archivé — il contient {{count}} séances enregistrées, l’historique a été conservé."
+    },
+    "danger": {
+      "title": "Zone dangereuse",
+      "deleteTrainee": "Supprimer l’élève",
+      "deleteDesc": "Le compte, tous les plans, l’historique des entraînements, les photos physique et les vidéos seront <strong>supprimés définitivement</strong>. L’abonnement Stripe actif sera annulé et les rendez-vous à venir seront retirés de votre Google Agenda.",
+      "confirmTitle": "Supprimer l’élève « {{name}} » ?",
+      "confirmMessage": "Toutes les données de cette personne (plans, séances, vidéos, photos) seront supprimées définitivement, l’abonnement Stripe annulé et les rendez-vous à venir retirés de Google Agenda. Cette opération est irréversible.",
+      "confirmText": "Supprimer l’élève"
+    },
+    "deletePlan": {
+      "title": "Supprimer le plan",
+      "ariaLabel": "Supprimer le plan {{name}}",
+      "confirmTitle": "Supprimer le plan « {{name}} » ?",
+      "confirmMessage": "Si le plan a déjà des séances enregistrées, il sera archivé (historique conservé). Sinon, il sera supprimé définitivement.",
+      "confirmText": "Supprimer le plan"
+    }
+  },
+  "log": {
+    "crumb": "Élèves",
+    "exercises": "exercices",
+    "ofSets": "sur {{total}} séries",
+    "sets": "séries",
+    "skipped_one": "{{count}} ignorée",
+    "skipped_few": "{{count}} ignorées",
+    "skipped_many": "{{count}} ignorées",
+    "skipped_other": "{{count}} ignorées",
+    "avgDifficulty": "difficulté moy.",
+    "traineeNote": "Note de l’élève",
+    "average": "Moyenne",
+    "difficulty": "Difficulté",
+    "unitSec": "s",
+    "unitRep": "rép",
+    "set": "Série",
+    "reps": "Rép.",
+    "secs": "Sec.",
+    "difficultyShort": "Diff.",
+    "visually": "Visuel",
+    "video": "Vidéo",
+    "setsTooltip": "{{done}} séries sur {{total}} ignorées",
+    "setsBadge": "{{done}}/{{total}} séries",
+    "repsUnit": "rép",
+    "secUnit": "sec",
+    "skippedLabel": "Ignorée",
+    "planPrefix": "plan :",
+    "planReps": "rép.",
+    "planSecs": "sec.",
+    "videoLabel": "vidéo",
+    "videoTitle": "{{name}} · série {{n}}"
+  },
+  "sylwetka": {
+    "crumb": "Élèves",
+    "current": "Photos physique",
+    "title": "Photos physique",
+    "empty": "Aucune photo.",
+    "photoCount_one": "{{count}} photo · la plus récente en haut",
+    "photoCount_few": "{{count}} photos · la plus récente en haut",
+    "photoCount_many": "{{count}} photos · la plus récente en haut",
+    "photoCount_other": "{{count}} photos · la plus récente en haut",
+    "emptyTitle": "Aucune photo",
+    "emptyDesc": "L’élève n’a encore importé aucune photo.",
+    "noViewTitle": "Aucune photo sous cet angle",
+    "noViewDesc": "Changez de filtre pour voir d’autres angles.",
+    "tabs": {
+      "all": "Toutes",
+      "front": "Face",
+      "side": "Profil",
+      "back": "Dos"
+    },
+    "month_0": "Janvier",
+    "month_1": "Février",
+    "month_2": "Mars",
+    "month_3": "Avril",
+    "month_4": "Mai",
+    "month_5": "Juin",
+    "month_6": "Juillet",
+    "month_7": "Août",
+    "month_8": "Septembre",
+    "month_9": "Octobre",
+    "month_10": "Novembre",
+    "month_11": "Décembre"
+  },
+  "platnosci": {
+    "eyebrow": "Élève · {{name}}",
+    "title": "Paiements",
+    "subtitle": "Définissez le montant mensuel du coaching et consultez l’historique des paiements.",
+    "subscription": {
+      "heading": "Abonnement",
+      "statusLabel": "Statut :",
+      "monthlyAmount": "Montant mensuel :",
+      "noAmount": "Le montant n’a pas encore été défini.",
+      "amountField": "Montant mensuel (zł)",
+      "amountPlaceholder": "ex. 200",
+      "saveAmount": "Enregistrer le montant",
+      "pause": "Suspendre",
+      "resume": "Reprendre",
+      "cancel": "Résilier l’abonnement"
+    },
+    "history": {
+      "heading": "Historique des paiements",
+      "empty": "Aucun paiement.",
+      "invoice": "Facture"
+    },
+    "action": {
+      "amountInvalid": "Indiquez un montant valide (min. 2 zł).",
+      "amountSaved": "Montant enregistré.",
+      "amountSavedNextRenewal": "Montant enregistré. Le nouveau montant prendra effet au prochain renouvellement.",
+      "subscriptionEnded": "Abonnement résilié.",
+      "subscriptionPaused": "Abonnement suspendu.",
+      "subscriptionResumed": "Abonnement repris."
+    }
+  }
+}

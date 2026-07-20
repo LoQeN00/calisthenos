@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { requireUser } from "~/lib/auth";
@@ -6,33 +7,39 @@ import { listSkillsForTrainer } from "~/lib/skills";
 
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainer" });
-  const skills = await listSkillsForTrainer(db, user.id);
+  const skills = await listSkillsForTrainer(db, {
+    trainerId: user.id,
+    organizationId: user.organizationId,
+  });
   return { skills };
 }
 
 export default function UmiejetnosciList() {
   const { skills } = useLoaderData<typeof loader>();
+  const { t } = useTranslation("trenerPlany");
   return (
     <div>
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Trener
+            {t("umiejetnosci.eyebrow")}
           </div>
-          <h1>Umiejętności</h1>
+          <h1>{t("umiejetnosci.title")}</h1>
           <div className="sub">
-            {skills.length === 0 ? "Brak umiejętności." : `${skills.length} umiejętności.`}
+            {skills.length === 0
+              ? t("umiejetnosci.subEmpty")
+              : t("umiejetnosci.subCount", { count: skills.length })}
           </div>
         </div>
         <Link to="/trener/umiejetnosci/nowa" className="btn btn-primary">
-          <Icons.Plus /> Nowa umiejętność
+          <Icons.Plus /> {t("umiejetnosci.newSkill")}
         </Link>
       </div>
 
       {skills.length === 0 ? (
         <div className="empty">
-          <h3>Brak umiejętności</h3>
-          <div>Utwórz pierwszą drabinę wariantów (np. Front Lever), by śledzić progresję.</div>
+          <h3>{t("umiejetnosci.emptyTitle")}</h3>
+          <div>{t("umiejetnosci.emptyBody")}</div>
         </div>
       ) : (
         <div
@@ -46,9 +53,16 @@ export default function UmiejetnosciList() {
               className="card card-hover"
               style={{ padding: 14 }}
             >
-              <h3 style={{ margin: 0 }}>{s.name}</h3>
+              <div className="row between" style={{ alignItems: "flex-start", gap: 8 }}>
+                <h3 style={{ margin: 0 }}>{s.name}</h3>
+                {s.isBrand && (
+                  <span className="badge" style={{ flexShrink: 0 }}>
+                    {t("umiejetnosci.brandBadge")}
+                  </span>
+                )}
+              </div>
               <div className="text-xs muted" style={{ marginTop: 8 }}>
-                {s.variationCount} wariantów
+                {t("umiejetnosci.variationsCount", { count: s.variationCount })}
               </div>
               {s.description && (
                 <div className="text-sm muted" style={{ marginTop: 8, lineHeight: 1.4 }}>

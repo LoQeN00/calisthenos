@@ -5,6 +5,7 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
+import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { db } from "~/lib/db/client";
@@ -12,6 +13,7 @@ import * as schema from "~/lib/db/schema";
 import {
   buildSetCookie,
   createSession,
+  defaultPathForRole,
   getDummyPasswordHash,
   parseSessionId,
   readSession,
@@ -24,14 +26,14 @@ const LoginSchema = z.object({
   password: z.string().min(1).max(1024),
 });
 
-const GENERIC_ERROR = "Niepoprawne dane logowania." as const;
+const GENERIC_ERROR = "login.error" as const;
 
 export async function loader(args: LoaderFunctionArgs) {
   const sid = parseSessionId(args.request.headers.get("cookie"));
   if (sid) {
     const session = await readSession(db, sid);
     if (session) {
-      return redirect(session.user.role === "trainer" ? "/trener" : "/podopieczny");
+      return redirect(defaultPathForRole(session.user.role));
     }
   }
   return null;
@@ -74,28 +76,29 @@ export async function action(args: ActionFunctionArgs) {
     userAgentHint: args.request.headers.get("user-agent"),
   });
   resetRateLimit("login", args.request);
-  return redirect(user.role === "trainer" ? "/trener" : "/podopieczny", {
+  return redirect(defaultPathForRole(user.role), {
     headers: { "Set-Cookie": buildSetCookie(id, expiresAt) },
   });
 }
 
 export default function Login() {
   const actionData = useActionData<typeof action>();
+  const { t } = useTranslation(["auth", "common"]);
   return (
     <main className="auth-shell">
       <div className="auth-card">
         <div className="brand" style={{ marginBottom: 18 }}>
           <span className="brand-mark" />
-          <span>calisthenos</span>
+          <span>{t("common:app.name")}</span>
           <span className="brand-dot" />
         </div>
         <div className="eyebrow" style={{ marginBottom: 6 }}>
-          Logowanie
+          {t("login.eyebrow")}
         </div>
-        <h1 style={{ fontSize: 22, marginBottom: 18 }}>Wróć do treningu</h1>
+        <h1 style={{ fontSize: 22, marginBottom: 18 }}>{t("login.title")}</h1>
         <Form method="post" style={{ display: "grid", gap: 14 }}>
           <div className="field">
-            <label htmlFor="login-email">Email</label>
+            <label htmlFor="login-email">{t("login.email")}</label>
             <input
               id="login-email"
               name="email"
@@ -106,7 +109,7 @@ export default function Login() {
             />
           </div>
           <div className="field">
-            <label htmlFor="login-password">Hasło</label>
+            <label htmlFor="login-password">{t("login.password")}</label>
             <input
               id="login-password"
               name="password"
@@ -118,11 +121,11 @@ export default function Login() {
           </div>
           {actionData && "error" in actionData && (
             <p role="alert" style={{ color: "var(--danger)", fontSize: 13, margin: 0 }}>
-              {actionData.error}
+              {(t as (k: string) => string)(actionData.error)}
             </p>
           )}
           <button type="submit" className="btn btn-primary btn-lg" style={{ marginTop: 4 }}>
-            Zaloguj
+            {t("login.submit")}
           </button>
         </Form>
       </div>

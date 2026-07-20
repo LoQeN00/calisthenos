@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router";
 import { Icons } from "./icons";
 
@@ -21,6 +22,7 @@ export function Pagination({
   siblingRange = 1,
 }: PaginationProps) {
   const [searchParams] = useSearchParams();
+  const { t } = useTranslation("common");
 
   if (totalPages <= 1) {
     if (total != null && totalLabel) {
@@ -58,7 +60,7 @@ export function Pagination({
 
   return (
     <nav
-      aria-label="Paginacja"
+      aria-label={t("pagination.label")}
       className="row wrap"
       style={{
         justifyContent: "center",
@@ -69,7 +71,7 @@ export function Pagination({
     >
       {prevPage != null ? (
         <Link to={buildHref(prevPage)} className="btn btn-sm" rel="prev">
-          <Icons.ChevLeft /> Poprzednia
+          <Icons.ChevLeft /> {t("pagination.previous")}
         </Link>
       ) : (
         <span
@@ -77,7 +79,7 @@ export function Pagination({
           aria-disabled="true"
           style={{ opacity: 0.4, cursor: "not-allowed" }}
         >
-          <Icons.ChevLeft /> Poprzednia
+          <Icons.ChevLeft /> {t("pagination.previous")}
         </span>
       )}
 
@@ -98,7 +100,7 @@ export function Pagination({
             to={buildHref(slot)}
             className={slot === page ? "btn btn-sm btn-dark" : "btn btn-sm"}
             aria-current={slot === page ? "page" : undefined}
-            aria-label={`Strona ${slot}`}
+            aria-label={t("pagination.page", { num: slot })}
           >
             {slot}
           </Link>
@@ -107,7 +109,7 @@ export function Pagination({
 
       {nextPage != null ? (
         <Link to={buildHref(nextPage)} className="btn btn-sm" rel="next">
-          Następna <Icons.Chev />
+          {t("pagination.next")} <Icons.Chev />
         </Link>
       ) : (
         <span
@@ -115,7 +117,7 @@ export function Pagination({
           aria-disabled="true"
           style={{ opacity: 0.4, cursor: "not-allowed" }}
         >
-          Następna <Icons.Chev />
+          {t("pagination.next")} <Icons.Chev />
         </span>
       )}
 

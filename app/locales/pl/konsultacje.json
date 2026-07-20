@@ -1,0 +1,63 @@
+{
+  "status": {
+    "confirmed": "potwierdzony",
+    "change": "prośba o zmianę",
+    "cancelled": "odwołany",
+    "done": "udokumentowany",
+    "scheduled": "zaplanowany",
+    "pending": "do potwierdzenia",
+    "pendingDoc": "do udokumentowania"
+  },
+  "pulpit": {
+    "eyebrow": "Podopieczny",
+    "title": "Konsultacje",
+    "sub": "Twój kalendarz spotkań z trenerem.",
+    "nextLabel": "Najbliższy termin",
+    "join": "Dołącz",
+    "meetingLink": "Link spotkania",
+    "minUnit": "{{count}} min"
+  },
+  "day": {
+    "oneOccurrence": "1 termin",
+    "manyOccurrences": "{{count}} terminy",
+    "allOccurrences": "Wszystkie terminy"
+  },
+  "agenda": {
+    "upcoming": "Nadchodzące terminy",
+    "past": "Minione",
+    "allUpcomingTitle": "To wszystkie nadchodzące terminy",
+    "noUpcomingTitle": "Brak nadchodzących terminów",
+    "allUpcomingBody": "Kolejne terminy pojawią się tutaj, gdy trener je zaplanuje.",
+    "noUpcomingBody": "Trener jeszcze nie zaplanował spotkań w tym miesiącu."
+  },
+  "detail": {
+    "crumb": "Konsultacje",
+    "yourResponse": "Twoja odpowiedź",
+    "meetingLink": "Link spotkania",
+    "changeRequestedNote": "Wysłałeś prośbę o zmianę terminu — trener zaproponuje nowy.",
+    "periodLabel": "Okres omówiony:",
+    "toImproveLabel": "Do poprawy ({{detail}})",
+    "openOfTotal": "{{open}} otwartych z {{total}}",
+    "itemResolved": "poprawione",
+    "itemOpen": "otwarte"
+  },
+  "actions": {
+    "confirm": "Potwierdzam",
+    "requestChange": "Poproś o zmianę",
+    "decline": "Odrzuć",
+    "changeQuestion": "Co chcesz zmienić? (opcjonalnie)",
+    "changePlaceholder": "np. Wolę rano, albo inny dzień tygodnia…",
+    "sendRequest": "Wyślij prośbę",
+    "cancel": "Anuluj"
+  },
+  "calendar": {
+    "prevMonth": "Poprzedni miesiąc",
+    "nextMonth": "Następny miesiąc",
+    "dayAriaOne": "{{day}} — 1 termin",
+    "dayAriaMany": "{{day}} — {{count}} terminy"
+  },
+  "akcje": {
+    "unknownAction": "Nieznana akcja.",
+    "saved": "Zapisano."
+  }
+}

@@ -1,0 +1,235 @@
+{
+  "lista": {
+    "eyebrow": "Trener",
+    "title": "Podopieczni",
+    "empty": "Brak podopiecznych. Wygeneruj pierwsze zaproszenie.",
+    "total_one": "{{count}} osoba.",
+    "total_few": "{{count}} osoby.",
+    "total_many": "{{count}} osób.",
+    "total_other": "{{count}} osób.",
+    "totalWord_one": "osoba",
+    "totalWord_few": "osoby",
+    "totalWord_many": "osób",
+    "totalWord_other": "osób",
+    "invite": "Zaproś podopiecznego",
+    "deleted": "Podopieczny „{{name}}” został usunięty wraz ze wszystkimi danymi.",
+    "form": {
+      "title": "Zaproś podopiecznego",
+      "name": "Imię i nazwisko",
+      "namePlaceholder": "np. Mateusz Kozłowski",
+      "email": "Email",
+      "emailPlaceholder": "mateusz@example.pl",
+      "amount": "Kwota miesięczna (zł) — opcjonalnie",
+      "amountPlaceholder": "np. 200",
+      "amountHint": "Podopieczny doda kartę przy dołączaniu. Zostaw puste, aby zaprosić bez płatności.",
+      "fallbackError": "Sprawdź formularz.",
+      "cancel": "Anuluj",
+      "generate": "Wygeneruj link"
+    },
+    "validation": {
+      "nameRequired": "Podaj imię i nazwisko.",
+      "emailRequired": "Email jest wymagany.",
+      "emailInvalid": "Nieprawidłowy email.",
+      "amountInvalid": "Kwota miesięczna jest nieprawidłowa (min. 2 zł)."
+    },
+    "table": {
+      "trainee": "Podopieczny",
+      "activePlan": "Aktywny plan",
+      "lastSession": "Ostatnia sesja",
+      "since": "od {{date}}",
+      "noPlan": "brak aktywnego planu",
+      "lastAgo": "ostatnia {{ago}}",
+      "noSessions": "brak sesji"
+    },
+    "inviteCard": {
+      "generated": "Link wygenerowany · ważny 14 dni",
+      "instructions": "Skopiuj i wyślij podopiecznemu. Po przyjęciu zaproszenia konto pojawi się na liście poniżej.",
+      "copy": "Kopiuj link",
+      "tokenNote": "Token pokazujemy tylko teraz. Jeśli zgubisz link, wygeneruj nowy."
+    },
+    "searchPlaceholder": "Szukaj po nazwisku lub emailu…",
+    "sort": {
+      "name_asc": "Nazwisko A–Z",
+      "name_desc": "Nazwisko Z–A",
+      "last_session": "Ostatnia sesja",
+      "most_sessions": "Najwięcej sesji",
+      "newest": "Najnowszy podopieczny"
+    },
+    "filter": {
+      "plan": "Plan",
+      "planAll": "Wszyscy",
+      "planWith": "Z aktywnym planem",
+      "planWithout": "Bez planu"
+    }
+  },
+  "szczegoly": {
+    "crumb": "Podopieczni",
+    "eyebrow": "Podopieczny",
+    "eyebrowSince": "Podopieczny · od {{date}}",
+    "sessionWord_one": "sesja",
+    "sessionWord_few": "sesje",
+    "sessionWord_many": "sesji",
+    "sessionWord_other": "sesji",
+    "lastSessionPrefix": "Ostatnia sesja",
+    "totalPrefix": "łącznie",
+    "nextConsultation": "Najbliższa konsultacja",
+    "pendingConfirm": "{{count}} do potwierdzenia",
+    "btn": {
+      "progress": "Rozwój",
+      "body": "Sylwetka",
+      "consultations": "Konsultacje",
+      "payments": "Płatności",
+      "newPlan": "Nowy plan"
+    },
+    "activePlanBadge": "aktywny plan",
+    "draftBadge": "draft",
+    "planSince": "od {{date}}",
+    "show": "Pokaż",
+    "editPlan": "Edytuj plan",
+    "draftVersion": "Wersja {{version}} (Draft)",
+    "draftBasedOn": "— bazuje na wersji {{version}}",
+    "unfinished": "niedokończony",
+    "backToEdit": "Wróć do edycji",
+    "noPlan": {
+      "title": "Brak planu",
+      "desc": "Ten podopieczny nie ma jeszcze przypisanego planu treningowego."
+    },
+    "history": {
+      "title": "Historia treningów",
+      "searchPlaceholder": "Szukaj po nazwie sesji…",
+      "emptyTitle": "Brak sesji",
+      "emptyDesc": "Ten podopieczny jeszcze nic nie zarejestrował.",
+      "exercises": "ćwiczeń",
+      "sets": "serii",
+      "avg": "śr.",
+      "video": "video"
+    },
+    "sort": {
+      "date_desc": "Najnowsze",
+      "date_asc": "Najstarsze",
+      "hardest": "Najtrudniejsze",
+      "easiest": "Najłatwiejsze",
+      "sets_desc": "Najwięcej serii"
+    },
+    "filter": {
+      "video": "Wideo",
+      "videoAll": "Wszystkie",
+      "videoWith": "Z wideo",
+      "videoWithout": "Bez wideo"
+    },
+    "action": {
+      "noPlanId": "Brak id planu.",
+      "planDeleted": "Plan usunięty.",
+      "planArchived": "Plan zarchiwizowany — ma {{count}} zapisanych sesji, historia została zachowana."
+    },
+    "danger": {
+      "title": "Strefa niebezpieczna",
+      "deleteTrainee": "Usuń podopiecznego",
+      "deleteDesc": "Konto, wszystkie plany, historia treningów, zdjęcia sylwetki i nagrania video zostaną <strong>nieodwracalnie skasowane</strong>. Aktywna subskrypcja Stripe zostanie anulowana, a nadchodzące spotkania usunięte z Twojego Kalendarza Google.",
+      "confirmTitle": "Usunąć podopiecznego „{{name}}”?",
+      "confirmMessage": "Wszystkie dane tej osoby (plany, sesje, video, zdjęcia) zostaną nieodwracalnie skasowane, subskrypcja Stripe anulowana, a nadchodzące spotkania usunięte z Kalendarza Google. Tej operacji nie da się cofnąć.",
+      "confirmText": "Usuń podopiecznego"
+    },
+    "deletePlan": {
+      "title": "Usuń plan",
+      "ariaLabel": "Usuń plan {{name}}",
+      "confirmTitle": "Usunąć plan „{{name}}”?",
+      "confirmMessage": "Jeśli plan ma już zalogowane sesje, zostanie zarchiwizowany (historia zachowana). Inaczej — skasowany na stałe.",
+      "confirmText": "Usuń plan"
+    }
+  },
+  "log": {
+    "crumb": "Podopieczni",
+    "exercises": "ćwiczeń",
+    "ofSets": "z {{total}} serii",
+    "sets": "serii",
+    "skipped_one": "{{count}} pominięta",
+    "skipped_few": "{{count}} pominięte",
+    "skipped_many": "{{count}} pominiętych",
+    "skipped_other": "{{count}} pominiętych",
+    "avgDifficulty": "śr. trudność",
+    "traineeNote": "Notatka podopiecznego",
+    "average": "Średnio",
+    "difficulty": "Trudność",
+    "unitSec": "s",
+    "unitRep": "rep",
+    "set": "Seria",
+    "reps": "Powt.",
+    "secs": "Sek.",
+    "difficultyShort": "Trudn.",
+    "visually": "Wizualnie",
+    "video": "Video",
+    "setsTooltip": "{{done}} z {{total}} serii pominięte",
+    "setsBadge": "{{done}}/{{total}} serii",
+    "repsUnit": "rep",
+    "secUnit": "sek",
+    "skippedLabel": "Pominięta",
+    "planPrefix": "plan:",
+    "planReps": "powt.",
+    "planSecs": "sek.",
+    "videoLabel": "video",
+    "videoTitle": "{{name}} · seria {{n}}"
+  },
+  "sylwetka": {
+    "crumb": "Podopieczni",
+    "current": "Sylwetka",
+    "title": "Sylwetka",
+    "empty": "Brak zdjęć.",
+    "photoCount_one": "{{count}} zdjęcie · najnowsze u góry",
+    "photoCount_few": "{{count}} zdjęcia · najnowsze u góry",
+    "photoCount_many": "{{count}} zdjęć · najnowsze u góry",
+    "photoCount_other": "{{count}} zdjęć · najnowsze u góry",
+    "emptyTitle": "Brak zdjęć",
+    "emptyDesc": "Podopieczny jeszcze nie wgrał żadnego zdjęcia.",
+    "noViewTitle": "Brak zdjęć w tym ujęciu",
+    "noViewDesc": "Zmień filtr, by zobaczyć inne ujęcia.",
+    "tabs": {
+      "all": "Wszystkie",
+      "front": "Przód",
+      "side": "Bok",
+      "back": "Tył"
+    },
+    "month_0": "Styczeń",
+    "month_1": "Luty",
+    "month_2": "Marzec",
+    "month_3": "Kwiecień",
+    "month_4": "Maj",
+    "month_5": "Czerwiec",
+    "month_6": "Lipiec",
+    "month_7": "Sierpień",
+    "month_8": "Wrzesień",
+    "month_9": "Październik",
+    "month_10": "Listopad",
+    "month_11": "Grudzień"
+  },
+  "platnosci": {
+    "eyebrow": "Podopieczny · {{name}}",
+    "title": "Płatności",
+    "subtitle": "Ustal miesięczną kwotę prowadzenia i przeglądaj historię płatności.",
+    "subscription": {
+      "heading": "Subskrypcja",
+      "statusLabel": "Status:",
+      "monthlyAmount": "Kwota miesięczna:",
+      "noAmount": "Kwota nie została jeszcze ustalona.",
+      "amountField": "Kwota miesięczna (zł)",
+      "amountPlaceholder": "np. 200",
+      "saveAmount": "Zapisz kwotę",
+      "pause": "Wstrzymaj",
+      "resume": "Wznów",
+      "cancel": "Zakończ subskrypcję"
+    },
+    "history": {
+      "heading": "Historia płatności",
+      "empty": "Brak płatności.",
+      "invoice": "Faktura"
+    },
+    "action": {
+      "amountInvalid": "Podaj poprawną kwotę (min. 2 zł).",
+      "amountSaved": "Kwota zapisana.",
+      "amountSavedNextRenewal": "Kwota zapisana. Nowa kwota zacznie obowiązywać od następnego odnowienia.",
+      "subscriptionEnded": "Subskrypcja zakończona.",
+      "subscriptionPaused": "Subskrypcja wstrzymana.",
+      "subscriptionResumed": "Subskrypcja wznowiona."
+    }
+  }
+}

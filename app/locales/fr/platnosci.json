@@ -1,0 +1,58 @@
+{
+  "subStatus": {
+    "none": "Pas d'abonnement",
+    "incomplete": "Incomplet",
+    "active": "Actif",
+    "past_due": "En retard",
+    "unpaid": "Impayé",
+    "canceled": "Annulé",
+    "paused": "Suspendu"
+  },
+  "invoiceStatus": {
+    "paid": "Payée",
+    "open": "En attente",
+    "void": "Annulée",
+    "uncollectible": "Irrécouvrable",
+    "draft": "Brouillon",
+    "failed": "Échouée"
+  },
+  "eyebrow": "Élève",
+  "title": "Paiements",
+  "subtitle": "Votre abonnement d'entraînement.",
+  "alert": {
+    "activated": "Abonnement activé — merci !",
+    "canceled": "Paiement annulé."
+  },
+  "onboarding": {
+    "heading": "Bienvenue ! 👋",
+    "withPricePrefix": "Votre coach a fixé un abonnement de",
+    "withPriceSuffix": "par mois. Ajoutez une carte pour l'activer.",
+    "noPrice": "Vous configurerez les paiements ici une fois que le coach aura fixé le montant.",
+    "later": "Je le ferai plus tard"
+  },
+  "subscription": {
+    "heading": "Abonnement",
+    "statusLabel": "Statut :",
+    "pastDueAlert": "Le dernier paiement a échoué. Mettez à jour votre moyen de paiement pour conserver votre abonnement.",
+    "amountLabel": "Montant :",
+    "perMonth": "/ par mois",
+    "paidUntil": "Payé jusqu'au : {{date}}",
+    "noPriceYet": "Le coach n'a pas encore fixé le montant.",
+    "offerTrainerPrefix": "Accompagnement d'entraînement avec",
+    "yourTrainer": "votre coach",
+    "payNowLabel": "Vous payez maintenant :",
+    "thenPrefix": "Ensuite :",
+    "thenSuffix": "par mois",
+    "autoRenew": "L'abonnement se renouvelle automatiquement. Vous pouvez l'annuler à tout moment depuis l'espace de paiement (ci-dessous, après activation).",
+    "subscribe": "S'abonner",
+    "managePayments": "Gérer les paiements",
+    "pause": "Suspendre l'abonnement",
+    "pausedNote": "Abonnement suspendu — aucun paiement n'est prélevé.",
+    "resume": "Reprendre l'abonnement"
+  },
+  "history": {
+    "heading": "Historique des paiements",
+    "empty": "Aucun paiement.",
+    "invoice": "Facture"
+  }
+}

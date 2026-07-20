@@ -1,4 +1,5 @@
 import { and, eq, isNull } from "drizzle-orm";
+import { useTranslation } from "react-i18next";
 import {
   Form,
   Link,
@@ -9,6 +10,7 @@ import {
   type LoaderFunctionArgs,
 } from "react-router";
 import { z } from "zod";
+import { tDyn } from "~/i18n/translate";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
@@ -60,7 +62,7 @@ export async function action(args: ActionFunctionArgs) {
     name: fd.get("name"),
   });
   if (!parsed.success) {
-    return { error: "Sprawdź pola formularza." };
+    return { error: "plany.nowy.errorForm" };
   }
 
   // Confirm the trainee belongs to this trainer.
@@ -76,7 +78,7 @@ export async function action(args: ActionFunctionArgs) {
     )
     .limit(1);
   if (traineeRows.length === 0) {
-    return { error: "Podopieczny nie istnieje albo nie należy do Ciebie." };
+    return { error: "plany.nowy.errorTraineeMissing" };
   }
 
   // Schema enforces "one draft per trainee" via partial unique index.
@@ -97,32 +99,33 @@ export async function action(args: ActionFunctionArgs) {
 export default function NowyPlan() {
   const { trainees, preselected } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const { t } = useTranslation("trenerPlany");
 
   return (
     <div style={{ maxWidth: 520 }}>
       <div className="crumbs">
-        <Link to="/trener/plany">Plany</Link>
+        <Link to="/trener/plany">{t("plany.nowy.crumbList")}</Link>
         <span className="sep">›</span>
-        <span className="current">Nowy</span>
+        <span className="current">{t("plany.nowy.crumbCurrent")}</span>
       </div>
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Trener
+            {t("plany.eyebrow")}
           </div>
-          <h1>Nowy plan</h1>
+          <h1>{t("plany.nowy.title")}</h1>
         </div>
       </div>
 
       {trainees.length === 0 ? (
         <div className="empty">
-          <h3>Brak podopiecznych</h3>
-          <div>Wystaw najpierw zaproszenie w sekcji „Podopieczni".</div>
+          <h3>{t("plany.nowy.emptyTraineesTitle")}</h3>
+          <div>{t("plany.nowy.emptyTraineesBody")}</div>
         </div>
       ) : (
         <Form method="post" className="card" style={{ display: "grid", gap: 14 }}>
           <div className="field">
-            <label htmlFor="np-trainee">Dla kogo</label>
+            <label htmlFor="np-trainee">{t("plany.nowy.labelForWhom")}</label>
             <select
               id="np-trainee"
               name="traineeId"
@@ -130,36 +133,36 @@ export default function NowyPlan() {
               defaultValue={preselected ?? trainees[0]?.id ?? ""}
               className="select"
             >
-              {trainees.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.displayName}
+              {trainees.map((tr) => (
+                <option key={tr.id} value={tr.id}>
+                  {tr.displayName}
                 </option>
               ))}
             </select>
           </div>
           <div className="field">
-            <label htmlFor="np-name">Nazwa planu</label>
+            <label htmlFor="np-name">{t("plany.nowy.labelName")}</label>
             <input
               id="np-name"
               name="name"
               type="text"
               required
               maxLength={120}
-              defaultValue="Nowy plan"
+              defaultValue={t("plany.nowy.defaultName")}
               className="input"
             />
           </div>
           {actionData?.error != null && (
             <p role="alert" style={{ color: "var(--danger)", fontSize: 13, margin: 0 }}>
-              {actionData.error}
+              {tDyn(t, actionData.error)}
             </p>
           )}
           <div className="row" style={{ gap: 8 }}>
             <button type="submit" className="btn btn-primary">
-              Utwórz draft
+              {t("plany.nowy.create")}
             </button>
             <Link to="/trener/plany" className="btn btn-ghost">
-              Anuluj
+              {t("plany.nowy.cancel")}
             </Link>
           </div>
         </Form>

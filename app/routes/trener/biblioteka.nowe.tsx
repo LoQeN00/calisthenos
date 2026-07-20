@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import {
   Form,
   Link,
@@ -15,9 +16,10 @@ import { filterToKnownCategoryNames, listCategoriesForTrainer } from "~/lib/cate
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import { UploadCleanupQueue, UploadError, uploadFile } from "~/lib/file-uploads";
+import { tDyn } from "~/i18n/translate";
 
 const ExerciseSchema = z.object({
-  name: z.string().trim().min(1, "Nazwa jest wymagana.").max(120),
+  name: z.string().trim().min(1, "nameRequired").max(120),
   unit: z.enum(["REPS", "SEC"]),
   description: z.string().max(2000).default(""),
   tracksRpe: z.boolean(),
@@ -39,8 +41,12 @@ export async function action(args: ActionFunctionArgs) {
     tracksRpe: fd.get("tracksRpe") === "on",
   });
   if (!parsed.success) {
+    const issue = parsed.error.issues[0]?.message;
     return {
-      error: parsed.error.issues[0]?.message ?? "Sprawdź pola formularza.",
+      errorKey:
+        issue === "nameRequired"
+          ? ("bibliotekaForm.errors.nameRequired" as const)
+          : ("bibliotekaForm.errors.formInvalid" as const),
     };
   }
 
@@ -61,7 +67,7 @@ export async function action(args: ActionFunctionArgs) {
           {
             file: demoBlob as File,
             kind: "exercise_demo",
-            trainerId: user.id,
+            owner: { trainerId: user.id },
             uploadedBy: user.id,
           },
           cleanup,
@@ -81,7 +87,11 @@ export async function action(args: ActionFunctionArgs) {
     cleanup.commit();
   } catch (e) {
     await cleanup.cleanup();
-    if (e instanceof UploadError) return { error: e.userMessage };
+    if (e instanceof UploadError)
+      return {
+        errorKey: "bibliotekaForm.errors.formInvalid" as const,
+        errorMessage: e.userMessage,
+      };
     throw e;
   }
   throw redirect("/trener/biblioteka");
@@ -90,19 +100,26 @@ export async function action(args: ActionFunctionArgs) {
 export default function NoweCwiczenie() {
   const { categories } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const { t } = useTranslation("trener");
+  const errorMsg =
+    actionData?.errorKey != null
+      ? "errorMessage" in actionData && actionData.errorMessage
+        ? actionData.errorMessage
+        : tDyn(t, actionData.errorKey)
+      : null;
   return (
     <div style={{ maxWidth: 580 }}>
       <div className="crumbs">
-        <Link to="/trener/biblioteka">Biblioteka</Link>
+        <Link to="/trener/biblioteka">{t("bibliotekaForm.crumbsLibrary")}</Link>
         <span className="sep">›</span>
-        <span className="current">Nowe</span>
+        <span className="current">{t("bibliotekaForm.crumbNew")}</span>
       </div>
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Trener
+            {t("bibliotekaForm.eyebrow")}
           </div>
-          <h1>Nowe ćwiczenie</h1>
+          <h1>{t("bibliotekaForm.newTitle")}</h1>
         </div>
       </div>
       <Form
@@ -112,48 +129,48 @@ export default function NoweCwiczenie() {
         style={{ display: "grid", gap: 14 }}
       >
         <div className="field">
-          <label htmlFor="ex-name">Nazwa</label>
+          <label htmlFor="ex-name">{t("bibliotekaForm.fieldName")}</label>
           <input
             id="ex-name"
             name="name"
             type="text"
             required
             maxLength={120}
-            placeholder="np. Pull-up"
+            placeholder={t("bibliotekaForm.namePlaceholder")}
             className="input"
           />
         </div>
 
         <div className="field">
-          <label htmlFor="ex-unit">Jednostka</label>
+          <label htmlFor="ex-unit">{t("bibliotekaForm.fieldUnit")}</label>
           <select id="ex-unit" name="unit" required defaultValue="REPS" className="select">
-            <option value="REPS">REPS (powtórzenia)</option>
-            <option value="SEC">SEC (sekundy)</option>
+            <option value="REPS">{t("bibliotekaForm.unitReps")}</option>
+            <option value="SEC">{t("bibliotekaForm.unitSec")}</option>
           </select>
         </div>
 
         <div className="field">
-          <label htmlFor="ex-desc">Opis</label>
+          <label htmlFor="ex-desc">{t("bibliotekaForm.fieldDescription")}</label>
           <textarea
             id="ex-desc"
             name="description"
             rows={4}
             maxLength={2000}
-            placeholder="Krótki opis, na co zwrócić uwagę przy wykonaniu…"
+            placeholder={t("bibliotekaForm.descriptionPlaceholder")}
             className="textarea"
           />
         </div>
 
-        <label className="field" style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
+        <label
+          className="field"
+          style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}
+        >
           <input type="checkbox" name="tracksRpe" defaultChecked style={{ marginTop: 3 }} />
           <span>
             <span style={{ display: "block", fontWeight: 500 }}>
-              Zbieraj ocenę trudności (RPE 1–10) przy logowaniu
+              {t("bibliotekaForm.rpeTitle")}
             </span>
-            <span className="text-xs muted">
-              Wyłącz dla ćwiczeń, w których ocena wysiłku nie ma sensu — podopieczny nie zobaczy
-              wtedy skali trudności.
-            </span>
+            <span className="text-xs muted">{t("bibliotekaForm.rpeHint")}</span>
           </span>
         </label>
 
@@ -163,22 +180,22 @@ export default function NoweCwiczenie() {
           name="demo"
           idSuffix="new"
           kind="video"
-          label="Wideo demo (opcjonalne)"
+          label={t("bibliotekaForm.demoLabel")}
           maxBytes={250_000_000}
         />
 
-        {actionData?.error != null && (
+        {errorMsg != null && (
           <p role="alert" style={{ color: "var(--danger)", fontSize: 13, margin: 0 }}>
-            {actionData.error}
+            {errorMsg}
           </p>
         )}
 
         <div className="row" style={{ gap: 8 }}>
           <button type="submit" className="btn btn-primary">
-            Zapisz ćwiczenie
+            {t("bibliotekaForm.saveNew")}
           </button>
           <Link to="/trener/biblioteka" className="btn btn-ghost">
-            Anuluj
+            {t("bibliotekaForm.cancel")}
           </Link>
         </div>
       </Form>

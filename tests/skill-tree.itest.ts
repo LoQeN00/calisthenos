@@ -98,7 +98,7 @@ describe("authoring prereqs — addPrerequisite / removePrerequisite / edges", (
     // skillA requires skillP (Archer Pull-up wymaga Pull-up)
     await addPrerequisite(db, trainerA, skillA, skillP);
 
-    const tree = await getSkillTreeForTrainer(db, trainerA);
+    const tree = await getSkillTreeForTrainer(db, { trainerId: trainerA, organizationId: null });
     const edge = tree.edges.find((e) => e.from === skillA && e.requires === skillP);
     expect(edge).toBeDefined();
   });
@@ -126,7 +126,7 @@ describe("authoring prereqs — addPrerequisite / removePrerequisite / edges", (
     // Usuń krawędź skillA → skillP.
     await removePrerequisite(db, trainerA, skillA, skillP);
 
-    const tree = await getSkillTreeForTrainer(db, trainerA);
+    const tree = await getSkillTreeForTrainer(db, { trainerId: trainerA, organizationId: null });
     const edge = tree.edges.find((e) => e.from === skillA && e.requires === skillP);
     expect(edge).toBeUndefined();
   });
@@ -154,7 +154,7 @@ describe("tenant-scope prereqs", () => {
   });
 
   it("getSkillTreeForTrainer: drzewo trenera B nie zawiera węzłów trenera A", async () => {
-    const treeB = await getSkillTreeForTrainer(db, trainerB);
+    const treeB = await getSkillTreeForTrainer(db, { trainerId: trainerB, organizationId: null });
     const trainerANodeIds = new Set([skillTA, skillTA2]);
     const leaked = treeB.nodes.filter((n) => trainerANodeIds.has(n.skillId));
     expect(leaked).toHaveLength(0);
@@ -164,7 +164,7 @@ describe("tenant-scope prereqs", () => {
     // Dodaj krawędź pod trenerem A, sprawdź że nie przecieka do B.
     await addPrerequisite(db, trainerA, skillTA, skillTA2);
 
-    const treeB = await getSkillTreeForTrainer(db, trainerB);
+    const treeB = await getSkillTreeForTrainer(db, { trainerId: trainerB, organizationId: null });
     const trainerANodeIds = new Set([skillTA, skillTA2]);
     const leakedEdge = treeB.edges.find(
       (e) => trainerANodeIds.has(e.from) || trainerANodeIds.has(e.requires),
@@ -195,7 +195,7 @@ describe("archiwizacja: węzeł i krawędź znikają z drzewa", () => {
   });
 
   it("przed archiwizacją wszystkie trzy węzły i obie krawędzie są widoczne", async () => {
-    const tree = await getSkillTreeForTrainer(db, trainerA);
+    const tree = await getSkillTreeForTrainer(db, { trainerId: trainerA, organizationId: null });
     const nodeIds = tree.nodes.map((n) => n.skillId);
     expect(nodeIds).toContain(skillBase);
     expect(nodeIds).toContain(skillMid);
@@ -210,15 +210,13 @@ describe("archiwizacja: węzeł i krawędź znikają z drzewa", () => {
   it("po archiwizacji skillMid: jego węzeł i dotykające go krawędzie nie ma w drzewie", async () => {
     await archiveSkill(db, trainerA, skillMid);
 
-    const tree = await getSkillTreeForTrainer(db, trainerA);
+    const tree = await getSkillTreeForTrainer(db, { trainerId: trainerA, organizationId: null });
     const nodeIds = tree.nodes.map((n) => n.skillId);
     // Zarchiwizowany węzeł nie pojawia się.
     expect(nodeIds).not.toContain(skillMid);
 
     // Krawędzie dotykające skillMid są pominięte (filtrowane po activeIds).
-    const edgeMidBase = tree.edges.find(
-      (e) => e.from === skillMid || e.requires === skillMid,
-    );
+    const edgeMidBase = tree.edges.find((e) => e.from === skillMid || e.requires === skillMid);
     expect(edgeMidBase).toBeUndefined();
 
     // Base i top nadal są widoczne.
@@ -227,7 +225,11 @@ describe("archiwizacja: węzeł i krawędź znikają z drzewa", () => {
   });
 
   it("getSkillTreeForTrainee: zarchiwizowany węzeł też nie pojawia się w widoku podopiecznego", async () => {
-    const tree = await getSkillTreeForTrainee(db, trainerA, traineePA);
+    const tree = await getSkillTreeForTrainee(
+      db,
+      { trainerId: trainerA, organizationId: null },
+      traineePA,
+    );
     const nodeIds = tree.nodes.map((n) => n.skillId);
     expect(nodeIds).not.toContain(skillMid);
   });
@@ -260,19 +262,27 @@ describe("stany węzłów per-podopieczny", () => {
 
     const sRoot = await createSkill(db, trainerA, "State root skill", "");
     skillRoot = sRoot.id;
-    await addVariation(db, trainerA, skillRoot, exRootLow!.id);
-    await addVariation(db, trainerA, skillRoot, exRootTop!.id);
+    await addVariation(db, { trainerId: trainerA, organizationId: null }, skillRoot, exRootLow!.id);
+    await addVariation(db, { trainerId: trainerA, organizationId: null }, skillRoot, exRootTop!.id);
 
-    const detail = await getSkillWithVariations(db, trainerA, skillRoot);
+    const detail = await getSkillWithVariations(
+      db,
+      { trainerId: trainerA, organizationId: null },
+      skillRoot,
+    );
     // Warianty są posortowane rosnąco po ordinal.
     varRootLow = detail!.variations[0]!.id; // ordinal 1
     varRootTop = detail!.variations[1]!.id; // ordinal 2 (top)
 
     const sGoal = await createSkill(db, trainerA, "State goal skill", "");
     skillGoal = sGoal.id;
-    await addVariation(db, trainerA, skillGoal, exGoalLow!.id);
+    await addVariation(db, { trainerId: trainerA, organizationId: null }, skillGoal, exGoalLow!.id);
 
-    const detailGoal = await getSkillWithVariations(db, trainerA, skillGoal);
+    const detailGoal = await getSkillWithVariations(
+      db,
+      { trainerId: trainerA, organizationId: null },
+      skillGoal,
+    );
     varGoalLow = detailGoal!.variations[0]!.id;
 
     // GOAL wymaga ROOT (skillGoal requires skillRoot).
@@ -280,7 +290,11 @@ describe("stany węzłów per-podopieczny", () => {
   });
 
   it("brak awansów: ROOT jest available (korzeń bez prereków), GOAL jest locked (prereq nie mastered)", async () => {
-    const tree = await getSkillTreeForTrainee(db, trainerA, traineePA);
+    const tree = await getSkillTreeForTrainee(
+      db,
+      { trainerId: trainerA, organizationId: null },
+      traineePA,
+    );
 
     const rootNode = tree.nodes.find((n) => n.skillId === skillRoot);
     const goalNode = tree.nodes.find((n) => n.skillId === skillGoal);
@@ -298,7 +312,11 @@ describe("stany węzłów per-podopieczny", () => {
     // Ustaw poziom startowy podopiecznego na top wariant ROOT.
     await setStartingLevel(db, trainerA, traineePA, skillRoot, varRootTop, "2026-06-01", null);
 
-    const tree = await getSkillTreeForTrainee(db, trainerA, traineePA);
+    const tree = await getSkillTreeForTrainee(
+      db,
+      { trainerId: trainerA, organizationId: null },
+      traineePA,
+    );
 
     const rootNode = tree.nodes.find((n) => n.skillId === skillRoot);
     const goalNode = tree.nodes.find((n) => n.skillId === skillGoal);
@@ -313,7 +331,11 @@ describe("stany węzłów per-podopieczny", () => {
     // Ustaw poziom startowy podopiecznego na (nie-top) wariant GOAL.
     await setStartingLevel(db, trainerA, traineePA, skillGoal, varGoalLow, "2026-06-02", null);
 
-    const tree = await getSkillTreeForTrainee(db, trainerA, traineePA);
+    const tree = await getSkillTreeForTrainee(
+      db,
+      { trainerId: trainerA, organizationId: null },
+      traineePA,
+    );
 
     const goalNode = tree.nodes.find((n) => n.skillId === skillGoal);
 
@@ -341,10 +363,24 @@ describe("stany węzłów per-podopieczny", () => {
 
     const sGoal2 = await createSkill(db, trainerA, "State goal2 skill", "");
     const skillGoal2 = sGoal2.id;
-    await addVariation(db, trainerA, skillGoal2, exGoal2Low!.id);
-    await addVariation(db, trainerA, skillGoal2, exGoal2Top!.id);
+    await addVariation(
+      db,
+      { trainerId: trainerA, organizationId: null },
+      skillGoal2,
+      exGoal2Low!.id,
+    );
+    await addVariation(
+      db,
+      { trainerId: trainerA, organizationId: null },
+      skillGoal2,
+      exGoal2Top!.id,
+    );
 
-    const detailGoal2 = await getSkillWithVariations(db, trainerA, skillGoal2);
+    const detailGoal2 = await getSkillWithVariations(
+      db,
+      { trainerId: trainerA, organizationId: null },
+      skillGoal2,
+    );
     const varGoal2Low = detailGoal2!.variations[0]!.id; // ordinal 1 — nie top
     // varGoal2Top would be variations[1] — ordinal 2
 
@@ -354,11 +390,113 @@ describe("stany węzłów per-podopieczny", () => {
     // Ustaw podopiecznego na dolny wariant GOAL2 (nie top).
     await setStartingLevel(db, trainerA, traineePA, skillGoal2, varGoal2Low, "2026-06-03", null);
 
-    const tree = await getSkillTreeForTrainee(db, trainerA, traineePA);
+    const tree = await getSkillTreeForTrainee(
+      db,
+      { trainerId: trainerA, organizationId: null },
+      traineePA,
+    );
     const goal2Node = tree.nodes.find((n) => n.skillId === skillGoal2);
 
     expect(goal2Node).toBeDefined();
     // Ma awans (hasEvents=true), ale nie na top wariancie (atTop=false) → in_progress.
     expect(goal2Node!.state).toBe("in_progress");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Krawędzie markowe (T10): efektywne drzewo zawiera krawędź marki dla trenera
+// w tej org; trener z innej org jej nie widzi.
+// ---------------------------------------------------------------------------
+describe("krawędzie markowe — efektywne drzewo + granica org (T10)", () => {
+  let org1 = ""; // organizacja, do której należy trenerOrg1
+  let org2 = ""; // inna organizacja (trener z org2 nie widzi marki org1)
+  let trainerOrg1 = "";
+  let trainerOrg2 = "";
+  let brandA = ""; // markowa umiejętność A (ma prereq)
+  let brandB = ""; // markowa umiejętność B (prereq)
+
+  beforeAll(async () => {
+    // Dwie organizacje.
+    const [o1] = await db
+      .insert(schema.organizations)
+      .values({ name: "Brand Org 1" })
+      .returning({ id: schema.organizations.id });
+    org1 = o1!.id;
+    const [o2] = await db
+      .insert(schema.organizations)
+      .values({ name: "Brand Org 2" })
+      .returning({ id: schema.organizations.id });
+    org2 = o2!.id;
+
+    // Trener w org1 i trener w org2.
+    const [t1] = await db
+      .insert(schema.users)
+      .values({
+        email: "trener-org1@skill-tree.example.com",
+        displayName: "Trener Org1",
+        role: "trainer",
+        organizationId: org1,
+      })
+      .returning({ id: schema.users.id });
+    trainerOrg1 = t1!.id;
+    const [t2] = await db
+      .insert(schema.users)
+      .values({
+        email: "trener-org2@skill-tree.example.com",
+        displayName: "Trener Org2",
+        role: "trainer",
+        organizationId: org2,
+      })
+      .returning({ id: schema.users.id });
+    trainerOrg2 = t2!.id;
+
+    // Markowe umiejętności A i B w org1 (trainer_id NULL, organization_id = org1).
+    const [bA] = await db
+      .insert(schema.skills)
+      .values({ trainerId: null, organizationId: org1, name: "Brand skill A" })
+      .returning({ id: schema.skills.id });
+    brandA = bA!.id;
+    const [bB] = await db
+      .insert(schema.skills)
+      .values({ trainerId: null, organizationId: org1, name: "Brand skill B" })
+      .returning({ id: schema.skills.id });
+    brandB = bB!.id;
+
+    // Markowa krawędź: A wymaga B (trainer_id NULL, organization_id = org1).
+    await db.insert(schema.skillPrerequisites).values({
+      trainerId: null,
+      organizationId: org1,
+      skillId: brandA,
+      requiresSkillId: brandB,
+    });
+  });
+
+  it("trener w org1 widzi markowe węzły A,B oraz markową krawędź A→B", async () => {
+    const tree = await getSkillTreeForTrainer(db, {
+      trainerId: trainerOrg1,
+      organizationId: org1,
+    });
+    const nodeIds = tree.nodes.map((n) => n.skillId);
+    expect(nodeIds).toContain(brandA);
+    expect(nodeIds).toContain(brandB);
+
+    const edge = tree.edges.find((e) => e.from === brandA && e.requires === brandB);
+    expect(edge).toBeDefined();
+  });
+
+  it("trener w org2 nie widzi markowych węzłów ani krawędzi org1", async () => {
+    const tree = await getSkillTreeForTrainer(db, {
+      trainerId: trainerOrg2,
+      organizationId: org2,
+    });
+    const nodeIds = new Set(tree.nodes.map((n) => n.skillId));
+    expect(nodeIds.has(brandA)).toBe(false);
+    expect(nodeIds.has(brandB)).toBe(false);
+
+    const leakedEdge = tree.edges.find(
+      (e) =>
+        e.from === brandA || e.requires === brandB || e.from === brandB || e.requires === brandA,
+    );
+    expect(leakedEdge).toBeUndefined();
   });
 });

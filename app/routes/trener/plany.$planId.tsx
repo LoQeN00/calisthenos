@@ -1,5 +1,6 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Form,
   Link,
@@ -13,12 +14,15 @@ import {
 import { ConfirmSubmitButton, useAlert, useConfirm } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
 import { useToast } from "~/components/toast-provider";
+import { type Lang, langToIntlLocale } from "~/i18n/config";
+import { tDyn } from "~/i18n/translate";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
-import { fmtDate, pluralizePl, type PlForms } from "~/lib/format";
+import { fmtDate } from "~/lib/format";
 
-const BLOK: PlForms = { one: "blok", few: "bloki", many: "bloków" };
+// biome-ignore lint/suspicious/noExplicitAny: przeciążenia TFunction są złożone; tu wystarczy luźny podpis dla propsów-dzieci.
+type TFn = (...args: any[]) => string;
 import {
   type BlockForm,
   type ItemForm,
@@ -139,21 +143,22 @@ export async function action(args: ActionFunctionArgs) {
     // save / publish both need the JSON-encoded plan body.
     const raw = fd.get("plan");
     if (typeof raw !== "string") {
-      return { error: "Brak danych formularza." };
+      return { error: "plany.detail.actionMissingForm" };
     }
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
     } catch {
-      return { error: "Niepoprawny format danych." };
+      return { error: "plany.detail.actionBadFormat" };
     }
     const validated = PlanFormSchema.safeParse(parsed);
     if (!validated.success) {
+      // Komunikat + ścieżka pola pochodzą z PlanFormSchema (lib, PL) — renderowane
+      // dosłownie. Brak komunikatu → klucz tłumaczenia (rozpoznawany w komponencie).
       const issue = validated.error.issues[0];
-      const path = issue?.path?.length ? `${issue.path.join(".")}: ` : "";
-      return {
-        error: `${path}${issue?.message ?? "Niektóre pola planu są niepoprawne."}`,
-      };
+      if (!issue?.message) return { error: "plany.detail.actionInvalidFields" };
+      const path = issue.path?.length ? `${issue.path.join(".")}: ` : "";
+      return { error: `${path}${issue.message}` };
     }
 
     // Determine the actual draft to write to. If we're editing an active plan
@@ -183,7 +188,7 @@ export async function action(args: ActionFunctionArgs) {
       }
       wasPromoted = true;
     } else if (plan.status === "archived") {
-      return { error: "Nie można edytować zarchiwizowanego planu." };
+      return { error: "plany.detail.actionCannotEditArchived" };
     }
 
     await saveDraftPlan(db, targetPlanId, user.id, validated.data);
@@ -314,6 +319,7 @@ function PlanEditor() {
   const alert = useAlert();
   const confirm = useConfirm();
   const toast = useToast();
+  const { t } = useTranslation("trenerPlany");
 
   // Default: every session loaded from the DB starts collapsed (review mode).
   // Newly added sessions are expanded so the trainer can fill them in.
@@ -345,7 +351,7 @@ function PlanEditor() {
   useEffect(() => {
     if (actionData != null && "ok" in actionData && actionData.ok) {
       setSavedSerialized(JSON.stringify(stateRef.current));
-      toast("Zapisano draft");
+      toast(t("plany.detail.toastSavedDraft"));
     }
   }, [actionData]);
 
@@ -380,7 +386,10 @@ function PlanEditor() {
   const addSession = () =>
     setState((p) => ({
       ...p,
-      sessions: [...p.sessions, newSession(`Sesja ${p.sessions.length + 1}`)],
+      sessions: [
+        ...p.sessions,
+        newSession(t("plany.detail.newSessionName", { n: p.sessions.length + 1 })),
+      ],
     }));
 
   const removeSession = (idx: number) =>
@@ -394,7 +403,7 @@ function PlanEditor() {
   return (
     <div>
       <div className="crumbs">
-        <Link to="/trener/plany">Plany</Link>
+        <Link to="/trener/plany">{t("plany.detail.crumbList")}</Link>
         <span className="sep">›</span>
         <span className="current">{plan.name}</span>
       </div>
@@ -403,16 +412,19 @@ function PlanEditor() {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
             {mode === "edit-active"
-              ? `Edycja aktywnego v${plan.version} → powstanie v${plan.version + 1}`
-              : `Plan v${plan.version}${plan.basedOnVersion != null ? ` · bazuje na v${plan.basedOnVersion}` : ""}`}
-            {` · dla ${trainee.displayName}`}
+              ? t("plany.detail.eyebrowEditActive", {
+                  version: plan.version,
+                  next: plan.version + 1,
+                })
+              : `${t("plany.detail.eyebrowDraft", { version: plan.version })}${plan.basedOnVersion != null ? t("plany.detail.eyebrowBasedOn", { base: plan.basedOnVersion }) : ""}`}
+            {t("plany.detail.eyebrowForTrainee", { trainee: trainee.displayName })}
           </div>
           <input
             className="inline-edit"
             value={state.name}
             onChange={(e) => setState((p) => ({ ...p, name: e.target.value }))}
-            placeholder="Nazwa planu"
-            aria-label="Nazwa planu"
+            placeholder={t("plany.detail.namePlaceholder")}
+            aria-label={t("plany.detail.nameAria")}
             maxLength={120}
             style={{
               fontSize: 28,
@@ -430,7 +442,9 @@ function PlanEditor() {
           style={{ flexShrink: 0 }}
         >
           <span className="badge-dot" />
-          {mode === "edit-active" ? "edytujesz aktywny" : "draft"}
+          {mode === "edit-active"
+            ? t("plany.detail.badgeEditingActive")
+            : t("plany.detail.badgeDraft")}
         </span>
       </div>
 
@@ -446,9 +460,7 @@ function PlanEditor() {
             color: "var(--ink-2)",
           }}
         >
-          Edytujesz kopię aktywnego planu lokalnie. Draft (nowa wersja) powstanie dopiero po
-          kliknięciu „Zapisz draft" albo „Opublikuj". Wyjście bez zapisu nie tworzy żadnych śladów w
-          bazie.
+          {t("plany.detail.editActiveNotice")}
         </div>
       )}
 
@@ -463,11 +475,11 @@ function PlanEditor() {
             marginBottom: 18,
           }}
         >
-          Nie masz jeszcze żadnych ćwiczeń.{" "}
+          {t("plany.detail.noExercisesPre")}
           <Link to="/trener/biblioteka" className="bold">
-            Dodaj coś do biblioteki
-          </Link>{" "}
-          zanim zaczniesz układać sesje.
+            {t("plany.detail.noExercisesLink")}
+          </Link>
+          {t("plany.detail.noExercisesPost")}
         </div>
       )}
 
@@ -486,6 +498,7 @@ function PlanEditor() {
             onChange={(next) => updateSession(sIdx, () => next)}
             onMove={(dir) => moveSession(sIdx, dir)}
             onRemove={() => removeSession(sIdx)}
+            t={t}
           />
         ))}
         <button
@@ -500,7 +513,7 @@ function PlanEditor() {
           }}
           disabled={!hasExercises}
         >
-          + Dodaj sesję
+          {t("plany.detail.addSession")}
         </button>
       </div>
 
@@ -521,11 +534,11 @@ function PlanEditor() {
             value="save"
             className={dirty ? "btn btn-dark" : "btn"}
           >
-            Zapisz draft
+            {t("plany.detail.saveDraft")}
             {dirty && (
               <span
-                aria-label="niezapisane zmiany"
-                title="niezapisane zmiany"
+                aria-label={t("plany.detail.unsavedChanges")}
+                title={t("plany.detail.unsavedChanges")}
                 style={{
                   width: 7,
                   height: 7,
@@ -546,19 +559,22 @@ function PlanEditor() {
               const btn = e.currentTarget;
               if (state.sessions.length === 0) {
                 e.preventDefault();
-                await alert("Plan musi mieć co najmniej jedną sesję.", "Nie można opublikować");
+                await alert(
+                  t("plany.detail.publishNeedsSessionMsg"),
+                  t("plany.detail.publishNeedsSessionTitle"),
+                );
                 return;
               }
               e.preventDefault();
               const ok = await confirm({
-                title: "Opublikować plan?",
-                message: "Aktywny plan podopiecznego (jeśli istnieje) zostanie zarchiwizowany.",
-                confirmText: "Opublikuj",
+                title: t("plany.detail.confirmPublishTitle"),
+                message: t("plany.detail.confirmPublishMessage"),
+                confirmText: t("plany.detail.confirmPublishConfirm"),
               });
               if (ok) btn.form?.requestSubmit(btn);
             }}
           >
-            Opublikuj
+            {t("plany.detail.publish")}
           </button>
         </Form>
         <div style={{ flex: 1 }} />
@@ -568,21 +584,20 @@ function PlanEditor() {
             value="delete"
             className="btn btn-danger"
             confirmOptions={{
-              title: `Usunąć plan „${plan.name}"?`,
-              message:
-                "Jeśli plan ma już zalogowane sesje podopiecznego, zostanie zarchiwizowany (historia zachowana). Inaczej — skasowany na stałe.",
+              title: t("plany.detail.confirmDeleteTitle", { name: plan.name }),
+              message: t("plany.detail.confirmDeleteMessage"),
               destructive: true,
-              confirmText: "Usuń plan",
+              confirmText: t("plany.detail.confirmDeleteConfirm"),
             }}
           >
-            Usuń plan
+            {t("plany.detail.deletePlan")}
           </ConfirmSubmitButton>
         </Form>
       </div>
 
       {actionData?.error != null && (
         <p role="alert" style={{ color: "var(--danger)", fontSize: 13, marginTop: 14 }}>
-          {actionData.error}
+          {actionData.error.startsWith("plany.") ? tDyn(t, actionData.error) : actionData.error}
         </p>
       )}
     </div>
@@ -597,6 +612,8 @@ function PlanEditor() {
 function PlanView() {
   const { plan, trainee, initial, exercises, mode } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const { t, i18n } = useTranslation("trenerPlany");
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
   const isArchived = mode === "view-archived";
 
   const exerciseById = useMemo(() => {
@@ -608,7 +625,7 @@ function PlanView() {
   return (
     <div>
       <div className="crumbs">
-        <Link to="/trener/plany">Plany</Link>
+        <Link to="/trener/plany">{t("plany.detail.crumbList")}</Link>
         <span className="sep">›</span>
         <span className="current">{plan.name}</span>
       </div>
@@ -616,17 +633,25 @@ function PlanView() {
       <div className="pagehead">
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Plan v{plan.version}
-            {plan.basedOnVersion != null && ` · bazuje na v${plan.basedOnVersion}`}
+            {t("plany.detail.viewEyebrowVersion", { version: plan.version })}
+            {plan.basedOnVersion != null && t("plany.detail.eyebrowBasedOn", {
+              base: plan.basedOnVersion,
+            })}
             {plan.publishedAt &&
-              ` · ${isArchived ? "opublikowany" : "od"} ${fmtDate(plan.publishedAt.toString())}`}
-            {` · dla ${trainee.displayName}`}
+              (isArchived
+                ? t("plany.detail.viewPublishedArchived", {
+                    date: fmtDate(plan.publishedAt.toString(), locale),
+                  })
+                : t("plany.detail.viewPublishedActive", {
+                    date: fmtDate(plan.publishedAt.toString(), locale),
+                  }))}
+            {t("plany.detail.eyebrowForTrainee", { trainee: trainee.displayName })}
           </div>
           <h1>{plan.name}</h1>
         </div>
         <span className={isArchived ? "badge archived" : "badge active"} style={{ flexShrink: 0 }}>
           <span className="badge-dot" />
-          {isArchived ? "archiwum" : "aktywny"}
+          {isArchived ? t("plany.detail.badgeArchived") : t("plany.detail.badgeActive")}
         </span>
       </div>
 
@@ -648,8 +673,8 @@ function PlanView() {
 
       {initial.sessions.length === 0 ? (
         <div className="empty">
-          <h3>Brak sesji</h3>
-          <div>Ten plan nie ma jeszcze żadnych sesji.</div>
+          <h3>{t("plany.detail.emptySessionsTitle")}</h3>
+          <div>{t("plany.detail.emptySessionsBody")}</div>
         </div>
       ) : (
         <div style={{ display: "grid", gap: 14 }}>
@@ -659,6 +684,7 @@ function PlanView() {
               session={s}
               index={sIdx}
               exerciseById={exerciseById}
+              t={t}
             />
           ))}
         </div>
@@ -675,11 +701,11 @@ function PlanView() {
       >
         {!isArchived && (
           <Link to={`/trener/plany/${plan.id}?edit=1`} className="btn btn-primary">
-            <Icons.Edit /> Edytuj plan
+            <Icons.Edit /> {t("plany.detail.editPlan")}
           </Link>
         )}
         <Link to="/trener/plany" className="btn btn-ghost">
-          Wróć do listy
+          {t("plany.detail.backToList")}
         </Link>
         <div style={{ flex: 1 }} />
         <Form method="post">
@@ -688,14 +714,13 @@ function PlanView() {
             value="delete"
             className="btn btn-danger"
             confirmOptions={{
-              title: `Usunąć plan „${plan.name}"?`,
-              message:
-                "Jeśli plan ma już zalogowane sesje podopiecznego, zostanie zarchiwizowany (historia zachowana). Inaczej — skasowany na stałe.",
+              title: t("plany.detail.confirmDeleteTitle", { name: plan.name }),
+              message: t("plany.detail.confirmDeleteMessage"),
               destructive: true,
-              confirmText: "Usuń plan",
+              confirmText: t("plany.detail.confirmDeleteConfirm"),
             }}
           >
-            Usuń plan
+            {t("plany.detail.deletePlan")}
           </ConfirmSubmitButton>
         </Form>
       </div>
@@ -707,10 +732,12 @@ function ViewSessionCard({
   session,
   index,
   exerciseById,
+  t,
 }: {
   session: SessionForm;
   index: number;
   exerciseById: Map<string, ExerciseOpt>;
+  t: TFn;
 }) {
   return (
     <div
@@ -736,18 +763,21 @@ function ViewSessionCard({
         <h3 style={{ fontSize: 16, margin: 0, flex: 1 }}>{session.name}</h3>
         <span className="mono text-xs muted">
           {session.blocks.length === 0
-            ? "pusta"
-            : `${session.blocks.length} ${pluralizePl(session.blocks.length, BLOK)}`}
+            ? t("plany.detail.sessionEmpty")
+            : t("plany.detail.blocksCount", {
+                count: session.blocks.length,
+                word: t("plany.detail.blockWord", { count: session.blocks.length }),
+              })}
         </span>
       </div>
       {session.blocks.length === 0 ? (
         <div className="text-xs muted" style={{ fontStyle: "italic", paddingLeft: 34 }}>
-          Brak bloków
+          {t("plany.detail.noBlocks")}
         </div>
       ) : (
         <div className="col" style={{ gap: 10, paddingLeft: 34 }}>
           {session.blocks.map((b, bi) => (
-            <ViewBlock key={b.id ?? bi} block={b} index={bi} exerciseById={exerciseById} />
+            <ViewBlock key={b.id ?? bi} block={b} index={bi} exerciseById={exerciseById} t={t} />
           ))}
         </div>
       )}
@@ -759,10 +789,12 @@ function ViewBlock({
   block,
   index,
   exerciseById,
+  t,
 }: {
   block: BlockForm;
   index: number;
   exerciseById: Map<string, ExerciseOpt>;
+  t: TFn;
 }) {
   const isDropset = block.kind === "dropset";
   const isSuperset = block.kind === "superset";
@@ -799,7 +831,7 @@ function ViewBlock({
         </span>
         {isDropset && (
           <span className="mono text-xs muted" style={{ marginLeft: "auto" }}>
-            {block.sets ?? 0}× · {block.restSeconds ?? 0}s rest
+            {block.sets ?? 0}× · {block.restSeconds ?? 0}s {t("plany.detail.restSuffix")}
           </span>
         )}
       </div>
@@ -820,7 +852,7 @@ function ViewBlock({
                 {ex?.name ?? "?"}
                 {ex == null && (
                   <span className="muted text-xs" style={{ marginLeft: 4 }}>
-                    (usunięte z biblioteki)
+                    {t("plany.detail.exerciseRemoved")}
                   </span>
                 )}
               </span>
@@ -862,6 +894,7 @@ function SessionCard({
   onChange,
   onMove,
   onRemove,
+  t,
 }: {
   session: SessionForm;
   index: number;
@@ -874,6 +907,7 @@ function SessionCard({
   onChange: (next: SessionForm) => void;
   onMove: (dir: -1 | 1) => void;
   onRemove: () => void;
+  t: TFn;
 }) {
   const confirm = useConfirm();
   const updateBlock = (bIdx: number, fn: (b: BlockForm) => BlockForm) =>
@@ -924,8 +958,10 @@ function SessionCard({
             border: 0,
             background: "transparent",
           }}
-          title={collapsed ? "Rozwiń sesję" : "Zwiń sesję"}
-          aria-label={collapsed ? "Rozwiń sesję" : "Zwiń sesję"}
+          title={collapsed ? t("plany.detail.expandSession") : t("plany.detail.collapseSession")}
+          aria-label={
+            collapsed ? t("plany.detail.expandSession") : t("plany.detail.collapseSession")
+          }
           aria-expanded={!collapsed}
         >
           <Icons.ChevDown
@@ -950,8 +986,8 @@ function SessionCard({
           className="inline-edit"
           value={session.name}
           onChange={(e) => onChange({ ...session, name: e.target.value })}
-          placeholder="Nazwa sesji"
-          aria-label="Nazwa sesji"
+          placeholder={t("plany.detail.sessionNamePlaceholder")}
+          aria-label={t("plany.detail.sessionNameAria")}
           maxLength={80}
           style={{
             flex: 1,
@@ -965,8 +1001,11 @@ function SessionCard({
         {collapsed && (
           <span className="mono text-xs muted" style={{ flexShrink: 0 }}>
             {session.blocks.length === 0
-              ? "pusta"
-              : `${session.blocks.length} ${pluralizePl(session.blocks.length, BLOK)}`}
+              ? t("plany.detail.sessionEmpty")
+              : t("plany.detail.blocksCount", {
+                  count: session.blocks.length,
+                  word: t("plany.detail.blockWord", { count: session.blocks.length }),
+                })}
           </span>
         )}
         <button
@@ -974,8 +1013,8 @@ function SessionCard({
           onClick={() => onMove(-1)}
           disabled={index === 0}
           style={iconButton}
-          title="W górę"
-          aria-label="Przesuń sesję w górę"
+          title={t("plany.detail.moveUp")}
+          aria-label={t("plany.detail.moveSessionUp")}
         >
           <Icons.ChevDown style={{ transform: "rotate(180deg)" }} />
         </button>
@@ -984,8 +1023,8 @@ function SessionCard({
           onClick={() => onMove(1)}
           disabled={index === total - 1}
           style={iconButton}
-          title="W dół"
-          aria-label="Przesuń sesję w dół"
+          title={t("plany.detail.moveDown")}
+          aria-label={t("plany.detail.moveSessionDown")}
         >
           <Icons.ChevDown />
         </button>
@@ -993,23 +1032,23 @@ function SessionCard({
           type="button"
           onClick={async () => {
             const ok = await confirm({
-              title: `Usunąć sesję „${session.name}"?`,
-              message: "Wszystkie bloki i ćwiczenia w tej sesji zostaną usunięte z draftu.",
+              title: t("plany.detail.confirmDeleteSessionTitle", { name: session.name }),
+              message: t("plany.detail.confirmDeleteSessionMessage"),
               destructive: true,
-              confirmText: "Usuń",
+              confirmText: t("plany.detail.delete"),
             });
             if (ok) onRemove();
           }}
           style={{ ...iconButton, color: "var(--danger)" }}
-          title="Usuń"
-          aria-label="Usuń sesję"
+          title={t("plany.detail.delete")}
+          aria-label={t("plany.detail.deleteSession")}
         >
           <Icons.X />
         </button>
       </div>
 
       {collapsed ? (
-        <SessionSummary session={session} exerciseById={exerciseById} />
+        <SessionSummary session={session} exerciseById={exerciseById} t={t} />
       ) : (
         <div style={{ display: "grid", gap: 10 }}>
           {session.blocks.map((block, bIdx) => (
@@ -1024,6 +1063,7 @@ function SessionCard({
               onChange={(next) => updateBlock(bIdx, () => next)}
               onMove={(dir) => moveBlock(bIdx, dir)}
               onRemove={() => removeBlock(bIdx)}
+              t={t}
             />
           ))}
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
@@ -1033,7 +1073,7 @@ function SessionCard({
               style={addButton}
               disabled={!defaultExercise}
             >
-              + Single
+              {t("plany.detail.addSingle")}
             </button>
             <button
               type="button"
@@ -1041,7 +1081,7 @@ function SessionCard({
               style={addButton}
               disabled={!defaultExercise}
             >
-              + Superset
+              {t("plany.detail.addSuperset")}
             </button>
             <button
               type="button"
@@ -1049,7 +1089,7 @@ function SessionCard({
               style={addButton}
               disabled={!defaultExercise}
             >
-              + Dropset
+              {t("plany.detail.addDropset")}
             </button>
           </div>
         </div>
@@ -1061,14 +1101,16 @@ function SessionCard({
 function SessionSummary({
   session,
   exerciseById,
+  t,
 }: {
   session: SessionForm;
   exerciseById: Map<string, ExerciseOpt>;
+  t: TFn;
 }) {
   if (session.blocks.length === 0) {
     return (
       <div className="text-xs muted" style={{ paddingLeft: 38, fontStyle: "italic" }}>
-        Brak bloków — rozwiń, aby dodać.
+        {t("plany.detail.summaryNoBlocks")}
       </div>
     );
   }
@@ -1131,6 +1173,7 @@ function BlockEditor({
   onChange,
   onMove,
   onRemove,
+  t,
 }: {
   block: BlockForm;
   index: number;
@@ -1141,6 +1184,7 @@ function BlockEditor({
   onChange: (next: BlockForm) => void;
   onMove: (dir: -1 | 1) => void;
   onRemove: () => void;
+  t: TFn;
 }) {
   const alert = useAlert();
   const isDropset = block.kind === "dropset";
@@ -1188,8 +1232,14 @@ function BlockEditor({
     const minItems = isDropset ? 2 : block.kind === "superset" ? 2 : 1;
     if (block.items.length <= minItems) {
       await alert(
-        `Ten blok wymaga co najmniej ${minItems} ${minItems === 1 ? "ćwiczenia" : "ćwiczeń"}.`,
-        "Nie można usunąć",
+        t("plany.detail.blockMinItems", {
+          count: minItems,
+          word:
+            minItems === 1
+              ? t("plany.detail.exerciseWordOne")
+              : t("plany.detail.exerciseWordMany"),
+        }),
+        t("plany.detail.cannotRemove"),
       );
       return;
     }
@@ -1299,8 +1349,8 @@ function BlockEditor({
           onClick={() => onMove(-1)}
           disabled={index === 0}
           style={iconButton}
-          aria-label="Przesuń blok w górę"
-          title="W górę"
+          aria-label={t("plany.detail.moveBlockUp")}
+          title={t("plany.detail.moveUp")}
         >
           <Icons.ChevDown style={{ transform: "rotate(180deg)" }} />
         </button>
@@ -1309,8 +1359,8 @@ function BlockEditor({
           onClick={() => onMove(1)}
           disabled={index === total - 1}
           style={iconButton}
-          aria-label="Przesuń blok w dół"
-          title="W dół"
+          aria-label={t("plany.detail.moveBlockDown")}
+          title={t("plany.detail.moveDown")}
         >
           <Icons.ChevDown />
         </button>
@@ -1318,8 +1368,8 @@ function BlockEditor({
           type="button"
           onClick={onRemove}
           style={{ ...iconButton, color: "var(--danger)" }}
-          aria-label="Usuń blok"
-          title="Usuń blok"
+          aria-label={t("plany.detail.deleteBlock")}
+          title={t("plany.detail.deleteBlock")}
         >
           <Icons.X />
         </button>
@@ -1328,7 +1378,7 @@ function BlockEditor({
       {isDropset && (
         <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
           <label style={{ fontSize: 11, color: "var(--muted)" }}>
-            Serie
+            {t("plany.detail.labelSeries")}
             <input
               type="number"
               min={1}
@@ -1341,7 +1391,7 @@ function BlockEditor({
             />
           </label>
           <label style={{ fontSize: 11, color: "var(--muted)" }}>
-            Przerwa (s)
+            {t("plany.detail.labelRest")}
             <input
               type="number"
               min={0}
@@ -1356,7 +1406,9 @@ function BlockEditor({
               style={{ ...inputStyle, width: 80, marginLeft: 6 }}
             />
           </label>
-          <div style={{ fontSize: 11, color: "var(--muted)" }}>({block.items.length} dropów)</div>
+          <div style={{ fontSize: 11, color: "var(--muted)" }}>
+            {t("plany.detail.dropsCount", { count: block.items.length })}
+          </div>
         </div>
       )}
 
@@ -1373,10 +1425,11 @@ function BlockEditor({
             onChange={(next) => updateItem(iIdx, () => next)}
             onMove={(dir) => moveItem(iIdx, dir)}
             onRemove={() => removeItem(iIdx)}
+            t={t}
           />
         ))}
         <button type="button" onClick={addItem} style={addButton} disabled={!defaultExercise}>
-          + {isDropset ? "Dodaj drop" : "Dodaj ćwiczenie"}
+          {isDropset ? t("plany.detail.addDrop") : t("plany.detail.addExercise")}
         </button>
       </div>
     </div>
@@ -1397,6 +1450,7 @@ function ItemRow({
   onChange,
   onMove,
   onRemove,
+  t,
 }: {
   item: ItemForm;
   index: number;
@@ -1407,6 +1461,7 @@ function ItemRow({
   onChange: (next: ItemForm) => void;
   onMove: (dir: -1 | 1) => void;
   onRemove: () => void;
+  t: TFn;
 }) {
   const selectedUnit = exerciseById.get(item.exerciseId)?.unit ?? item.unit;
 
@@ -1455,8 +1510,8 @@ function ItemRow({
           onClick={() => onMove(-1)}
           disabled={index === 0}
           style={iconButton}
-          aria-label="W górę"
-          title="W górę"
+          aria-label={t("plany.detail.moveUp")}
+          title={t("plany.detail.moveUp")}
         >
           <Icons.ChevDown style={{ transform: "rotate(180deg)" }} />
         </button>
@@ -1465,8 +1520,8 @@ function ItemRow({
           onClick={() => onMove(1)}
           disabled={index === total - 1}
           style={iconButton}
-          aria-label="W dół"
-          title="W dół"
+          aria-label={t("plany.detail.moveDown")}
+          title={t("plany.detail.moveDown")}
         >
           <Icons.ChevDown />
         </button>
@@ -1474,8 +1529,8 @@ function ItemRow({
           type="button"
           onClick={onRemove}
           style={{ ...iconButton, color: "var(--danger)" }}
-          aria-label="Usuń"
-          title="Usuń"
+          aria-label={t("plany.detail.delete")}
+          title={t("plany.detail.delete")}
         >
           <Icons.X />
         </button>
@@ -1484,7 +1539,7 @@ function ItemRow({
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         {!isDropsetItem && (
           <label style={{ fontSize: 11, color: "var(--muted)" }}>
-            Serie
+            {t("plany.detail.labelSeries")}
             <input
               type="number"
               min={1}
@@ -1498,7 +1553,7 @@ function ItemRow({
           </label>
         )}
         <label style={{ fontSize: 11, color: "var(--muted)" }}>
-          {selectedUnit === "SEC" ? "Sek." : "Powt."}
+          {selectedUnit === "SEC" ? t("plany.detail.labelSec") : t("plany.detail.labelReps")}
           <input
             type="number"
             min={1}
@@ -1510,7 +1565,7 @@ function ItemRow({
         </label>
         {!isDropsetItem && (
           <label style={{ fontSize: 11, color: "var(--muted)" }}>
-            Przerwa (s)
+            {t("plany.detail.labelRest")}
             <input
               type="number"
               min={0}
@@ -1527,13 +1582,13 @@ function ItemRow({
           </label>
         )}
         <label style={{ fontSize: 11, color: "var(--muted)", flex: 1, minWidth: 220 }}>
-          Notatka
+          {t("plany.detail.labelNote")}
           <textarea
             maxLength={500}
             rows={2}
             value={item.note ?? ""}
             onChange={(e) => onChange({ ...item, note: e.target.value || null })}
-            placeholder="opcjonalna — np. tempo, cue, na co zwrócić uwagę…"
+            placeholder={t("plany.detail.notePlaceholder")}
             style={{
               ...inputStyle,
               width: "100%",

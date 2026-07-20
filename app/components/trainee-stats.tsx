@@ -1,4 +1,5 @@
 import { Link } from "react-router";
+import { useTranslation } from "react-i18next";
 import { Icons } from "~/components/icons";
 import {
   Heatmap,
@@ -6,16 +7,8 @@ import {
   SegmentedBarLegend,
   type BarSegment,
 } from "~/components/stat-widgets";
-import { fmtDate, pluralizePl, type PlForms } from "~/lib/format";
+import { fmtDate } from "~/lib/format";
 import type { EffortBalance, HeatmapDay, HeroStats, ThisWeekStats } from "~/lib/stats";
-
-// ============================================================
-// Local helpers
-// ============================================================
-
-const SESJA: PlForms = { one: "sesja", few: "sesje", many: "sesji" };
-const TYDZIEN: PlForms = { one: "tydzień", few: "tygodnie", many: "tygodni" };
-const POWT: PlForms = { one: "powtórzenie", few: "powtórzenia", many: "powtórzeń" };
 
 function Section({
   title,
@@ -86,6 +79,7 @@ function HeroStat({
 }
 
 export function HeroStatsCard({ hero }: { hero: HeroStats }) {
+  const { t } = useTranslation("podopieczny");
   return (
     <div
       className="card"
@@ -121,35 +115,39 @@ export function HeroStatsCard({ hero }: { hero: HeroStats }) {
         }}
       >
         <HeroStat
-          label="Sesji łącznie"
+          label={t("stats.hero.totalSessions")}
           value={hero.totalSessions.toLocaleString("pl-PL")}
-          suffix={pluralizePl(hero.totalSessions, SESJA)}
+          suffix={t("stats.suffixes.sessions", { count: hero.totalSessions })}
         />
         <HeroStat
-          label="Streak"
+          label={t("stats.hero.streak")}
           value={hero.streakWeeks.toString()}
-          suffix={pluralizePl(hero.streakWeeks, TYDZIEN)}
+          suffix={t("stats.suffixes.weeks", { count: hero.streakWeeks })}
           accent={hero.streakWeeks > 0}
         />
         <HeroStat
-          label="Najdłuższy streak"
+          label={t("stats.hero.longestStreak")}
           value={hero.longestStreakWeeks.toString()}
-          suffix={pluralizePl(hero.longestStreakWeeks, TYDZIEN)}
+          suffix={t("stats.suffixes.weeks", { count: hero.longestStreakWeeks })}
         />
         <HeroStat
-          label="Dzień podróży"
+          label={t("stats.hero.journeyDay")}
           value={hero.journeyDayNumber === 0 ? "—" : `#${hero.journeyDayNumber}`}
-          suffix={hero.firstSessionOn ? `od ${fmtDate(hero.firstSessionOn)}` : "od pierwszej sesji"}
+          suffix={
+            hero.firstSessionOn
+              ? t("stats.hero.fromDate", { date: fmtDate(hero.firstSessionOn) })
+              : t("stats.hero.fromFirstSession")
+          }
         />
         <HeroStat
-          label="Łączne powtórzenia"
+          label={t("stats.hero.totalReps")}
           value={hero.totalReps.toLocaleString("pl-PL")}
-          suffix={pluralizePl(hero.totalReps, POWT)}
+          suffix={t("stats.suffixes.reps", { count: hero.totalReps })}
         />
         <HeroStat
-          label="Sekund pod tension"
+          label={t("stats.hero.tensionSeconds")}
           value={hero.totalSecondsUnderTension.toLocaleString("pl-PL")}
-          suffix="ćwiczenia czasowe"
+          suffix={t("stats.hero.tensionSuffix")}
         />
       </div>
     </div>
@@ -161,13 +159,14 @@ export function HeroStatsCard({ hero }: { hero: HeroStats }) {
 // ============================================================
 
 export function ThisWeekCard({ thisWeek }: { thisWeek: ThisWeekStats }) {
+  const { t } = useTranslation("podopieczny");
   const aboveAvg = thisWeek.thisWeek >= thisWeek.avgPerWeek;
   const message =
     thisWeek.avgPerWeek === 0
-      ? `${thisWeek.thisWeek} ${pluralizePl(thisWeek.thisWeek, SESJA)} w tym tygodniu — dobry początek!`
+      ? t("stats.thisWeek.firstTime", { count: thisWeek.thisWeek })
       : aboveAvg
-        ? `${thisWeek.thisWeek} ${pluralizePl(thisWeek.thisWeek, SESJA)} w tym tygodniu — twoja średnia to ${thisWeek.avgPerWeek}. ✓`
-        : `${thisWeek.thisWeek} ${pluralizePl(thisWeek.thisWeek, SESJA)} w tym tygodniu — średnio robisz ${thisWeek.avgPerWeek}. Dasz radę nadrobić?`;
+        ? t("stats.thisWeek.aboveAvg", { count: thisWeek.thisWeek, avg: thisWeek.avgPerWeek })
+        : t("stats.thisWeek.belowAvg", { count: thisWeek.thisWeek, avg: thisWeek.avgPerWeek });
 
   return (
     <div
@@ -188,7 +187,7 @@ export function ThisWeekCard({ thisWeek }: { thisWeek: ThisWeekStats }) {
           marginBottom: 6,
         }}
       >
-        Ten tydzień
+        {t("stats.thisWeek.label")}
       </div>
       <div style={{ fontSize: 14, color: "var(--ink)" }}>{message}</div>
     </div>
@@ -200,11 +199,12 @@ export function ThisWeekCard({ thisWeek }: { thisWeek: ThisWeekStats }) {
 // ============================================================
 
 export function ActivityHeatmapCard({ days }: { days: HeatmapDay[] }) {
+  const { t } = useTranslation("podopieczny");
   return (
-    <Section title="Twój rok" icon={<Icons.Calendar />}>
+    <Section title={t("stats.heatmap.title")} icon={<Icons.Calendar />}>
       <Heatmap days={days} />
       <div className="text-xs muted" style={{ marginTop: 8 }}>
-        Każdy kwadrat to dzień. Im jaśniej, tym więcej sesji tego dnia.
+        {t("stats.heatmap.subtitle")}
       </div>
     </Section>
   );
@@ -215,25 +215,26 @@ export function ActivityHeatmapCard({ days }: { days: HeatmapDay[] }) {
 // ============================================================
 
 export function EffortBalanceCard({ effort }: { effort: EffortBalance }) {
+  const { t } = useTranslation("podopieczny");
   if (effort.total === 0) return null;
 
   const segments: BarSegment[] = [
-    { label: "Lekkie (RPE ≤ 4)", value: effort.easy, color: "var(--ok)" },
-    { label: "Umiarkowane (5-7)", value: effort.mid, color: "var(--accent)" },
-    { label: "Ciężkie (≥ 8)", value: effort.hard, color: "var(--danger)" },
+    { label: t("stats.effort.easy"), value: effort.easy, color: "var(--ok)" },
+    { label: t("stats.effort.mid"), value: effort.mid, color: "var(--accent)" },
+    { label: t("stats.effort.hard"), value: effort.hard, color: "var(--danger)" },
   ];
 
   const verdictMsg =
     effort.verdict === "balanced"
-      ? "Trenujesz mądrze — różnorodność intensywności."
+      ? t("stats.effort.verdictBalanced")
       : effort.verdict === "too-hard"
-        ? "Większość sesji była ciężka. Może warto czasem zwolnić."
+        ? t("stats.effort.verdictTooHard")
         : effort.verdict === "too-easy"
-          ? "Większość sesji była lekka. Próbujesz przesunąć granicę?"
+          ? t("stats.effort.verdictTooEasy")
           : "";
 
   return (
-    <Section title="Balans intensywności (30 dni)" icon={<Icons.Trend />}>
+    <Section title={t("stats.effort.title")} icon={<Icons.Trend />}>
       <div className="card" style={{ padding: 18 }}>
         <SegmentedBar segments={segments} height={12} />
         <SegmentedBarLegend segments={segments} />
@@ -256,11 +257,12 @@ export function WrappedListRow({
 }: {
   months: Array<{ ym: string; label: string; sessions: number }>;
 }) {
+  const { t } = useTranslation("podopieczny");
   if (months.length === 0) return null;
   return (
-    <Section title="Twoje wrappedy" icon={<Icons.Sparkle />}>
+    <Section title={t("stats.wrappedList.title")} icon={<Icons.Sparkle />}>
       <div className="text-xs muted" style={{ marginBottom: 10 }}>
-        Każdego 1. dnia miesiąca odblokowuje się retrospektywa poprzedniego.
+        {t("stats.wrappedList.subtitle")}
       </div>
       <div
         className="grid"
@@ -292,11 +294,11 @@ export function WrappedListRow({
                 marginBottom: 6,
               }}
             >
-              Wrapped
+              {t("stats.wrappedList.label")}
             </div>
             <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>{m.label}</div>
             <div className="text-xs" style={{ opacity: idx === 0 ? 0.7 : undefined }}>
-              {m.sessions} {m.sessions === 1 ? "sesja" : "sesji"}
+              {t("stats.wrappedList.sessions", { count: m.sessions })}
             </div>
           </Link>
         ))}

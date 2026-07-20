@@ -1,0 +1,79 @@
+{
+  "breadcrumb": {
+    "podopieczni": "Élèves",
+    "rozwoj": "Progression"
+  },
+  "rozwoj": {
+    "title": "Progression",
+    "current": "Progression",
+    "subtitle": "Arbre de compétences et progrès des exercices. Cliquez sur un nœud pour gérer le niveau.",
+    "sort": {
+      "recent": "Entraînés récemment",
+      "attention": "Nécessite attention"
+    },
+    "filter": {
+      "category": "Catégorie",
+      "all": "Toutes"
+    },
+    "otherExercises": "Autres exercices"
+  },
+  "umiejetnosc": {
+    "current": "Progression",
+    "subtitle": "Échelle des variantes, passages de niveau et résultats de la variante actuelle.",
+    "submit": {
+      "save": "Enregistrer la modification",
+      "setStart": "Définir le niveau"
+    },
+    "select": {
+      "changeTo": "Passer à",
+      "startingLevel": "Niveau de départ",
+      "placeholder": "Choisissez une variante…"
+    },
+    "suggestion": {
+      "advance": "envisager une progression",
+      "regress": "envisager un retour en arrière"
+    },
+    "error": {
+      "invalid": "Données invalides."
+    },
+    "lastAdvanced": "Dernier passage de niveau : {{date}}",
+    "dateLabel": "Date",
+    "noteLabel": "Note",
+    "notePlaceholder": "ex. propre 3×5×20 s",
+    "noData": {
+      "noLogs": "Aucune donnée — l'élève n'a pas encore enregistré d'entraînement sur la variante actuelle.",
+      "noLevel": "Définissez un niveau de départ pour suivre les résultats dans le temps."
+    },
+    "history": {
+      "summary_one": "Historique des passages ({{count}})",
+      "summary_few": "Historique des passages ({{count}})",
+      "summary_other": "Historique des passages ({{count}})",
+      "advance": "passage de niveau",
+      "startingLevel": "niveau de départ"
+    }
+  },
+  "cwiczenie": {
+    "current": "Progression",
+    "eyebrow": "{{name}} · Progression",
+    "subtitle": "Meilleure série, volume et effort dans le temps."
+  },
+  "porownanie": {
+    "current": "Comparaison",
+    "empty": {
+      "text": "Choisissez au moins 2 exercices dans la liste Progression pour les comparer.",
+      "back": "Retour à la Progression"
+    },
+    "eyebrow": "{{name}} · Progression",
+    "title": "Comparaison de progression",
+    "subtitle": "Chaque ligne indique de combien de % le record a augmenté depuis le début de la période — un axe % commun confronte des unités différentes (rép. et sec.).",
+    "period": "Période",
+    "range4w": "4 sem",
+    "range3m": "3 mois",
+    "range6m": "6 mois",
+    "rangeAll": "tout",
+    "chartTitle": "Évolution depuis le début de la période",
+    "notEnough": "Pas assez de données pour tracer la comparaison.",
+    "concrete": "Concrètement sur cette période",
+    "skipped": "Ignorés"
+  }
+}

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { ExerciseProgressionPanel } from "~/components/exercise-progression-panel";
 import { requireUser } from "~/lib/auth";
@@ -22,12 +23,13 @@ export async function loader(args: LoaderFunctionArgs) {
 
 export default function PodopiecznyRozwojCwiczenie() {
   const { view, range } = useLoaderData<typeof loader>();
+  const { t } = useTranslation("podopieczny");
   const { exercise } = view;
   const { unit } = exercise;
   return (
     <div>
       <div className="crumbs">
-        <Link to="/podopieczny/rozwoj">Rozwój</Link>
+        <Link to="/podopieczny/rozwoj">{t("rozwoj.cwiczenie.crumb")}</Link>
         <span className="sep">›</span>
         <span className="current">{exercise.name}</span>
       </div>
@@ -35,13 +37,13 @@ export default function PodopiecznyRozwojCwiczenie() {
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Podopieczny · Rozwój
+            {t("rozwoj.cwiczenie.eyebrow")}
           </div>
           <h1 className="row" style={{ gap: 10, alignItems: "center" }}>
             {exercise.name}
             <span className={`badge ${unit === "REPS" ? "reps" : "sec"}`}>{unit}</span>
           </h1>
-          <div className="sub">Najlepsza seria, objętość i wysiłek w czasie.</div>
+          <div className="sub">{t("rozwoj.cwiczenie.subtitle")}</div>
         </div>
       </div>
 

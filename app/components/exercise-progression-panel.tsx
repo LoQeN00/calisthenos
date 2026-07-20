@@ -1,15 +1,13 @@
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import { ProgressionLineChart, VolumeBars } from "~/components/progression-charts";
+import { langToIntlLocale, type Lang } from "~/i18n/config";
+import { tDyn } from "~/i18n/translate";
 import { fmtDate } from "~/lib/format";
 import type { ExerciseProgressionView } from "~/lib/progression";
 import type { ProgressionRange } from "~/lib/progression-math";
 
-const RANGE_LABELS: Array<{ value: ProgressionRange; label: string }> = [
-  { value: "4w", label: "4 tyg" },
-  { value: "3m", label: "3 mies" },
-  { value: "6m", label: "6 mies" },
-  { value: "all", label: "cały" },
-];
+const RANGE_VALUES: ProgressionRange[] = ["4w", "3m", "6m", "all"];
 
 /** Format a value by unit ("12" vs "30 s"). */
 function fmtByUnit(value: number, unit: "REPS" | "SEC"): string {
@@ -31,6 +29,8 @@ export function ExerciseProgressionPanel({
   range: ProgressionRange;
   rangeHrefExtra?: string;
 }) {
+  const { t, i18n } = useTranslation();
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
   const { exercise, kpis, points, granularity } = view;
   const { unit } = exercise;
 
@@ -45,15 +45,15 @@ export function ExerciseProgressionPanel({
           className="text-xs muted"
           style={{ textTransform: "uppercase", letterSpacing: ".04em" }}
         >
-          Okres
+          {t("progression.range.label")}
         </span>
         <div className="row wrap" style={{ gap: 6 }}>
-          {RANGE_LABELS.map((r) => {
-            const active = r.value === range;
+          {RANGE_VALUES.map((value) => {
+            const active = value === range;
             return (
               <Link
-                key={r.value}
-                to={`?zakres=${r.value}${rangeHrefExtra}`}
+                key={value}
+                to={`?zakres=${value}${rangeHrefExtra}`}
                 preventScrollReset
                 className="btn btn-sm"
                 aria-pressed={active}
@@ -69,7 +69,7 @@ export function ExerciseProgressionPanel({
                     : { textDecoration: "none" }
                 }
               >
-                {r.label}
+                {tDyn(t, `progression.range.${value}`)}
               </Link>
             );
           })}
@@ -85,21 +85,21 @@ export function ExerciseProgressionPanel({
           marginBottom: 22,
         }}
       >
-        <KpiTile label="Rekord (PR)">
+        <KpiTile label={t("progression.kpi.pr")}>
           <div className="stat-num">{fmtByUnit(kpis.pr, unit)}</div>
           <div className="text-xs muted" style={{ marginTop: 6 }}>
-            {fmtDate(kpis.prAchievedOn)}
+            {fmtDate(kpis.prAchievedOn, locale)}
           </div>
         </KpiTile>
 
-        <KpiTile label="Ostatnia sesja">
+        <KpiTile label={t("progression.kpi.lastSession")}>
           <div className="stat-num">{fmtByUnit(kpis.lastBest, unit)}</div>
           <div style={{ marginTop: 6 }}>
             <Delta delta={kpis.lastDelta} />
           </div>
         </KpiTile>
 
-        <KpiTile label="Zmiana w okresie">
+        <KpiTile label={t("progression.kpi.periodChange")}>
           <div
             className="stat-num"
             style={{
@@ -119,10 +119,10 @@ export function ExerciseProgressionPanel({
           </div>
         </KpiTile>
 
-        <KpiTile label="Sesje w okresie">
+        <KpiTile label={t("progression.kpi.sessionsInPeriod")}>
           <div className="stat-num">{kpis.sessionsInRange}</div>
           <div className="text-xs muted" style={{ marginTop: 6 }}>
-            śr. RPE {kpis.avgRpeInRange ?? "—"}
+            {t("progression.kpi.avgRpe", { value: kpis.avgRpeInRange ?? "—" })}
           </div>
         </KpiTile>
       </div>
@@ -131,11 +131,13 @@ export function ExerciseProgressionPanel({
       <section style={{ marginBottom: 22 }}>
         <div className="card" style={{ padding: 18 }}>
           <div className="row between" style={{ alignItems: "baseline", marginBottom: 4, gap: 8 }}>
-            <h2 style={{ fontSize: 16 }}>Rekord w czasie</h2>
-            {granularity === "week" && <span className="text-xs muted">ujęcie tygodniowe</span>}
+            <h2 style={{ fontSize: 16 }}>{t("progression.heroChart.title")}</h2>
+            {granularity === "week" && (
+              <span className="text-xs muted">{t("progression.heroChart.weekly")}</span>
+            )}
           </div>
           <div className="text-xs muted" style={{ marginBottom: 12 }}>
-            Najlepsza seria każdej sesji.
+            {t("progression.heroChart.subtitle")}
           </div>
           <ProgressionLineChart points={points} unit={unit} />
         </div>
@@ -143,9 +145,9 @@ export function ExerciseProgressionPanel({
 
       {/* Volume */}
       <div className="card" style={{ padding: 18 }}>
-        <h2 style={{ fontSize: 16, marginBottom: 2 }}>Łączna praca w sesji</h2>
+        <h2 style={{ fontSize: 16, marginBottom: 2 }}>{t("progression.volumeChart.title")}</h2>
         <div className="text-xs muted" style={{ marginBottom: 12 }}>
-          Suma powtórzeń ze wszystkich serii.
+          {t("progression.volumeChart.subtitle")}
         </div>
         <VolumeBars points={points} />
       </div>

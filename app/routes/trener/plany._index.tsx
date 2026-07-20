@@ -1,4 +1,5 @@
 import { and, asc, count, desc, eq, ilike, ne, or, sql } from "drizzle-orm";
+import { useTranslation } from "react-i18next";
 import {
   type ActionFunctionArgs,
   Form,
@@ -11,15 +12,16 @@ import { ConfirmSubmitButton } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
 import { ListControls } from "~/components/list-controls";
 import { Pagination, parsePage } from "~/components/pagination";
+import { type Lang, langToIntlLocale } from "~/i18n/config";
+import { tDyn } from "~/i18n/translate";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
-import { type PlForms, fmtDate, pluralizePl } from "~/lib/format";
+import { fmtDate } from "~/lib/format";
 import { type ListControlsSpec, parseListControls } from "~/lib/list-params";
 import { PlanRepoError, deletePlan } from "~/lib/plans";
 
 const PAGE_SIZE = 20;
-const PLAN: PlForms = { one: "plan", few: "plany", many: "planów" };
 
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainer" });
@@ -42,22 +44,24 @@ export async function loader(args: LoaderFunctionArgs) {
     }
   }
 
+  // Spec bez etykiet — używany server-side wyłącznie do parseListControls.
+  // Etykiety budujemy w komponencie (z tłumaczeniami) przy renderze.
   const spec: ListControlsSpec = {
     sortOptions: [
-      { key: "newest", label: "Najnowsze" },
-      { key: "oldest", label: "Najstarsze" },
-      { key: "name_asc", label: "Nazwa A–Z" },
-      { key: "published", label: "Ostatnio opublikowane" },
+      { key: "newest", label: "" },
+      { key: "oldest", label: "" },
+      { key: "name_asc", label: "" },
+      { key: "published", label: "" },
     ],
     defaultSort: "newest",
     filterGroups: [
       {
         param: "status",
-        label: "Status",
+        label: "",
         options: [
-          { value: "all", label: `Wszystkie (${counts.all})` },
-          { value: "active", label: `Aktywne (${counts.active})` },
-          { value: "draft", label: `Drafty (${counts.draft})` },
+          { value: "all", label: "" },
+          { value: "active", label: "" },
+          { value: "draft", label: "" },
         ],
         defaultValue: "all",
       },
@@ -146,15 +150,13 @@ export async function action(args: ActionFunctionArgs) {
   const intent = fd.get("intent");
   if (intent !== "delete") return null;
   const planId = String(fd.get("planId") ?? "");
-  if (!planId) return { error: "Brak id planu." };
+  if (!planId) return { error: "plany.actionMissingPlanId" };
   try {
     const result = await deletePlan(db, planId, user.id);
     if (result.kind === "deleted") {
-      return { success: "Plan usunięty." };
+      return { success: "plany.actionDeleted" };
     }
-    return {
-      success: `Plan zarchiwizowany — ma ${result.logCount} zapisanych sesji, historia została zachowana.`,
-    };
+    return { success: "plany.actionArchived", count: result.logCount };
   } catch (e) {
     if (e instanceof PlanRepoError) return { error: e.userMessage };
     throw e;
@@ -162,27 +164,59 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function PlanyList() {
-  const { items, spec, controls, counts, page, totalPages, total } = useLoaderData<typeof loader>();
+  const { items, spec: baseSpec, controls, counts, page, totalPages, total } =
+    useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const { t, i18n } = useTranslation("trenerPlany");
+  const locale = langToIntlLocale[i18n.language as Lang] ?? "pl-PL";
 
   const status = controls.filters.status ?? "all";
+
+  // Spec z przetłumaczonymi etykietami — budowany przy renderze (loader zwraca
+  // wersję bez etykiet, użytą tylko do parseListControls).
+  const spec: ListControlsSpec = {
+    ...baseSpec,
+    sortOptions: [
+      { key: "newest", label: t("plany.sort.newest") },
+      { key: "oldest", label: t("plany.sort.oldest") },
+      { key: "name_asc", label: t("plany.sort.name_asc") },
+      { key: "published", label: t("plany.sort.published") },
+    ],
+    filterGroups: [
+      {
+        param: "status",
+        label: t("plany.filterStatusLabel"),
+        options: [
+          { value: "all", label: t("plany.filterAll", { count: counts.all }) },
+          { value: "active", label: t("plany.filterActive", { count: counts.active }) },
+          { value: "draft", label: t("plany.filterDraft", { count: counts.draft }) },
+        ],
+        defaultValue: "all",
+      },
+    ],
+  };
 
   return (
     <div>
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Trener
+            {t("plany.eyebrow")}
           </div>
-          <h1>Plany</h1>
+          <h1>{t("plany.title")}</h1>
           <div className="sub">
             {counts.all === 0
-              ? "Brak planów."
-              : `${counts.all} ${pluralizePl(counts.all, PLAN)} łącznie · ${counts.active} aktywnych · ${counts.draft} draftów.`}
+              ? t("plany.subEmpty")
+              : t("plany.subStats", {
+                  total: counts.all,
+                  totalWord: t("plany.totalWord", { count: counts.all }),
+                  active: counts.active,
+                  draft: counts.draft,
+                })}
           </div>
         </div>
         <Link to="/trener/plany/nowy" className="btn btn-primary">
-          <Icons.Plus /> Nowy plan
+          <Icons.Plus /> {t("plany.newPlan")}
         </Link>
       </div>
 
@@ -199,7 +233,7 @@ export default function PlanyList() {
             background: "var(--accent-soft)",
           }}
         >
-          {actionData.success}
+          {tDyn(t, actionData.success, "count" in actionData ? { count: actionData.count } : undefined)}
         </output>
       )}
       {actionData != null && "error" in actionData && actionData.error != null && (
@@ -214,28 +248,28 @@ export default function PlanyList() {
             borderRadius: 8,
           }}
         >
-          {actionData.error}
+          {actionData.error.startsWith("plany.") ? tDyn(t, actionData.error) : actionData.error}
         </p>
       )}
 
       <ListControls
         spec={spec}
         state={controls}
-        searchPlaceholder="Szukaj planu lub podopiecznego…"
+        searchPlaceholder={t("plany.searchPlaceholder")}
       />
 
       {items.length === 0 ? (
-        <EmptyState status={status} hasQuery={controls.q.length > 0} />
+        <EmptyState status={status} hasQuery={controls.q.length > 0} t={t} />
       ) : (
         <div className="list">
           <div
             className="list-head"
             style={{ display: "grid", gridTemplateColumns: "2fr 1.4fr 0.8fr 0.9fr auto", gap: 14 }}
           >
-            <div>Plan</div>
-            <div>Podopieczny</div>
-            <div>Sesje</div>
-            <div>Status</div>
+            <div>{t("plany.colPlan")}</div>
+            <div>{t("plany.colTrainee")}</div>
+            <div>{t("plany.colSessions")}</div>
+            <div>{t("plany.colStatus")}</div>
             <div />
           </div>
           {items.map((p) => (
@@ -250,7 +284,7 @@ export default function PlanyList() {
             >
               <Link
                 to={`/trener/plany/${p.id}`}
-                aria-label={`Otwórz ${p.name}`}
+                aria-label={t("plany.open", { name: p.name })}
                 style={{ position: "absolute", inset: 0, zIndex: 1 }}
               />
               <div style={{ position: "relative", zIndex: 0 }}>
@@ -258,7 +292,7 @@ export default function PlanyList() {
                 <div className="mono text-xs muted" style={{ marginTop: 2 }}>
                   v{p.version}
                   {p.publishedAt && p.status === "active" && (
-                    <> · od {fmtDate(p.publishedAt.toString())}</>
+                    <> · {t("plany.versionFrom", { date: fmtDate(p.publishedAt.toString(), locale) })}</>
                   )}
                 </div>
               </div>
@@ -266,10 +300,10 @@ export default function PlanyList() {
                 {p.trainee.displayName}
               </div>
               <div className="mono text-sm" style={{ position: "relative", zIndex: 0 }}>
-                {p.sessionCount} <span className="muted">sesji</span>
+                {p.sessionCount} <span className="muted">{t("plany.sessionsWord")}</span>
               </div>
               <div style={{ position: "relative", zIndex: 0 }}>
-                <StatusBadge status={p.status} />
+                <StatusBadge status={p.status} t={t} />
               </div>
               <div
                 className="row"
@@ -287,13 +321,15 @@ export default function PlanyList() {
                   <ConfirmSubmitButton
                     className="btn btn-sm btn-icon btn-ghost"
                     style={{ color: "var(--danger)" }}
-                    title="Usuń plan"
-                    aria-label={`Usuń plan ${p.name}`}
+                    title={t("plany.deletePlanTitleShort")}
+                    aria-label={t("plany.deletePlanAria", { name: p.name })}
                     confirmOptions={{
-                      title: `Usunąć plan „${p.name}"?`,
-                      message: `Podopieczny: ${p.trainee.displayName}.\n\nJeśli plan ma już zalogowane sesje, zostanie zarchiwizowany (historia zachowana). Inaczej — skasowany na stałe.`,
+                      title: t("plany.confirmDeleteTitle", { name: p.name }),
+                      message: t("plany.confirmDeleteMessage", {
+                        trainee: p.trainee.displayName,
+                      }),
                       destructive: true,
-                      confirmText: "Usuń plan",
+                      confirmText: t("plany.confirmDeleteConfirm"),
                     }}
                   >
                     <Icons.X />
@@ -310,28 +346,31 @@ export default function PlanyList() {
         page={page}
         totalPages={totalPages}
         total={total}
-        totalLabel={pluralizePl(total, PLAN)}
+        totalLabel={t("plany.totalWord", { count: total })}
       />
     </div>
   );
 }
 
-function EmptyState({ status, hasQuery }: { status: string; hasQuery: boolean }) {
+// biome-ignore lint/suspicious/noExplicitAny: przeciążenia TFunction są złożone; tu wystarczy luźny podpis.
+type TFn = (...args: any[]) => string;
+
+function EmptyState({ status, hasQuery, t }: { status: string; hasQuery: boolean; t: TFn }) {
   const title =
     status === "active"
-      ? "Brak aktywnych planów"
+      ? t("plany.emptyActiveTitle")
       : status === "draft"
-        ? "Brak draftów"
-        : "Brak planów";
+        ? t("plany.emptyDraftTitle")
+        : t("plany.emptyAllTitle");
   let hint: string;
   if (hasQuery) {
-    hint = "Spróbuj innego zapytania.";
+    hint = t("plany.emptyHintQuery");
   } else if (status === "draft") {
-    hint = "Wszystko opublikowane.";
+    hint = t("plany.emptyHintDraft");
   } else if (status === "all") {
-    hint = "Kliknij Nowy plan, aby zacząć.";
+    hint = t("plany.emptyHintAll");
   } else {
-    hint = "Zmień filtr, by zobaczyć inne plany.";
+    hint = t("plany.emptyHintOther");
   }
   return (
     <div className="empty">
@@ -341,11 +380,11 @@ function EmptyState({ status, hasQuery }: { status: string; hasQuery: boolean })
   );
 }
 
-function StatusBadge({ status }: { status: "draft" | "active" | "archived" }) {
+function StatusBadge({ status, t }: { status: "draft" | "active" | "archived"; t: TFn }) {
   const cfg: Record<typeof status, { cls: string; label: string }> = {
-    active: { cls: "badge active", label: "aktywny" },
-    draft: { cls: "badge draft", label: "draft" },
-    archived: { cls: "badge archived", label: "archiwum" },
+    active: { cls: "badge active", label: t("plany.badgeActive") },
+    draft: { cls: "badge draft", label: t("plany.badgeDraft") },
+    archived: { cls: "badge archived", label: t("plany.badgeArchived") },
   };
   const s = cfg[status];
   return (

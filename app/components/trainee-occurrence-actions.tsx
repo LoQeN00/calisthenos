@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Form } from "react-router";
 import { Icons } from "~/components/icons";
 
@@ -14,6 +15,7 @@ export function TraineeOccurrenceActions({
   consultationId: string;
   compact?: boolean;
 }) {
+  const { t } = useTranslation("konsultacje");
   const [showNote, setShowNote] = useState(false);
   const sm = compact ? " btn-sm" : "";
 
@@ -24,17 +26,17 @@ export function TraineeOccurrenceActions({
           <input type="hidden" name="consultationId" value={consultationId} />
           <input type="hidden" name="action" value="confirm" />
           <button type="submit" className={`btn btn-primary${sm}`}>
-            <Icons.Check /> Potwierdzam
+            <Icons.Check /> {t("actions.confirm")}
           </button>
         </Form>
         <button type="button" className={`btn${sm}`} onClick={() => setShowNote(true)}>
-          Poproś o zmianę
+          {t("actions.requestChange")}
         </button>
         <Form method="post">
           <input type="hidden" name="consultationId" value={consultationId} />
           <input type="hidden" name="action" value="decline" />
           <button type="submit" className={`btn btn-ghost${sm}`} style={{ color: "var(--danger)" }}>
-            Odrzuć
+            {t("actions.decline")}
           </button>
         </Form>
       </div>
@@ -46,7 +48,7 @@ export function TraineeOccurrenceActions({
       <input type="hidden" name="consultationId" value={consultationId} />
       <input type="hidden" name="action" value="request_change" />
       <label htmlFor={`note-${consultationId}`} className="field-label">
-        Co chcesz zmienić? (opcjonalnie)
+        {t("actions.changeQuestion")}
       </label>
       <textarea
         id={`note-${consultationId}`}
@@ -54,14 +56,14 @@ export function TraineeOccurrenceActions({
         name="note"
         rows={3}
         maxLength={2000}
-        placeholder="np. Wolę rano, albo inny dzień tygodnia…"
+        placeholder={t("actions.changePlaceholder")}
       />
       <div className="row" style={{ gap: 8 }}>
         <button type="submit" className={`btn btn-primary${sm}`}>
-          Wyślij prośbę
+          {t("actions.sendRequest")}
         </button>
         <button type="button" className={`btn btn-ghost${sm}`} onClick={() => setShowNote(false)}>
-          Anuluj
+          {t("actions.cancel")}
         </button>
       </div>
     </Form>

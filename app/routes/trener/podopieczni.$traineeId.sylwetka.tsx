@@ -1,6 +1,8 @@
 import { and, eq } from "drizzle-orm";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
+import { tDyn } from "~/i18n/translate";
 import { SideBySideSection, type ResolvedPair } from "~/components/body-photo-compare";
 import { PhotoCard } from "~/components/photo-card";
 import { PhotoLightbox, type LightboxPhoto } from "~/components/photo-lightbox";
@@ -66,6 +68,7 @@ type ViewFilter = "all" | BodyPhotoView;
 
 export default function TrenerSylwetkaPodopiecznego() {
   const { trainee, photos, resolvedPairs } = useLoaderData<typeof loader>();
+  const { t } = useTranslation("trenerPodopieczni");
   const [filter, setFilter] = useState<ViewFilter>("all");
   const [lightboxId, setLightboxId] = useState<string | null>(null);
 
@@ -99,30 +102,30 @@ export default function TrenerSylwetkaPodopiecznego() {
   return (
     <div>
       <div className="crumbs">
-        <Link to="/trener/podopieczni">Podopieczni</Link>
+        <Link to="/trener/podopieczni">{t("sylwetka.crumb")}</Link>
         <span className="sep">›</span>
         <Link to={`/trener/podopieczni/${trainee.id}`}>{trainee.displayName}</Link>
         <span className="sep">›</span>
-        <span className="current">Sylwetka</span>
+        <span className="current">{t("sylwetka.current")}</span>
       </div>
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
             {trainee.displayName}
           </div>
-          <h1>Sylwetka</h1>
+          <h1>{t("sylwetka.title")}</h1>
           <div className="sub">
             {photos.length === 0
-              ? "Brak zdjęć."
-              : `${photos.length} ${photos.length === 1 ? "zdjęcie" : "zdjęć"} · najnowsze u góry`}
+              ? t("sylwetka.empty")
+              : t("sylwetka.photoCount", { count: photos.length })}
           </div>
         </div>
       </div>
 
       {photos.length === 0 ? (
         <div className="empty">
-          <h3>Brak zdjęć</h3>
-          <div>Podopieczny jeszcze nie wgrał żadnego zdjęcia.</div>
+          <h3>{t("sylwetka.emptyTitle")}</h3>
+          <div>{t("sylwetka.emptyDesc")}</div>
         </div>
       ) : (
         <>
@@ -132,8 +135,8 @@ export default function TrenerSylwetkaPodopiecznego() {
 
           {filteredPhotos.length === 0 ? (
             <div className="empty" style={{ marginTop: 12 }}>
-              <h3>Brak zdjęć w tym ujęciu</h3>
-              <div>Zmień filtr, by zobaczyć inne ujęcia.</div>
+              <h3>{t("sylwetka.noViewTitle")}</h3>
+              <div>{t("sylwetka.noViewDesc")}</div>
             </div>
           ) : (
             <PhotoGrid groups={groups} onOpenPhoto={setLightboxId} />
@@ -165,11 +168,12 @@ function FilterTabs({
   setFilter: (f: ViewFilter) => void;
   counts: Record<ViewFilter, number>;
 }) {
+  const { t } = useTranslation("trenerPodopieczni");
   const TABS: Array<{ key: ViewFilter; label: string }> = [
-    { key: "all", label: "Wszystkie" },
-    { key: "front", label: "Przód" },
-    { key: "side", label: "Bok" },
-    { key: "back", label: "Tył" },
+    { key: "all", label: t("sylwetka.tabs.all") },
+    { key: "front", label: t("sylwetka.tabs.front") },
+    { key: "side", label: t("sylwetka.tabs.side") },
+    { key: "back", label: t("sylwetka.tabs.back") },
   ];
   return (
     <div className="row wrap" style={{ gap: 6, marginBottom: 14 }}>
@@ -198,7 +202,9 @@ function FilterTabs({
 // ============================================================
 
 interface PhotoGroup {
-  label: string;
+  key: string;
+  month0: number;
+  year: number;
   photos: Array<{
     id: string;
     url: string;
@@ -215,10 +221,11 @@ function PhotoGrid({
   groups: PhotoGroup[];
   onOpenPhoto: (id: string) => void;
 }) {
+  const { t } = useTranslation("trenerPodopieczni");
   return (
     <div className="col" style={{ gap: 18 }}>
       {groups.map((g) => (
-        <div key={g.label}>
+        <div key={g.key}>
           <div
             className="mono"
             style={{
@@ -229,7 +236,7 @@ function PhotoGrid({
               marginBottom: 8,
             }}
           >
-            {g.label} · {g.photos.length}
+            {tDyn(t, `sylwetka.month_${g.month0}`)} {g.year} · {g.photos.length}
           </div>
           <div
             className="grid"
@@ -273,21 +280,6 @@ function countByView(photos: Array<{ view: BodyPhotoView }>): Record<ViewFilter,
   return out;
 }
 
-const MONTHS_PL = [
-  "Styczeń",
-  "Luty",
-  "Marzec",
-  "Kwiecień",
-  "Maj",
-  "Czerwiec",
-  "Lipiec",
-  "Sierpień",
-  "Wrzesień",
-  "Październik",
-  "Listopad",
-  "Grudzień",
-];
-
 function groupByMonth<
   T extends {
     id: string;
@@ -301,11 +293,12 @@ function groupByMonth<
   const order: string[] = [];
   for (const p of photos) {
     const d = new Date(p.takenOn);
-    const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
-    const label = `${MONTHS_PL[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+    const month0 = d.getUTCMonth();
+    const year = d.getUTCFullYear();
+    const key = `${year}-${month0}`;
     let g = groups.get(key);
     if (!g) {
-      g = { label, photos: [] };
+      g = { key, month0, year, photos: [] };
       groups.set(key, g);
       order.push(key);
     }

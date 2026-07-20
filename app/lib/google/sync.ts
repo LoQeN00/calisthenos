@@ -21,7 +21,7 @@ function logSyncError(label: string, err: unknown): void {
   logger.error("google_sync.failed", { op: label, ...errorMeta(err) });
 }
 
-function toEventInput(r: ConsultationSyncRow): ConsultationEventInput {
+function toEventInput(r: ConsultationSyncRow, organizerEmail: string): ConsultationEventInput {
   return {
     id: r.id,
     title: r.title,
@@ -29,6 +29,7 @@ function toEventInput(r: ConsultationSyncRow): ConsultationEventInput {
     scheduledAtISO: r.scheduledAtISO,
     durationMin: r.durationMin,
     attendeeEmail: r.attendeeEmail,
+    organizerEmail,
   };
 }
 
@@ -52,12 +53,17 @@ export async function syncUpsertOne(
     if (row.status === "cancelled" || row.status === "documented") return;
 
     if (row.googleEventId) {
-      await patchEvent(authed.client, authed.calendarId, row.googleEventId, toEventInput(row));
+      await patchEvent(
+        authed.client,
+        authed.calendarId,
+        row.googleEventId,
+        toEventInput(row, authed.googleEmail),
+      );
     } else {
       const { eventId, meetUrl } = await insertEvent(
         authed.client,
         authed.calendarId,
-        toEventInput(row),
+        toEventInput(row, authed.googleEmail),
       );
       await setGoogleEventId(db, {
         trainerId: args.trainerId,
@@ -177,7 +183,7 @@ export async function syncBackfillPair(
         const { eventId, meetUrl } = await insertEvent(
           authed.client,
           authed.calendarId,
-          toEventInput(row),
+          toEventInput(row, authed.googleEmail),
         );
         await setGoogleEventId(db, {
           trainerId: args.trainerId,

@@ -1,0 +1,63 @@
+{
+  "status": {
+    "confirmed": "confirmé",
+    "change": "demande de modification",
+    "cancelled": "annulé",
+    "done": "documenté",
+    "scheduled": "planifié",
+    "pending": "à confirmer",
+    "pendingDoc": "à documenter"
+  },
+  "pulpit": {
+    "eyebrow": "Élève",
+    "title": "Consultations",
+    "sub": "Votre calendrier de rendez-vous avec le coach.",
+    "nextLabel": "Prochain rendez-vous",
+    "join": "Rejoindre",
+    "meetingLink": "Lien de la réunion",
+    "minUnit": "{{count}} min"
+  },
+  "day": {
+    "oneOccurrence": "1 rendez-vous",
+    "manyOccurrences": "{{count}} rendez-vous",
+    "allOccurrences": "Tous les rendez-vous"
+  },
+  "agenda": {
+    "upcoming": "Rendez-vous à venir",
+    "past": "Passés",
+    "allUpcomingTitle": "C'est tous les rendez-vous à venir",
+    "noUpcomingTitle": "Aucun rendez-vous à venir",
+    "allUpcomingBody": "Les prochains rendez-vous apparaîtront ici dès que le coach les planifiera.",
+    "noUpcomingBody": "Le coach n'a pas encore planifié de rendez-vous ce mois-ci."
+  },
+  "detail": {
+    "crumb": "Consultations",
+    "yourResponse": "Votre réponse",
+    "meetingLink": "Lien de la réunion",
+    "changeRequestedNote": "Vous avez envoyé une demande de modification — le coach proposera un nouveau créneau.",
+    "periodLabel": "Période abordée :",
+    "toImproveLabel": "À améliorer ({{detail}})",
+    "openOfTotal": "{{open}} ouverts sur {{total}}",
+    "itemResolved": "corrigé",
+    "itemOpen": "ouvert"
+  },
+  "actions": {
+    "confirm": "Je confirme",
+    "requestChange": "Demander une modification",
+    "decline": "Refuser",
+    "changeQuestion": "Que souhaitez-vous modifier ? (facultatif)",
+    "changePlaceholder": "p. ex. je préfère le matin, ou un autre jour de la semaine…",
+    "sendRequest": "Envoyer la demande",
+    "cancel": "Annuler"
+  },
+  "calendar": {
+    "prevMonth": "Mois précédent",
+    "nextMonth": "Mois suivant",
+    "dayAriaOne": "{{day}} — 1 rendez-vous",
+    "dayAriaMany": "{{day}} — {{count}} rendez-vous"
+  },
+  "akcje": {
+    "unknownAction": "Action inconnue.",
+    "saved": "Enregistré."
+  }
+}

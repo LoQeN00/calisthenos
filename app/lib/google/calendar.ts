@@ -8,18 +8,32 @@ export interface ConsultationEventInput {
   scheduledAtISO: string;
   durationMin: number;
   attendeeEmail: string;
+  /**
+   * E-mail połączonego konta Google trenera = gospodarz spotkania Meet. Oznaczamy je
+   * jako organizatora, by host był jednoznaczny (Meet utworzony przez Calendar API nie
+   * ma osobnego pola hosta — gospodarzem jest organizator zdarzenia). Pomijane, gdy
+   * nieznane (np. fallback "(polaczone)" bez e-maila z id_token).
+   */
+  organizerEmail?: string | null;
 }
 
 /** Czysty mapper konsultacji → ciało zdarzenia Google Calendar (z prośbą o Meet). */
 export function consultationToEvent(input: ConsultationEventInput): calendar_v3.Schema$Event {
   const start = new Date(input.scheduledAtISO);
   const end = new Date(start.getTime() + input.durationMin * 60_000);
+  const hostKnown = typeof input.organizerEmail === "string" && input.organizerEmail.includes("@");
+  const attendees: calendar_v3.Schema$EventAttendee[] = hostKnown
+    ? [
+        { email: input.organizerEmail as string, organizer: true, responseStatus: "accepted" },
+        { email: input.attendeeEmail },
+      ]
+    : [{ email: input.attendeeEmail }];
   return {
     summary: input.title,
     description: input.summary,
     start: { dateTime: start.toISOString(), timeZone: "Etc/UTC" },
     end: { dateTime: end.toISOString(), timeZone: "Etc/UTC" },
-    attendees: [{ email: input.attendeeEmail }],
+    attendees,
     conferenceData: {
       createRequest: {
         requestId: `kalisthenos-${input.id}`,

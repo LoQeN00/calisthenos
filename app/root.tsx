@@ -1,14 +1,17 @@
 import "~/styles/tokens.css";
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import { data, Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import { useTranslation } from "react-i18next";
 import { ConfirmProvider } from "~/components/confirm-provider";
 import { ToastProvider } from "~/components/toast-provider";
 import { maybePruneExpiredSessions } from "~/lib/auth/session";
 import { db } from "~/lib/db/client";
+import { i18nServer, localeCookie } from "~/i18n.server";
 
-export async function loader() {
+export async function loader({ request }: { request: Request }) {
   // Lazy background prune: at most once an hour per process, fire-and-forget.
   maybePruneExpiredSessions(db);
-  return null;
+  const lng = await i18nServer.getLocale(request);
+  return data({ lng }, { headers: { "Set-Cookie": await localeCookie.serialize(lng) } });
 }
 
 /**
@@ -48,8 +51,9 @@ export function headers(): Record<string, string> {
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
+  const { i18n } = useTranslation();
   return (
-    <html lang="pl">
+    <html lang={i18n.language}>
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />

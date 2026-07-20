@@ -1,0 +1,511 @@
+{
+  "pulpit": {
+    "eyebrow": "Cześć, {{name}}",
+    "title": "Twój trening",
+    "subtitle": "Twoje sesje i historia treningów.",
+    "registerSession": "Zarejestruj sesję",
+    "noPlan": {
+      "title": "Brak aktywnego planu",
+      "subtitle": "Trener przygotuje go wkrótce."
+    },
+    "activePlan": {
+      "badge": "aktywny plan",
+      "versionSuffix": "v{{version}}",
+      "sinceDate": "od {{date}}",
+      "sessionCount_one": "{{count}} sesja do wyboru",
+      "sessionCount_other": "{{count}} sesji do wyboru",
+      "listLink": "Lista sesji"
+    },
+    "planSessions": {
+      "title": "Sesje w planie",
+      "detailsLink": "Szczegóły",
+      "notDoneYet": "jeszcze nie wykonana",
+      "doneCount": "×{{count}}",
+      "lastPerformed": "ostatnio {{when}}",
+      "registerBtn": "Zarejestruj",
+      "detailsAriaLabel": "Szczegóły sesji"
+    },
+    "history": {
+      "title": "Twoja historia",
+      "allLink": "Wszystkie",
+      "empty": {
+        "title": "Brak treningów",
+        "subtitle": "Jeszcze nic nie zarejestrowano."
+      },
+      "exerciseWord_one": "ćwiczenie",
+      "exerciseWord_few": "ćwiczenia",
+      "exerciseWord_other": "ćwiczeń",
+      "difficulty": "trudność"
+    },
+    "wrapped": {
+      "badge": "Świeży wrapped",
+      "title": "Twój {{label}} jest gotowy.",
+      "sessionCount_one": "{{count}} sesja do obejrzenia w klimacie Spotify Wrapped.",
+      "sessionCount_other": "{{count}} sesji do obejrzenia w klimacie Spotify Wrapped.",
+      "laterBtn": "Później",
+      "openBtn": "Otwórz wrapped"
+    }
+  },
+  "sesje": {
+    "noPlan": {
+      "eyebrow": "Sesje",
+      "title": "Brak aktywnego planu",
+      "subtitle": "Trener przygotuje go wkrótce.",
+      "empty": {
+        "title": "Nic do pokazania",
+        "subtitle": "Gdy trener opublikuje plan, sesje pojawią się tutaj."
+      }
+    },
+    "eyebrow": "Aktywny plan · v{{version}}",
+    "sinceDate": "od {{date}}",
+    "sessionCount_one": "{{count}} sesja do wyboru",
+    "sessionCount_other": "{{count}} sesji do wyboru",
+    "card": {
+      "exerciseCount_one": "ćwiczenie",
+      "exerciseCount_few": "ćwiczenia",
+      "exerciseCount_other": "ćwiczeń",
+      "supersetCount_one": "superset",
+      "supersetCount_few": "supersety",
+      "supersetCount_other": "supersetów",
+      "dropsetCount_one": "dropset",
+      "dropsetCount_few": "dropsety",
+      "dropsetCount_other": "dropsetów",
+      "badgeNew": "nowa",
+      "moreBlocks": "+ {{count}} kolejnych bloków…",
+      "lastPerformed": "Ostatnio {{when}}",
+      "neverDone": "Jeszcze nie wykonana",
+      "registerBtn": "Zarejestruj",
+      "openAriaLabel": "Otwórz sesję {{name}}"
+    },
+    "detail": {
+      "eyebrow": "Sesja {{number}}",
+      "blocks_one": "blok",
+      "blocks_few": "bloki",
+      "blocks_other": "bloków",
+      "exercises_one": "ćwiczenie",
+      "exercises_few": "ćwiczenia",
+      "exercises_other": "ćwiczeń",
+      "plannedSets_one": "seria zaplanowana",
+      "plannedSets_few": "serie zaplanowane",
+      "plannedSets_other": "serii zaplanowanych",
+      "registerBtn": "Zarejestruj wykonanie",
+      "registerBtnFull": "Zarejestruj wykonanie tej sesji",
+      "blockLabel": "Blok {{letter}}",
+      "supersetBadge": "Superset · naprzemiennie",
+      "dropsetBadge": "Drop set · {{count}} dropów bez przerwy",
+      "sets": "Serie",
+      "restAfterSet": "Przerwa po serii",
+      "supersetPart": "część {{part}}",
+      "repetitions": "Powtórzenia",
+      "seconds": "Sekundy",
+      "rest": "Przerwa",
+      "noBreak": "bez przerwy",
+      "repsUnit": "powt.",
+      "secUnit": "sek"
+    }
+  },
+  "loguj": {
+    "crumb": "Mój plan",
+    "eyebrow": "Nowa sesja · {{count}} {{unit}}",
+    "exerciseUnit_one": "ćwiczenie",
+    "exerciseUnit_few": "ćwiczenia",
+    "exerciseUnit_other": "ćwiczeń",
+    "subtitle": "Zarejestruj wykonane serie. Pominięte serie nie wliczają się do statystyk — kliknij Pomiń obok serii, której nie zrobiłeś.",
+    "fieldDate": "Data",
+    "fieldNote": "Notatka (opcjonalnie)",
+    "notePlaceholder": "Jak było? Co czuć, co poszło dobrze…",
+    "noExercises": {
+      "title": "Brak ćwiczeń",
+      "subtitle": "Ta sesja nie ma jeszcze ćwiczeń. Trener musi wypełnić plan."
+    },
+    "submitBtn": "Zapisz sesję",
+    "cancelBtn": "Anuluj",
+    "loggedAs": "Zalogowany jako {{name}}.",
+    "entryCard": {
+      "exerciseLabel": "Ćwiczenie {{current}}/{{total}}",
+      "dropsetBadge": "dropset",
+      "goal": "Cel:",
+      "sets": "seria(e)",
+      "repsUnit": "powt.",
+      "secUnit": "sek.",
+      "copyBtn": "Wypełnij jak #1",
+      "copyTitle": "Skopiuj liczby i trudność z serii #1 do pozostałych pustych"
+    },
+    "setRow": {
+      "seriesLabel": "Seria #{{number}}",
+      "skipBtn": "Pomiń",
+      "skipTitle": "Oznacz tę serię jako pominiętą (nie wlicza się do statystyk)",
+      "repetitions": "Powtórzenia",
+      "seconds": "Sekundy",
+      "difficulty": "Trudność 1–10",
+      "noRpe": "To ćwiczenie nie zbiera oceny trudności."
+    },
+    "skippedRow": {
+      "label": "Pominięta",
+      "stat": "nie wlicza się do statystyk",
+      "undoBtn": "Cofnij"
+    },
+    "progress": {
+      "allFilled": "Wszystkie serie wypełnione",
+      "filledSuffix_one": "wypełniona",
+      "filledSuffix_other": "wypełnionych",
+      "skipped_one": "pominięta",
+      "skipped_few": "pominięte",
+      "skipped_other": "pominiętych",
+      "pending": "do uzupełnienia",
+      "of": "z",
+      "sets_one": "seria",
+      "sets_few": "serie",
+      "sets_other": "serii"
+    },
+    "errors": {
+      "noTrainer": "Konto bez przypisanego trenera.",
+      "noPlan": "Nie masz aktywnego planu.",
+      "checkDate": "Sprawdź pole daty.",
+      "noSets": "Zapisz co najmniej jedną serię.",
+      "repsAndDiff": "Ćwiczenie {{name}}, seria #{{num}}: uzupełnij liczbę powtórzeń i trudność (1-10).",
+      "repsOnly": "Ćwiczenie {{name}}, seria #{{num}}: uzupełnij liczbę powtórzeń.",
+      "repsRange": "Ćwiczenie {{name}}, seria #{{num}}: liczba powtórzeń poza zakresem (1-1000).",
+      "diffRange": "Ćwiczenie {{name}}, seria #{{num}}: trudność musi być 1-10."
+    }
+  },
+  "historia": {
+    "list": {
+      "eyebrow": "Podopieczny",
+      "title": "Historia treningów",
+      "empty": "Jeszcze nic nie zarejestrowano.",
+      "total_one": "{{count}} sesja łącznie.",
+      "total_other": "{{count}} sesji łącznie.",
+      "searchPlaceholder": "Szukaj po nazwie sesji…",
+      "sortOptions": {
+        "date_desc": "Najnowsze",
+        "date_asc": "Najstarsze",
+        "hardest": "Najtrudniejsze",
+        "easiest": "Najłatwiejsze",
+        "sets_desc": "Najwięcej serii"
+      },
+      "filterVideo": {
+        "label": "Wideo",
+        "all": "Wszystkie",
+        "with": "Z wideo",
+        "without": "Bez wideo"
+      },
+      "emptyState": {
+        "title": "Brak sesji",
+        "subtitle": "Zarejestruj pierwszą z pulpitu."
+      },
+      "row": {
+        "exercises_one": "ćwiczenie",
+        "exercises_few": "ćwiczenia",
+        "exercises_other": "ćwiczeń",
+        "sets_one": "seria",
+        "sets_few": "serie",
+        "sets_other": "serii",
+        "avg": "śr.",
+        "video": "video"
+      }
+    },
+    "detail": {
+      "crumb": "Historia",
+      "eyebrow": "{{date}} · {{ago}}",
+      "exercises_one": "ćwiczenie",
+      "exercises_few": "ćwiczenia",
+      "exercises_other": "ćwiczeń",
+      "sets_one": "seria",
+      "sets_few": "serie",
+      "sets_other": "serii",
+      "of": "z",
+      "skipped_one": "pominięta",
+      "skipped_other": "pominiętych",
+      "avgDifficulty": "śr. trudność",
+      "skippedRow": {
+        "label": "Pominięta",
+        "plan": "plan: {{reps}} {{unit}}"
+      },
+      "prToast_one": "Nowy rekord w {{name}}!",
+      "prToast_other": "Nowe rekordy: {{names}}"
+    }
+  },
+  "stats": {
+    "hero": {
+      "totalSessions": "Sesji łącznie",
+      "streak": "Streak",
+      "longestStreak": "Najdłuższy streak",
+      "journeyDay": "Dzień podróży",
+      "totalReps": "Łączne powtórzenia",
+      "tensionSeconds": "Sekund pod tension",
+      "tensionSuffix": "ćwiczenia czasowe",
+      "fromFirstSession": "od pierwszej sesji",
+      "fromDate": "od {{date}}"
+    },
+    "thisWeek": {
+      "label": "Ten tydzień",
+      "firstTime_one": "{{count}} sesja w tym tygodniu — dobry początek!",
+      "firstTime_other": "{{count}} sesji w tym tygodniu — dobry początek!",
+      "aboveAvg_one": "{{count}} sesja w tym tygodniu — twoja średnia to {{avg}}. ✓",
+      "aboveAvg_other": "{{count}} sesji w tym tygodniu — twoja średnia to {{avg}}. ✓",
+      "belowAvg_one": "{{count}} sesja w tym tygodniu — średnio robisz {{avg}}. Dasz radę nadrobić?",
+      "belowAvg_other": "{{count}} sesji w tym tygodniu — średnio robisz {{avg}}. Dasz radę nadrobić?"
+    },
+    "heatmap": {
+      "title": "Twój rok",
+      "subtitle": "Każdy kwadrat to dzień. Im jaśniej, tym więcej sesji tego dnia."
+    },
+    "effort": {
+      "title": "Balans intensywności (30 dni)",
+      "easy": "Lekkie (RPE ≤ 4)",
+      "mid": "Umiarkowane (5-7)",
+      "hard": "Ciężkie (≥ 8)",
+      "verdictBalanced": "Trenujesz mądrze — różnorodność intensywności.",
+      "verdictTooHard": "Większość sesji była ciężka. Może warto czasem zwolnić.",
+      "verdictTooEasy": "Większość sesji była lekka. Próbujesz przesunąć granicę?"
+    },
+    "wrappedList": {
+      "title": "Twoje wrappedy",
+      "subtitle": "Każdego 1. dnia miesiąca odblokowuje się retrospektywa poprzedniego.",
+      "label": "Wrapped",
+      "sessions_one": "{{count}} sesja",
+      "sessions_other": "{{count}} sesji"
+    },
+    "suffixes": {
+      "sessions_one": "sesja",
+      "sessions_few": "sesje",
+      "sessions_other": "sesji",
+      "weeks_one": "tydzień",
+      "weeks_few": "tygodnie",
+      "weeks_other": "tygodni",
+      "reps_one": "powtórzenie",
+      "reps_few": "powtórzenia",
+      "reps_other": "powtórzeń"
+    }
+  },
+  "rozwoj": {
+    "eyebrow": "Podopieczny",
+    "title": "Rozwój",
+    "subtitle": "Twoje drzewo umiejętności i postęp w ćwiczeniach.",
+    "remainingTitle": "Pozostałe ćwiczenia",
+    "sortOptions": {
+      "recent": "Ostatnio trenowane",
+      "attention": "Wymaga uwagi"
+    },
+    "filterCategory": "Kategoria",
+    "filterAll": "Wszystkie",
+    "umiejetnosc": {
+      "crumb": "Rozwój",
+      "eyebrow": "Podopieczny",
+      "subtitle": "Twoja pozycja na drabinie i wyniki bieżącego wariantu.",
+      "lastAdvanced": "Ostatni awans: {{date}}",
+      "noDataVariant": "Brak danych — zaloguj trening na tym wariancie, aby zobaczyć wyniki w czasie.",
+      "noLevel": "Trener nie ustawił jeszcze Twojego poziomu na tej umiejętności."
+    },
+    "cwiczenie": {
+      "crumb": "Rozwój",
+      "eyebrow": "Podopieczny · Rozwój",
+      "subtitle": "Najlepsza seria, objętość i wysiłek w czasie."
+    },
+    "porownanie": {
+      "crumb": "Porównanie",
+      "eyebrow": "Podopieczny · Rozwój",
+      "title": "Porównanie progresji",
+      "subtitle": "Każda linia to o ile % urósł rekord od początku okresu — wspólna oś % zestawia różne jednostki (powt. i sek.).",
+      "periodLabel": "Okres",
+      "range4w": "4 tyg",
+      "range3m": "3 mies",
+      "range6m": "6 mies",
+      "rangeAll": "cały",
+      "chartTitle": "Zmiana od startu okresu",
+      "noData": "Za mało danych, aby wykreślić porównanie.",
+      "detailsTitle": "Konkretnie w tym okresie",
+      "skippedTitle": "Pominięte",
+      "tooFewTitle": "Wybierz co najmniej 2 ćwiczenia na liście Rozwoju, aby je porównać.",
+      "backBtn": "Wróć do Rozwoju"
+    }
+  },
+  "sylwetka": {
+    "eyebrow": "Podopieczny",
+    "title": "Sylwetka",
+    "subtitle": "Wrzucaj cotygodniowe zdjęcia. Trener je widzi.",
+    "addBtn": "Dodaj zdjęcie",
+    "modalTitle": "Dodaj zdjęcie sylwetki",
+    "fieldView": "Ujęcie",
+    "viewFront": "Przód",
+    "viewSide": "Bok",
+    "viewBack": "Tył",
+    "fieldDate": "Data",
+    "fieldPhoto": "Zdjęcie",
+    "fieldNote": "Notatka (opcjonalna)",
+    "notePlaceholder": "np. waga 72.4 kg, energia 8/10",
+    "cancelBtn": "Anuluj",
+    "uploadBtn": "Dodaj zdjęcie",
+    "sortOptions": {
+      "newest": "Najnowsze",
+      "oldest": "Najstarsze"
+    },
+    "empty": {
+      "title": "Brak zdjęć",
+      "subtitle": "Dodaj pierwsze powyżej."
+    },
+    "emptyView": {
+      "title": "Brak zdjęć w tym ujęciu",
+      "subtitle": "Zmień filtr lub wgraj nowe."
+    },
+    "totalLabel_one": "zdjęcie",
+    "totalLabel_other": "zdjęć",
+    "filterAll": "Wszystkie",
+    "filterFront": "Przód",
+    "filterSide": "Bok",
+    "filterBack": "Tył",
+    "errors": {
+      "noTrainer": "Konto bez przypisanego trenera.",
+      "noPhotoId": "Brak id zdjęcia.",
+      "deleteFailed": "Nie udało się usunąć zdjęcia. Spróbuj ponownie.",
+      "formInvalid": "Sprawdź pola formularza.",
+      "noFile": "Wybierz zdjęcie."
+    }
+  },
+  "wrapped": {
+    "deck": {
+      "chrome": "Wrapped · {{label}}",
+      "close": "Zamknij",
+      "nextCard": "Następna karta"
+    },
+    "intro": {
+      "eyebrow": "Twój miesiąc",
+      "greeting": "Cześć, {{name}}.",
+      "lead_one": "Zrobiłeś <0>{{count}}</0> sesję. Przewijaj dalej.",
+      "lead_few": "Zrobiłeś <0>{{count}}</0> sesje. Przewijaj dalej.",
+      "lead_other": "Zrobiłeś <0>{{count}}</0> sesji. Przewijaj dalej."
+    },
+    "volume": {
+      "eyebrow": "Twoja praca",
+      "heroReps": "powtórzeń",
+      "heroSeconds": "sekund pod tension",
+      "lead": "Plus <0>{{sets}}</0> serii.",
+      "balanceSeconds": " Dla równowagi: <0>{{seconds}} sek.</0>",
+      "balanceReps": " Dla równowagi: <0>{{reps}} powt.</0>"
+    },
+    "top": {
+      "eyebrow": "Twoje numer jeden",
+      "head": "Najczęściej robiłeś",
+      "lead_one": "W <0>{{count}}</0> sesji ({{pct}}% wszystkich). Jednostka: <1>{{unit}}</1>.",
+      "lead_few": "W <0>{{count}}</0> sesjach ({{pct}}% wszystkich). Jednostka: <1>{{unit}}</1>.",
+      "lead_other": "W <0>{{count}}</0> sesjach ({{pct}}% wszystkich). Jednostka: <1>{{unit}}</1>."
+    },
+    "topEmpty": {
+      "eyebrow": "Twoje numer jeden",
+      "head": "Bez wyraźnego faworyta",
+      "lead": "Rozłożyłeś wysiłek równo. Trener byłby z Ciebie dumny."
+    },
+    "prs": {
+      "eyebrow": "Rekordy",
+      "emptyHead": "Tym razem bez PR.",
+      "emptyLead": "Nie każdy miesiąc musi pobić rekord. Konsystencja to też wynik.",
+      "head": "Pobiłeś",
+      "count_one": "{{count}} nowy rekord.",
+      "count_few": "{{count}} nowe rekordy.",
+      "count_other": "{{count}} nowych rekordów.",
+      "strongest": "Najmocniej: <0>{{name}}</0> — <1>{{reps}}</1> {{unitLabel}}",
+      "previousBest": "(poprz. {{value}})",
+      "unitSec": "sek.",
+      "unitReps": "powt.",
+      "moreSuffix": "+{{n}}"
+    },
+    "heaviest": {
+      "eyebrow": "Najmocniejszy dzień",
+      "lead": "<0>{{reps}}</0> powt. / <1>{{count}}</1> {{setWord}}",
+      "setWord_one": "seria",
+      "setWord_few": "serie",
+      "setWord_other": "serii",
+      "rpe": " · śr. RPE <0>{{value}}</0>/10"
+    },
+    "archetype": {
+      "eyebrow": "Twój typ trenującego",
+      "powerUser": {
+        "label": "Power user",
+        "description_one": "Pobiłeś {{count}} rekord w jednym miesiącu. To miesiąc dla książek.",
+        "description_few": "Pobiłeś {{count}} rekordy w jednym miesiącu. To miesiąc dla książek.",
+        "description_other": "Pobiłeś {{count}} rekordów w jednym miesiącu. To miesiąc dla książek."
+      },
+      "experimenter": {
+        "label": "Eksperymentator",
+        "description": "Wypróbowałeś nowe ćwiczenia. Komfort to nie Twoje."
+      },
+      "consistent": {
+        "label": "Konsekwentny",
+        "description": "Trenowałeś co tydzień. Bez gadania, bez przerw."
+      },
+      "maximalist": {
+        "label": "Maksymalista",
+        "description": "Większość serii na maksa. Trener pewnie się o Ciebie martwi."
+      },
+      "specialist": {
+        "label": "Specjalista",
+        "description": "Jedno ćwiczenie — {{pct}}% Twoich sesji. Bezkompromisowy fokus."
+      },
+      "endurance": {
+        "label": "Wytrzymałościowiec",
+        "description": "Twój żywioł to czas. Wytrzymujesz tam, gdzie inni odpadają."
+      },
+      "allRounder": {
+        "label": "Wszechstronny",
+        "description": "Różne ćwiczenia, dobrze rozłożone. Trener marzy o takich."
+      },
+      "patient": {
+        "label": "Cierpliwy",
+        "description": "Tydzień po tygodniu, krok po kroku. Tak buduje się formę."
+      },
+      "explorer": {
+        "label": "Eksplorator",
+        "description": "Każdy trening to inwestycja. Trzymaj rytm."
+      }
+    },
+    "vsPrev": {
+      "eyebrowFirst": "Porównanie",
+      "firstHead": "Twój pierwszy miesiąc.",
+      "firstLead": "Następny wrapped pokaże, czy idziesz w górę. Dasz radę.",
+      "eyebrow": "Vs poprzedni miesiąc",
+      "sessionsLabel": "Sesji",
+      "repsLabel": "Powtórzeń",
+      "same": "tyle co poprz.",
+      "sessionsDelta": "{{delta}} vs {{prev}}",
+      "repsDelta": "{{delta}}% vs poprz.",
+      "noData": "—",
+      "rpeLine": "Średnie RPE: <0>{{value}}/10<1> ({{delta}})</1></0>"
+    },
+    "closing": {
+      "eyebrow": "To był",
+      "head": "Do zobaczenia w następnym miesiącu.",
+      "lead": "Twoja historia rośnie z każdym treningiem. Trzymaj rytm."
+    },
+    "share": {
+      "share": "Udostępnij",
+      "copied": "Skopiowano!",
+      "close": "Zamknij",
+      "textIntro": "{{name}} · {{label}} w kalisthenos:",
+      "textSessions": "{{n}} sesji",
+      "textReps": "{{reps}} powt.",
+      "textSeconds": "{{seconds}} sek.",
+      "textPrs": "{{n}} nowych rekordów",
+      "textArchetype": "Typ: {{label}} {{emoji}}"
+    }
+  },
+  "wstrzymane": {
+    "eyebrow": "Konto wstrzymane",
+    "title": "Twoje konto jest chwilowo wstrzymane",
+    "body": "Twój trener jest obecnie nieaktywny, więc dostęp do aplikacji został wstrzymany. Skontaktuj się ze swoim trenerem lub marką.",
+    "logout": "Wyloguj"
+  },
+  "aktywuj": {
+    "eyebrow": "Dostęp",
+    "title": "Aktywuj subskrypcję",
+    "leadWithTrainer": "Aby korzystać z aplikacji, opłać subskrypcję u {{trainer}}.",
+    "leadNoTrainer": "Aby korzystać z aplikacji, opłać subskrypcję u swojego trenera.",
+    "planNameWithTrainer": "Prowadzenie treningowe — {{trainer}}",
+    "planNameNoTrainer": "Prowadzenie treningowe — Twój trener",
+    "perMonth": "{{amount}} miesięcznie",
+    "renewNote": "Subskrypcja odnawia się automatycznie; możesz ją anulować w panelu płatności.",
+    "canceled": "Płatność anulowana — spróbuj ponownie.",
+    "submit": "Opłać i aktywuj",
+    "logout": "Wyloguj"
+  }
+}

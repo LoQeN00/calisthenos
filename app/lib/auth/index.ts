@@ -2,14 +2,16 @@ import { redirect } from "react-router";
 import type { Db } from "../db/client";
 import { parseSessionId } from "./cookie";
 import { readSession } from "./session";
+import { type Role, defaultPathForRole } from "./roles";
 
-export type Role = "trainer" | "trainee";
 export interface AuthUser {
   id: string;
   email: string;
   displayName: string;
   role: Role;
   trainerId: string | null;
+  organizationId: string | null;
+  regionId: string | null;
 }
 
 export async function getOptionalUser(request: Request, db: Db): Promise<AuthUser | null> {
@@ -24,6 +26,8 @@ export async function getOptionalUser(request: Request, db: Db): Promise<AuthUse
     displayName: u.displayName,
     role: u.role,
     trainerId: u.trainerId,
+    organizationId: u.organizationId,
+    regionId: u.regionId,
   };
 }
 
@@ -41,7 +45,7 @@ export async function requireUser(
     throw redirect("/login");
   }
   if (opts.role && opts.role !== user.role) {
-    throw redirect(user.role === "trainer" ? "/trener" : "/podopieczny");
+    throw redirect(defaultPathForRole(user.role));
   }
   return user;
 }
@@ -75,3 +79,4 @@ export {
   type ConsumeInviteInput,
   type ConsumeInviteResult,
 } from "./invite";
+export { type Role, defaultPathForRole } from "./roles";

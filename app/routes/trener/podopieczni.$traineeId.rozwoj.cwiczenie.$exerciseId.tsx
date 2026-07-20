@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { ExerciseProgressionPanel } from "~/components/exercise-progression-panel";
 import { requireUser } from "~/lib/auth";
@@ -25,16 +26,17 @@ export async function loader(args: LoaderFunctionArgs) {
 
 export default function TrenerRozwojCwiczenie() {
   const { trainee, view, range } = useLoaderData<typeof loader>();
+  const { t } = useTranslation("trenerRozwoj");
   const { exercise } = view;
   const { unit } = exercise;
   return (
     <div>
       <div className="crumbs">
-        <Link to="/trener/podopieczni">Podopieczni</Link>
+        <Link to="/trener/podopieczni">{t("breadcrumb.podopieczni")}</Link>
         <span className="sep">›</span>
         <Link to={`/trener/podopieczni/${trainee.id}`}>{trainee.displayName}</Link>
         <span className="sep">›</span>
-        <Link to={`/trener/podopieczni/${trainee.id}/rozwoj`}>Rozwój</Link>
+        <Link to={`/trener/podopieczni/${trainee.id}/rozwoj`}>{t("breadcrumb.rozwoj")}</Link>
         <span className="sep">›</span>
         <span className="current">{exercise.name}</span>
       </div>
@@ -42,13 +44,13 @@ export default function TrenerRozwojCwiczenie() {
       <div className="pagehead">
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            {trainee.displayName} · Rozwój
+            {t("cwiczenie.eyebrow", { name: trainee.displayName })}
           </div>
           <h1 className="row" style={{ gap: 10, alignItems: "center" }}>
             {exercise.name}
             <span className={`badge ${unit === "REPS" ? "reps" : "sec"}`}>{unit}</span>
           </h1>
-          <div className="sub">Najlepsza seria, objętość i wysiłek w czasie.</div>
+          <div className="sub">{t("cwiczenie.subtitle")}</div>
         </div>
       </div>
 

@@ -1,0 +1,47 @@
+<h2>Design · sekcja 1–2: powłoka /marka + trasy (plasterek 1)</h2>
+<p class="subtitle">Centrum dowodzenia z sidenavem jak u trenera. W tym plasterku aktywny jest tylko Katalog (B); reszta wizji to przygaszone „wkrótce".</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">Powłoka /marka (sidenav)</div>
+    <div class="mockup-body" style="line-height:2;font-family:monospace;font-size:13px">
+      <div style="font-weight:700">👑 kalisthenos · marka</div>
+      <div style="margin-top:8px">▸ Pulpit <span style="color:var(--muted)">(KPI — wkrótce)</span></div>
+      <div style="color:var(--accent,#6cf);font-weight:700">▾ Biblioteka ćwiczeń ✓</div>
+      <div style="color:var(--accent,#6cf);font-weight:700">▾ Umiejętności ✓</div>
+      <div style="color:var(--muted)">▸ Ambasadorzy (wkrótce)</div>
+      <div style="color:var(--muted)">▸ Regiony (wkrótce)</div>
+      <div style="color:var(--muted)">▸ Ustawienia marki (wkrótce)</div>
+      <div style="margin-top:10px;color:var(--muted)">— [user menu / motyw / wyloguj]</div>
+    </div>
+  </div>
+  <div class="mockup">
+    <div class="mockup-header">Mapa tras (nowe)</div>
+    <div class="mockup-body" style="line-height:1.8;font-family:monospace;font-size:12.5px">
+      <div>/marka</div>
+      <div>&nbsp;&nbsp;_index → pulpit (lekki: liczniki katalogu)</div>
+      <div style="color:var(--accent,#6cf)">&nbsp;&nbsp;biblioteka._index → lista markowych ćwiczeń</div>
+      <div style="color:var(--accent,#6cf)">&nbsp;&nbsp;biblioteka.nowe → nowe ćwiczenie + demo</div>
+      <div style="color:var(--accent,#6cf)">&nbsp;&nbsp;biblioteka.$exerciseId → edycja / archiwizacja</div>
+      <div style="color:var(--accent,#6cf)">&nbsp;&nbsp;umiejetnosci._index → lista + drzewo marki</div>
+      <div style="color:var(--accent,#6cf)">&nbsp;&nbsp;umiejetnosci.nowa → nowa umiejętność</div>
+      <div style="color:var(--accent,#6cf)">&nbsp;&nbsp;umiejetnosci.$skillId → warianty + prereq + archiwizacja</div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">Zasada własności (markowy wiersz)</div>
+  <div class="mockup"><div class="mockup-body" style="line-height:1.7">
+    Wszystko, co prezes tworzy, jest <b>markowe</b>: <code>trainer_id NULL</code> + <code>organization_id = jego org</code>.
+    Warianty markowej umiejętności i prerekwizyty mogą wskazywać <b>tylko markowe</b> pozycje tej org
+    (żeby trenerska pozycja nie wyciekła do kanonu marki). Trener nadal widzi je jako read-only z „Dostosuj"/fork.
+  </div></div>
+</div>
+
+<div class="section">
+  <div class="label">Pytanie</div>
+  <div class="mockup"><div class="mockup-body" style="color:var(--muted)">
+    Czy kształt powłoki + zestaw tras pierwszego plasterka jest OK? (Pulpit świadomie lekki — pełna analityka to kolejny plasterek.)
+  </div></div>
+</div>

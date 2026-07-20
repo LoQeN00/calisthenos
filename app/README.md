@@ -18,6 +18,8 @@ w `README.md` podkatalogów.
 | [`components/`](components/README.md) | Współdzielone komponenty UI (modale, to'sty, dropzone, ikony, widżety statystyk…). |
 | [`lib/`](lib/README.md) | Logika domenowa + infrastruktura: [`auth/`](lib/auth/README.md), [`db/`](lib/db/README.md), [`storage/`](lib/storage/README.md) oraz moduły domenowe (plany, treningi, statystyki…). |
 | [`styles/`](styles/README.md) | Globalne tokeny CSS (`tokens.css`). |
+| [`i18n/`](i18n/README.md) | Konfiguracja i18next, `pickLang`, `resources` (import słowników) i typowanie `CustomTypeOptions`. |
+| [`locales/`](locales/README.md) | Słowniki JSON per język (`pl/`, `fr/`) i test parzystości kluczy. |
 
 ---
 Konwencja i zasady aktualizacji dokumentacji: [`../CLAUDE.md`](../CLAUDE.md).

@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import { useTranslation } from "react-i18next";
 import {
   Form,
   Link,
@@ -9,6 +10,7 @@ import {
   useLoaderData,
 } from "react-router";
 import { ConsultationForm } from "~/components/consultation-form";
+import { tDyn } from "~/i18n/translate";
 import { requireUser } from "~/lib/auth";
 import { parseConsultationDocFormData } from "~/lib/consultation-form.server";
 import { ConsultationDocFormSchema } from "~/lib/consultation-types";
@@ -43,7 +45,7 @@ export async function action(args: ActionFunctionArgs) {
   const documented = fd.get("intent") === "save-documented";
   const parsed = ConsultationDocFormSchema.safeParse(parseConsultationDocFormData(fd));
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Niepoprawne dane." };
+    return { errorRaw: parsed.error.issues[0]?.message, errorKey: "akcje.invalidData" };
   }
   let id: string;
   try {
@@ -54,7 +56,7 @@ export async function action(args: ActionFunctionArgs) {
       documented,
     });
   } catch (e) {
-    if (e instanceof ConsultationError) return { error: e.userMessage };
+    if (e instanceof ConsultationError) return { errorRaw: e.userMessage };
     throw e;
   }
   if (!documented) {
@@ -66,17 +68,27 @@ export async function action(args: ActionFunctionArgs) {
 export default function TrenerNowaKonsultacja() {
   const { trainee, defaultScheduledAt } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const { t } = useTranslation("trenerKonsultacje");
+
+  // Komunikat błędu: klucz i18n albo gotowy tekst z warstwy lib (Zod/ConsultationError).
+  const errorMsg = actionData
+    ? ("errorKey" in actionData && actionData.errorKey
+        ? tDyn(t, actionData.errorKey)
+        : undefined) ?? ("errorRaw" in actionData ? actionData.errorRaw : undefined)
+    : undefined;
 
   return (
     <div>
       <div className="crumbs">
-        <Link to="/trener/podopieczni">Podopieczni</Link>
+        <Link to="/trener/podopieczni">{t("nowa.crumbTrainees")}</Link>
         <span className="sep">›</span>
         <Link to={`/trener/podopieczni/${trainee.id}`}>{trainee.displayName}</Link>
         <span className="sep">›</span>
-        <Link to={`/trener/podopieczni/${trainee.id}/konsultacje`}>Konsultacje</Link>
+        <Link to={`/trener/podopieczni/${trainee.id}/konsultacje`}>
+          {t("nowa.crumbConsultations")}
+        </Link>
         <span className="sep">›</span>
-        <span className="current">Nowy termin</span>
+        <span className="current">{t("nowa.crumbCurrent")}</span>
       </div>
 
       <div className="pagehead">
@@ -84,14 +96,12 @@ export default function TrenerNowaKonsultacja() {
           <div className="eyebrow" style={{ marginBottom: 6 }}>
             {trainee.displayName}
           </div>
-          <h1>Nowy termin</h1>
-          <div className="sub">
-            Pojedynczy termin poza serią — zaplanuj na przyszłość albo zapisz odbyte spotkanie.
-          </div>
+          <h1>{t("nowa.title")}</h1>
+          <div className="sub">{t("nowa.sub")}</div>
         </div>
       </div>
 
-      {actionData?.error && (
+      {errorMsg && (
         <p
           role="alert"
           style={{
@@ -103,7 +113,7 @@ export default function TrenerNowaKonsultacja() {
             borderRadius: "var(--radius)",
           }}
         >
-          {actionData.error}
+          {errorMsg}
         </p>
       )}
 
@@ -123,13 +133,13 @@ export default function TrenerNowaKonsultacja() {
             }}
           >
             <Link to={`/trener/podopieczni/${trainee.id}/konsultacje`} className="btn btn-ghost">
-              Anuluj
+              {t("nowa.cancel")}
             </Link>
             <button type="submit" name="intent" value="save-documented" className="btn">
-              Zapisz jako odbytą
+              {t("nowa.saveDocumented")}
             </button>
             <button type="submit" name="intent" value="save-planned" className="btn btn-primary">
-              Zaplanuj
+              {t("nowa.plan")}
             </button>
           </div>
         </Form>
