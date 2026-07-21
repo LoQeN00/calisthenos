@@ -7,6 +7,12 @@ const EnvSchema = z.object({
   BASE_URL: z.string().url(),
   DATA_DIR: z.string().default("./data"),
   MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(250_000_000),
+  // Osobny, niższy limit dla wideo (nagrania serii, demo ćwiczeń). Długie nagrania
+  // z telefonu to główna przyczyna zrywanych uploadów (timeout proxy / OOM przy
+  // buforowaniu w pamięci), więc trzymamy je krótko. Domyślne 30 MB mieści się w
+  // 5-min limicie żądań Railway nawet na słabym łączu (~1 Mbps ≈ 240 s).
+  // Kalibrowalne bez redeployu.
+  MAX_VIDEO_UPLOAD_BYTES: z.coerce.number().int().positive().default(30_000_000),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   // Integracja Google (opcjonalna — aplikacja działa bez niej).
   GOOGLE_CLIENT_ID: z.string().optional(),

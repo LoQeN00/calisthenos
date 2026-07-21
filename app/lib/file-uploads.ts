@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { fileTypeFromBuffer } from "file-type";
-import { getEnv } from "~/lib/env";
+import { getEnv, type Env } from "~/lib/env";
 import { getStorage } from "~/lib/storage";
 import * as schema from "~/lib/db/schema";
 import type { Db } from "~/lib/db/client";
@@ -68,6 +68,42 @@ export class UploadCleanupQueue {
   }
 }
 
+/**
+ * Limit rozmiaru zależny od rodzaju pliku. Wideo (nagrania serii, demo ćwiczeń)
+ * ma osobny, niższy limit niż zdjęcia sylwetki — duże/długie nagrania z telefonu
+ * są główną przyczyną zrywanych uploadów (timeout proxy / OOM), więc trzymamy je
+ * krótko. Domyślnie czyta bieżące env; przyjmuje limity wprost dla testów.
+ */
+export function maxUploadBytesFor(
+  kind: UploadKind,
+  limits: Pick<Env, "MAX_UPLOAD_BYTES" | "MAX_VIDEO_UPLOAD_BYTES"> = getEnv(),
+): number {
+  return kind === "body_photo" ? limits.MAX_UPLOAD_BYTES : limits.MAX_VIDEO_UPLOAD_BYTES;
+}
+
+/**
+ * Streamuje zawartość pliku porcjami z `File.stream()` na dysk, bez robienia
+ * pełnej drugiej kopii w pamięci (dawny `new Uint8Array(await file.arrayBuffer())`).
+ *
+ * Uwaga: `request.formData()` w akcji i tak buforuje całe ciało żądania (w tym
+ * plik) jako `File`, zanim `uploadFile` wystartuje — więc to obniża szczyt
+ * pamięci z ~2× do ~1× rozmiaru pliku, a NIE eliminuje bufora bazowego. Pełne
+ * usunięcie kopii bazowej wymagałoby streamującego parsera multipart (poza tym
+ * FIX-em); tu drugą linią obrony jest niski limit `MAX_VIDEO_UPLOAD_BYTES`.
+ */
+export async function* iterateFileChunks(file: File): AsyncGenerator<Uint8Array> {
+  const reader = file.stream().getReader();
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (value) yield value;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 function allowedMimesFor(kind: UploadKind): Set<string> {
   switch (kind) {
     case "exercise_demo":
@@ -112,7 +148,7 @@ export async function uploadFile(
   if (file.size === 0) {
     throw new UploadError("empty file", "Plik jest pusty.");
   }
-  const maxBytes = getEnv().MAX_UPLOAD_BYTES;
+  const maxBytes = maxUploadBytesFor(kind);
   if (file.size > maxBytes) {
     throw new UploadError(
       `file too large: ${file.size} > ${maxBytes}`,
@@ -128,14 +164,16 @@ export async function uploadFile(
     );
   }
 
-  // Buffer the file once — used for both magic-byte inspection and disk write.
-  const fileBuffer = new Uint8Array(await file.arrayBuffer());
-
+  // Read ONLY the header for magic-byte inspection — `Blob.slice` returns a view
+  // over the first bytes, so `arrayBuffer()` here copies at most ~4100 bytes, not
+  // the whole file. The full content is streamed to disk below (see the write),
+  // so a large video never gets a second full in-memory copy.
+  //
   // Verify the file's actual content matches the declared MIME. The library
   // returns null for unrecognized formats — for our allowed set (mp4, mov,
   // webm, jpg, png, webp) recognition is reliable, so a null result means
   // the file isn't actually one of our supported types.
-  const header = fileBuffer.subarray(0, Math.min(MAGIC_BYTE_INSPECT_SIZE, fileBuffer.byteLength));
+  const header = new Uint8Array(await file.slice(0, MAGIC_BYTE_INSPECT_SIZE).arrayBuffer());
   const detected = await fileTypeFromBuffer(header);
   if (!detected || !allowed.has(detected.mime)) {
     throw new UploadError(
@@ -156,8 +194,13 @@ export async function uploadFile(
   const storage = getStorage();
   let bytes: number;
   try {
-    bytes = (await storage.write(storagePath, fileBuffer)).bytes;
+    bytes = (await storage.write(storagePath, iterateFileChunks(file))).bytes;
   } catch (err: unknown) {
+    // Streaming może zostawić częściowy plik na dysku, jeśli źródło padnie w
+    // trakcie pompowania — usuń go, zanim zmapujemy/rzucimy błąd. Kolejka
+    // sprzątająca jeszcze go nie zna (track() następuje po udanym insercie),
+    // więc musimy to zrobić tutaj. Best-effort: brak pliku też łykamy.
+    await storage.delete(storagePath).catch(() => {});
     // EACCES / EPERM almost always means DATA_DIR exists but is not writable
     // by the runtime user — usually a Railway volume mount that wasn't
     // chowned to `node` at container start. Surface a clean error instead of

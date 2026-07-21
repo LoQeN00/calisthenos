@@ -6,6 +6,7 @@ import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import { signFileUrl } from "~/lib/files";
 import { daysAgo, fmtDate } from "~/lib/format";
+import { draftKey } from "~/lib/log-draft";
 import { loadLogForViewer } from "~/lib/workouts";
 
 export async function loader(args: LoaderFunctionArgs) {
@@ -124,26 +125,39 @@ function usePRToasts(
   const toast = useToast();
   const firedRef = useRef(false);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: fires once on first render with ?pr=…
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fires once on first render with ?pr=… / ?saved=…
   useEffect(() => {
     if (firedRef.current) return;
     const raw = searchParams.get("pr");
-    if (!raw) return;
+    const saved = searchParams.get("saved");
+    if (!raw && !saved) return;
     firedRef.current = true;
 
-    const ids = raw.split(",").filter(Boolean);
-    const byId = new Map(exercises.map((e) => [e.exercise.id, e.exercise]));
-    const names = ids.map((id) => byId.get(id)?.name).filter((n): n is string => !!n);
+    if (raw) {
+      const ids = raw.split(",").filter(Boolean);
+      const byId = new Map(exercises.map((e) => [e.exercise.id, e.exercise]));
+      const names = ids.map((id) => byId.get(id)?.name).filter((n): n is string => !!n);
 
-    if (names.length === 1) {
-      toast(`🏆 Nowy rekord w ${names[0]}!`, { durationMs: 5000 });
-    } else if (names.length > 1) {
-      toast(`🏆 Nowe rekordy: ${names.join(", ")}`, { durationMs: 6000 });
+      if (names.length === 1) {
+        toast(`🏆 Nowy rekord w ${names[0]}!`, { durationMs: 5000 });
+      } else if (names.length > 1) {
+        toast(`🏆 Nowe rekordy: ${names.join(", ")}`, { durationMs: 6000 });
+      }
     }
 
-    // Strip the param so a refresh doesn't refire.
+    // Zapis się powiódł — szkic tej sesji w sessionStorage jest już zbędny.
+    if (saved) {
+      try {
+        sessionStorage.removeItem(draftKey(saved));
+      } catch {
+        // ignore — brak storage nic nie psuje.
+      }
+    }
+
+    // Strip the params so a refresh doesn't refire.
     const next = new URLSearchParams(searchParams);
     next.delete("pr");
+    next.delete("saved");
     setSearchParams(next, { replace: true });
   }, []);
 }

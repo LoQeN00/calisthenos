@@ -1,10 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Form,
+  isRouteErrorResponse,
   Link,
   redirect,
   useActionData,
   useLoaderData,
+  useRouteError,
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
@@ -13,8 +15,9 @@ import { FileDropzone } from "~/components/file-dropzone";
 import { Icons } from "~/components/icons";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
-import { UploadCleanupQueue, UploadError, uploadFile } from "~/lib/file-uploads";
+import { maxUploadBytesFor, UploadCleanupQueue, UploadError, uploadFile } from "~/lib/file-uploads";
 import { pluralizePl, todayISO, type PlForms } from "~/lib/format";
+import { draftHasContent, draftKey, parseDraft, serializeDraft, type SetDraft } from "~/lib/log-draft";
 import { detectNewPRsForLog } from "~/lib/stats";
 import {
   findActivePlanForTrainee,
@@ -36,7 +39,15 @@ export async function loader(args: LoaderFunctionArgs) {
   const detail = await loadSessionForLogging(db, plan.id, sessionId);
   if (!detail) throw new Response("not found", { status: 404 });
 
-  return { user, plan, session: detail.session, entries: detail.entries };
+  return {
+    user,
+    plan,
+    session: detail.session,
+    entries: detail.entries,
+    // Klient egzekwuje ten sam limit co serwer PRZED wysłaniem — za duże nagranie
+    // nie opuszcza urządzenia (unikamy zerwanego uploadu: timeout proxy / OOM).
+    maxVideoBytes: maxUploadBytesFor("set_video"),
+  };
 }
 
 export async function action(args: ActionFunctionArgs) {
@@ -171,16 +182,18 @@ export async function action(args: ActionFunctionArgs) {
     // Detect new PRs set in this log and pass exercise IDs via the URL so the
     // log detail page can fire a toast. Read-only side query; failure is a
     // non-event (we just skip the toast).
-    let prQs = "";
+    const params = new URLSearchParams();
     try {
       const prs = await detectNewPRsForLog(db, user.id, newLogId);
-      if (prs.length > 0) {
-        prQs = `?pr=${prs.map((p) => p.exerciseId).join(",")}`;
-      }
+      if (prs.length > 0) params.set("pr", prs.map((p) => p.exerciseId).join(","));
     } catch {
       // Swallow — toast is purely additive.
     }
-    throw redirect(`/podopieczny/historia/${newLogId}${prQs}`);
+    // Sygnał dla strony docelowej: zapis się powiódł, można wyczyścić szkic tej
+    // sesji z sessionStorage (klucz = id sesji planu).
+    params.set("saved", detail.session.id);
+    const qs = params.toString();
+    throw redirect(`/podopieczny/historia/${newLogId}${qs ? `?${qs}` : ""}`);
   } catch (e) {
     if (e instanceof Response) throw e; // redirect bubbles
     await cleanup.cleanup();
@@ -190,13 +203,13 @@ export async function action(args: ActionFunctionArgs) {
   }
 }
 
-type SetState = { reps: string; difficulty: string; skipped: boolean };
+type SetState = SetDraft;
 
 const CWICZENIE: PlForms = { one: "ćwiczenie", few: "ćwiczenia", many: "ćwiczeń" };
 const SERIA: PlForms = { one: "seria", few: "serie", many: "serii" };
 
 export default function LogForm() {
-  const { user, session, entries } = useLoaderData<typeof loader>();
+  const { user, session, entries, maxVideoBytes } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
 
   // Lift set-level state up so we can compute progress + power the
@@ -283,6 +296,67 @@ export default function LogForm() {
     return { total, filled, skipped };
   }, [setStates, entries]);
 
+  const setCounts = useMemo(() => entries.map((e) => e.expectedSets), [entries]);
+  const exerciseIds = useMemo(() => entries.map((e) => e.exerciseId), [entries]);
+  const [restoredDraft, setRestoredDraft] = useState(false);
+  const [draftReady, setDraftReady] = useState(false);
+
+  const emptyState = (): SetState[][] =>
+    entries.map((entry) =>
+      Array.from({ length: entry.expectedSets }, () => ({
+        reps: "",
+        difficulty: "",
+        skipped: false,
+      })),
+    );
+
+  // Po hydracji: przywróć szkic z sessionStorage — tylko gdy pasuje do bieżącego
+  // planu (te same ćwiczenia w tej samej kolejności + liczby serii) i cokolwiek
+  // zawiera. Celowo NIE w inicjalizatorze useState — SSR renderuje pusto, więc
+  // odczyt storage tam rozjechałby hydrację.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: raz po zamontowaniu
+  useEffect(() => {
+    try {
+      const restored = parseDraft(sessionStorage.getItem(draftKey(session.id)), {
+        exerciseIds,
+        setCounts,
+      });
+      if (restored && draftHasContent(restored)) {
+        setSetStates(restored);
+        setRestoredDraft(true);
+      }
+    } catch {
+      // sessionStorage niedostępny (tryb prywatny itd.) — pomijamy przywracanie.
+    }
+    setDraftReady(true);
+  }, []);
+
+  // Zapisuj szkic przy każdej zmianie serii — ale dopiero PO próbie przywrócenia,
+  // żeby pusty stan startowy nie nadpisał zapisanego szkicu. Pusty stan czyścimy
+  // zamiast zapisywać (mniej śmieci; spójne z „Wyczyść szkic").
+  useEffect(() => {
+    if (!draftReady) return;
+    try {
+      if (draftHasContent(setStates)) {
+        sessionStorage.setItem(draftKey(session.id), serializeDraft(exerciseIds, setStates));
+      } else {
+        sessionStorage.removeItem(draftKey(session.id));
+      }
+    } catch {
+      // Best-effort — brak storage nie może wywrócić logowania.
+    }
+  }, [draftReady, setStates, session.id, exerciseIds]);
+
+  const clearDraft = () => {
+    setSetStates(emptyState());
+    setRestoredDraft(false);
+    try {
+      sessionStorage.removeItem(draftKey(session.id));
+    } catch {
+      // ignore
+    }
+  };
+
   return (
     <div>
       <div className="crumbs">
@@ -304,6 +378,32 @@ export default function LogForm() {
       </div>
 
       <Form method="post" encType="multipart/form-data" style={{ display: "grid", gap: 14 }}>
+        {restoredDraft && (
+          <output
+            className="card"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              background: "var(--accent-soft)",
+              borderColor: "var(--accent)",
+            }}
+          >
+            <span style={{ fontSize: 13 }}>
+              <Icons.Check /> Przywrócono niezapisany szkic tej sesji.{" "}
+              <span className="muted">Nagrania wideo trzeba dodać ponownie.</span>
+            </span>
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              onClick={clearDraft}
+              style={{ flexShrink: 0 }}
+            >
+              Wyczyść szkic
+            </button>
+          </output>
+        )}
         <div className="card">
           <div className="grid grid-2" style={{ gap: 14 }}>
             <div className="field">
@@ -344,6 +444,7 @@ export default function LogForm() {
               eIdx={eIdx}
               totalEntries={entries.length}
               sets={setStates[eIdx] ?? []}
+              maxVideoBytes={maxVideoBytes}
               onUpdateSet={(sIdx, patch) => updateSet(eIdx, sIdx, patch)}
               onSkipSet={(sIdx) => skipSet(eIdx, sIdx)}
               onUnskipSet={(sIdx) => unskipSet(eIdx, sIdx)}
@@ -374,6 +475,44 @@ export default function LogForm() {
 
       <div className="text-xs muted" style={{ marginTop: 18 }}>
         Zalogowany jako {user.displayName}.
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Łapie błędy loadera/akcji tej trasy — w szczególności zerwaną wysyłkę
+ * formularza (`TypeError: Failed to fetch`), gdy upload wideo nie dojdzie do
+ * serwera. Zamiast surowego „Application Error" pokazujemy czytelny komunikat.
+ * Wpisane serie są bezpieczne w sessionStorage — powrót do formularza je odtworzy.
+ */
+export function ErrorBoundary() {
+  const error = useRouteError();
+  const isNotFound = isRouteErrorResponse(error) && error.status === 404;
+
+  return (
+    <div>
+      <div className="crumbs">
+        <Link to="/podopieczny">Mój plan</Link>
+      </div>
+      <div className="empty" style={{ marginTop: 24 }}>
+        <h3>{isNotFound ? "Nie znaleziono sesji" : "Nie udało się zapisać treningu"}</h3>
+        <div style={{ maxWidth: 460, margin: "8px auto 0", lineHeight: 1.5 }}>
+          {isNotFound ? (
+            "Ta sesja nie istnieje albo nie masz do niej dostępu."
+          ) : (
+            <>
+              Coś przerwało wysyłkę — najczęściej słabe połączenie albo zbyt duże nagranie wideo.
+              Twoje wpisane serie zostały zachowane w tej przeglądarce; wróć do formularza i spróbuj
+              ponownie <span className="muted">(nagrania dodaj jeszcze raz)</span>.
+            </>
+          )}
+        </div>
+        <div style={{ marginTop: 16 }}>
+          <Link to={isNotFound ? "/podopieczny" : "."} className="btn btn-primary">
+            {isNotFound ? "Wróć do planu" : "Wróć do formularza"}
+          </Link>
+        </div>
       </div>
     </div>
   );
@@ -493,6 +632,7 @@ function EntryCard({
   eIdx,
   totalEntries,
   sets,
+  maxVideoBytes,
   onUpdateSet,
   onSkipSet,
   onUnskipSet,
@@ -502,6 +642,7 @@ function EntryCard({
   eIdx: number;
   totalEntries: number;
   sets: SetState[];
+  maxVideoBytes: number;
   onUpdateSet: (sIdx: number, patch: Partial<SetState>) => void;
   onSkipSet: (sIdx: number) => void;
   onUnskipSet: (sIdx: number) => void;
@@ -588,6 +729,7 @@ function EntryCard({
               expectedReps={entry.expectedReps}
               tracksRpe={entry.tracksRpe}
               set={set}
+              maxVideoBytes={maxVideoBytes}
               onChange={(patch) => onUpdateSet(sIdx, patch)}
               onSkip={() => onSkipSet(sIdx)}
             />
@@ -611,6 +753,7 @@ function SetRow({
   expectedReps,
   tracksRpe,
   set,
+  maxVideoBytes,
   onChange,
   onSkip,
 }: {
@@ -620,6 +763,7 @@ function SetRow({
   expectedReps: number;
   tracksRpe: boolean;
   set: SetState;
+  maxVideoBytes: number;
   onChange: (patch: Partial<SetState>) => void;
   onSkip: () => void;
 }) {
@@ -699,7 +843,7 @@ function SetRow({
           label="Video"
           compact
           capture
-          maxBytes={250_000_000}
+          maxBytes={maxVideoBytes}
         />
       </div>
       {tracksRpe ? (
