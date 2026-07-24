@@ -121,6 +121,10 @@ describe("RATE_LIMITS", () => {
     expect(RATE_LIMITS.invite).toMatchObject({ limit: 10, windowMs: 15 * 60_000 });
   });
 
+  it("upload: 100 wysyłek / 15 min (hojnie — ciężka sesja to ~20 nagrań)", () => {
+    expect(RATE_LIMITS.upload).toMatchObject({ limit: 100, windowMs: 15 * 60_000 });
+  });
+
   it("niezmiennik sweepu: żadne okno bucketu nie przekracza 15 min (MAX_WINDOW_MS)", () => {
     // Sweep używa stałego MAX_WINDOW_MS=15min; dłuższe okno zostałoby usunięte
     // przedwcześnie. Ten test pilnuje, by nikt nie dodał bucketu z dłuższym oknem
@@ -151,5 +155,42 @@ describe("enforceRateLimit + resetRateLimit (singleton procesu)", () => {
 
     resetRateLimit("login", loginReq(ip)); // np. po udanym logowaniu
     expect(enforceRateLimit(loginReq(ip), RATE_LIMITS.login)).toBeNull();
+  });
+});
+
+describe("enforceRateLimit — override klucza (endpointy uwierzytelnione)", () => {
+  function reqFromIp(ip: string): Request {
+    return new Request("http://localhost/upload/wideo", {
+      method: "POST",
+      headers: { "x-forwarded-for": ip },
+    });
+  }
+
+  it("kluczuje po podanym `key`, ignorując IP", () => {
+    // Sedno: ten sam użytkownik z dwóch sieci ma JEDEN licznik. Bez tego podopieczny
+    // omijałby limit przełączając wifi↔LTE.
+    const opts = { bucket: "t-key", limit: 1, windowMs: 60_000, key: "user-1" };
+
+    expect(enforceRateLimit(reqFromIp("198.51.100.10"), opts)).toBeNull();
+    expect(enforceRateLimit(reqFromIp("198.51.100.11"), opts)).not.toBeNull();
+  });
+
+  it("różni użytkownicy z tego samego IP mają niezależne liczniki", () => {
+    // Odwrotna strona tej samej monety: kilku podopiecznych za jednym NAT-em nie może
+    // się nawzajem blokować.
+    const ip = reqFromIp("198.51.100.20");
+    const base = { bucket: "t-nat", limit: 1, windowMs: 60_000 };
+
+    expect(enforceRateLimit(ip, { ...base, key: "user-A" })).toBeNull();
+    expect(enforceRateLimit(ip, { ...base, key: "user-B" })).toBeNull();
+    expect(enforceRateLimit(ip, { ...base, key: "user-A" })).not.toBeNull();
+  });
+
+  it("bez `key` nadal kluczuje po IP", () => {
+    const opts = { bucket: "t-ip", limit: 1, windowMs: 60_000 };
+
+    expect(enforceRateLimit(reqFromIp("198.51.100.30"), opts)).toBeNull();
+    expect(enforceRateLimit(reqFromIp("198.51.100.31"), opts)).toBeNull();
+    expect(enforceRateLimit(reqFromIp("198.51.100.30"), opts)).not.toBeNull();
   });
 });

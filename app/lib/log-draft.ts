@@ -4,18 +4,30 @@
  * `TypeError: Failed to fetch` przy uploadzie wideo) — wtedy React Router
  * renderuje ErrorBoundary i odmontowuje komponent, kasując stan Reacta.
  *
- * Trzymamy tylko dane tekstowe serii (powtórzenia / trudność / pominięcie).
- * Samego pliku wideo NIE da się sensownie zapisać w storage — po błędzie trzeba
- * je wybrać ponownie.
+ * Trzymamy dane tekstowe serii (powtórzenia / trudność / pominięcie) ORAZ
+ * identyfikator wgranego nagrania. Samych bajtów wideo nadal nie da się sensownie
+ * trzymać w storage, ale po rozdzieleniu uploadu od zapisu sesji plik leci na serwer
+ * od razu po wybraniu, a w formularzu zostaje tylko `fileId` — zwykły string, który
+ * przeżywa ubicie karty.
  */
 
-export type SetDraft = { reps: string; difficulty: string; skipped: boolean };
+export type SetDraft = {
+  reps: string;
+  difficulty: string;
+  skipped: boolean;
+  /** Identyfikator nagrania wgranego przez `/upload/wideo`; `null` = brak. */
+  videoFileId: string | null;
+};
 
-// Wersja 2: szkic niesie też listę `exerciseIds` — przywracamy go tylko, gdy
-// pasuje do DOKŁADNIE tych samych ćwiczeń w tej samej kolejności. Sama liczba
-// serii nie wystarcza: dwa ćwiczenia o tej samej liczbie serii mogłyby zamienić
-// się miejscami po zmianie planu i szkic wstawiłby dane do złego ćwiczenia.
-type DraftShape = { v: 2; exerciseIds: string[]; sets: SetDraft[][] };
+// Wersja 3: dochodzi `videoFileId` na serię. Szkice v2 są ODRZUCANE — żyją tylko przez
+// sesję przeglądarki, więc migracja nie jest warta kodu, a wstawienie danych o niepełnym
+// kształcie byłoby gorsze niż start od zera.
+//
+// `exerciseIds` (od v2): przywracamy szkic tylko, gdy pasuje do DOKŁADNIE tych samych
+// ćwiczeń w tej samej kolejności. Sama liczba serii nie wystarcza: dwa ćwiczenia o tej
+// samej liczbie serii mogłyby zamienić się miejscami po zmianie planu i szkic wstawiłby
+// dane do złego ćwiczenia.
+type DraftShape = { v: 3; exerciseIds: string[]; sets: SetDraft[][] };
 
 /** Klucz storage per sesja planu — różne sesje mają niezależne szkice. */
 export function draftKey(sessionId: string): string {
@@ -23,7 +35,7 @@ export function draftKey(sessionId: string): string {
 }
 
 export function serializeDraft(exerciseIds: string[], sets: SetDraft[][]): string {
-  return JSON.stringify({ v: 2, exerciseIds, sets } satisfies DraftShape);
+  return JSON.stringify({ v: 3, exerciseIds, sets } satisfies DraftShape);
 }
 
 /**
@@ -46,7 +58,7 @@ export function parseDraft(
   }
   if (!parsed || typeof parsed !== "object") return null;
   const d = parsed as { v?: unknown; exerciseIds?: unknown; sets?: unknown };
-  if (d.v !== 2 || !Array.isArray(d.exerciseIds) || !Array.isArray(d.sets)) return null;
+  if (d.v !== 3 || !Array.isArray(d.exerciseIds) || !Array.isArray(d.sets)) return null;
 
   // Ćwiczenia: ta sama liczba i te same identyfikatory w tej samej kolejności.
   if (d.exerciseIds.length !== expected.exerciseIds.length) return null;
@@ -61,11 +73,17 @@ export function parseDraft(
     if (!Array.isArray(row) || row.length !== expected.setCounts[i]) return null;
     for (const s of row) {
       if (!s || typeof s !== "object") return null;
-      const set = s as { reps?: unknown; difficulty?: unknown; skipped?: unknown };
+      const set = s as {
+        reps?: unknown;
+        difficulty?: unknown;
+        skipped?: unknown;
+        videoFileId?: unknown;
+      };
       if (
         typeof set.reps !== "string" ||
         typeof set.difficulty !== "string" ||
-        typeof set.skipped !== "boolean"
+        typeof set.skipped !== "boolean" ||
+        !(typeof set.videoFileId === "string" || set.videoFileId === null)
       ) {
         return null;
       }
@@ -77,6 +95,14 @@ export function parseDraft(
 /** Czy szkic niesie cokolwiek wartego przywrócenia (inaczej nie zawracamy głowy). */
 export function draftHasContent(sets: SetDraft[][]): boolean {
   return sets.some((row) =>
-    row.some((s) => s.skipped || s.reps.trim() !== "" || s.difficulty !== ""),
+    row.some(
+      (s) =>
+        s.skipped ||
+        s.reps.trim() !== "" ||
+        s.difficulty !== "" ||
+        // Samo wgrane nagranie też jest treścią: plik leży już na serwerze, a bez
+        // przywrócenia szkicu odniesienie do niego by przepadło.
+        s.videoFileId !== null,
+    ),
   );
 }

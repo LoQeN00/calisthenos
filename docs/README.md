@@ -11,6 +11,7 @@ surowe logi z buildów/deployów (do diagnostyki).
 | `statistics-plan.md` | Pełny katalog propozycji statystyk (trener o podopiecznym i podopieczny o sobie) z oceną wartości. Bazuje na obecnym schemacie. |
 | `mvp-statistics.md` | Zawężenie powyższego do MVP — proste agregacje SQL bez nowych tabel i wykresów. |
 | `error.md` | Zrzut logu błędu runtime (m.in. `EACCES mkdir '/data/body'` — uprawnienia wolumenu). Kontekst diagnostyczny. |
+| `audyt.md` | Audyt wydajności, niezawodności i obserwowalności (2026-07-22, 7 użytkowników prod). Stan logowania i plan jego naprawy, znaleziska niezawodnościowe (migracje na Railway, timeouty, graceful shutdown), proponowana kolejność wdrożenia + załącznik ze 108 potwierdzonymi znaleziskami. |
 
 ## Podkatalogi
 

@@ -91,6 +91,9 @@ export class InMemoryRateLimitStore implements RateLimitStore {
 export const RATE_LIMITS = {
   login: { bucket: "login", limit: 10, windowMs: 15 * 60_000 },
   invite: { bucket: "invite", limit: 10, windowMs: 15 * 60_000 },
+  // Hojnie: ciężka sesja treningowa to ~20 nagrań, więc 100 nie przeszkodzi nikomu
+  // realnemu, a ogranicza zapychanie wolumenu. Kluczowane po użytkowniku (patrz `key`).
+  upload: { bucket: "upload", limit: 100, windowMs: 15 * 60_000 },
 } as const;
 
 // Singleton procesu (in-memory). Świadomie resetuje się przy redeployu — patrz spec.
@@ -100,13 +103,18 @@ const store: RateLimitStore = new InMemoryRateLimitStore();
  * Zwraca `retryAfterSec` gdy żądanie ma być zablokowane, inaczej `null`.
  * FAIL-OPEN: każdy błąd wewnętrzny → `null` (+log), by usterka limitera nie
  * zablokowała logowania wszystkim.
+ *
+ * `opts.key` podmienia podmiot limitu (domyślnie adres klienta). Dla endpointów
+ * UWIERZYTELNIONYCH właściwym podmiotem jest użytkownik, nie IP: kilku podopiecznych
+ * może dzielić NAT (blokowaliby się nawzajem), a jeden podopieczny może przełączać
+ * wifi↔LTE (omijałby limit).
  */
 export function enforceRateLimit(
   request: Request,
-  opts: { bucket: string; limit: number; windowMs: number },
+  opts: { bucket: string; limit: number; windowMs: number; key?: string },
 ): number | null {
   try {
-    const key = `${opts.bucket}:${clientIp(request)}`;
+    const key = `${opts.bucket}:${opts.key ?? clientIp(request)}`;
     const r = store.hit(key, opts.limit, opts.windowMs);
     return r.allowed ? null : r.retryAfterSec;
   } catch (err) {

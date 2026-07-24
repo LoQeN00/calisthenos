@@ -4,10 +4,14 @@ import { ConfirmProvider } from "~/components/confirm-provider";
 import { ToastProvider } from "~/components/toast-provider";
 import { maybePruneExpiredSessions } from "~/lib/auth/session";
 import { db } from "~/lib/db/client";
+import { maybeSweepOrphanSetVideos } from "~/lib/orphan-files";
 
 export async function loader() {
   // Lazy background prune: at most once an hour per process, fire-and-forget.
   maybePruneExpiredSessions(db);
+  // To samo dla nagrań serii wgranych, ale nigdy niepodpiętych do treningu
+  // (porzucona sesja logowania) — inaczej wolumen rósłby o każdy taki plik.
+  maybeSweepOrphanSetVideos(db);
   return null;
 }
 

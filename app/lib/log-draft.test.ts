@@ -1,25 +1,67 @@
 import { describe, expect, it } from "vitest";
 import { type SetDraft, draftHasContent, parseDraft, serializeDraft } from "./log-draft";
 
+const emptySet: SetDraft = { reps: "", difficulty: "", skipped: false, videoFileId: null };
+
 const empty2x2: SetDraft[][] = [
-  [
-    { reps: "", difficulty: "", skipped: false },
-    { reps: "", difficulty: "", skipped: false },
-  ],
-  [
-    { reps: "", difficulty: "", skipped: false },
-    { reps: "", difficulty: "", skipped: false },
-  ],
+  [{ ...emptySet }, { ...emptySet }],
+  [{ ...emptySet }, { ...emptySet }],
 ];
+
+describe("szkic v3 — identyfikator nagrania", () => {
+  it("przechowuje videoFileId przez serializację (nagranie przeżywa ubicie karty)", () => {
+    // Przed rozdzieleniem uploadu szkic mógł nieść tylko tekst — plik trzeba było
+    // wybierać od nowa. Teraz `fileId` jest zwykłym stringiem, więc przeżywa.
+    const sets: SetDraft[][] = [
+      [{ reps: "8", difficulty: "7", skipped: false, videoFileId: "f-1" }],
+    ];
+    const parsed = parseDraft(serializeDraft(["ex-1"], sets), {
+      exerciseIds: ["ex-1"],
+      setCounts: [1],
+    });
+    expect(parsed?.[0]?.[0]?.videoFileId).toBe("f-1");
+  });
+
+  it("dopuszcza null jako brak nagrania", () => {
+    const sets: SetDraft[][] = [
+      [{ reps: "8", difficulty: "7", skipped: false, videoFileId: null }],
+    ];
+    const parsed = parseDraft(serializeDraft(["ex-1"], sets), {
+      exerciseIds: ["ex-1"],
+      setCounts: [1],
+    });
+    expect(parsed?.[0]?.[0]?.videoFileId).toBeNull();
+  });
+
+  it("odrzuca szkic w starej wersji v2", () => {
+    // Szkice są krótkotrwałe (per sesja przeglądarki), więc migracja v2→v3 nie jest
+    // warta kodu — bezpieczniej odrzucić niż wstawić dane o niepełnym kształcie.
+    const rawV2 = JSON.stringify({
+      v: 2,
+      exerciseIds: ["ex-1"],
+      sets: [[{ reps: "8", difficulty: "7", skipped: false }]],
+    });
+    expect(parseDraft(rawV2, { exerciseIds: ["ex-1"], setCounts: [1] })).toBeNull();
+  });
+
+  it("odrzuca szkic v3 z videoFileId złego typu", () => {
+    const raw = JSON.stringify({
+      v: 3,
+      exerciseIds: ["ex-1"],
+      sets: [[{ reps: "8", difficulty: "7", skipped: false, videoFileId: 42 }]],
+    });
+    expect(parseDraft(raw, { exerciseIds: ["ex-1"], setCounts: [1] })).toBeNull();
+  });
+});
 
 describe("serializeDraft / parseDraft", () => {
   it("robi round-trip, gdy ćwiczenia i liczby serii pasują", () => {
     const sets: SetDraft[][] = [
       [
-        { reps: "10", difficulty: "7", skipped: false },
-        { reps: "", difficulty: "", skipped: true },
+        { reps: "10", difficulty: "7", skipped: false, videoFileId: "f-a" },
+        { reps: "", difficulty: "", skipped: true, videoFileId: null },
       ],
-      [{ reps: "30", difficulty: "", skipped: false }],
+      [{ reps: "30", difficulty: "", skipped: false, videoFileId: null }],
     ];
     const parsed = parseDraft(serializeDraft(["ex-a", "ex-b"], sets), {
       exerciseIds: ["ex-a", "ex-b"],
@@ -58,10 +100,12 @@ describe("serializeDraft / parseDraft", () => {
   });
 
   it("odrzuca szkic o błędnych typach pól", () => {
+    // `v: 3`, żeby test faktycznie docierał do walidacji TYPÓW — przy `v: 2` odpadałby
+    // już na sprawdzeniu wersji i nie badał tego, co obiecuje nazwa.
     const bad = JSON.stringify({
-      v: 2,
+      v: 3,
       exerciseIds: ["ex-a"],
-      sets: [[{ reps: 10, difficulty: "7", skipped: false }]],
+      sets: [[{ reps: 10, difficulty: "7", skipped: false, videoFileId: null }]],
     });
     expect(parseDraft(bad, { exerciseIds: ["ex-a"], setCounts: [1] })).toBeNull();
   });
@@ -78,8 +122,15 @@ describe("draftHasContent", () => {
   });
 
   it("true, gdy jakakolwiek seria ma reps, trudność lub jest pominięta", () => {
-    expect(draftHasContent([[{ reps: "8", difficulty: "", skipped: false }]])).toBe(true);
-    expect(draftHasContent([[{ reps: "", difficulty: "5", skipped: false }]])).toBe(true);
-    expect(draftHasContent([[{ reps: "", difficulty: "", skipped: true }]])).toBe(true);
+    expect(draftHasContent([[{ ...emptySet, reps: "8" }]])).toBe(true);
+    expect(draftHasContent([[{ ...emptySet, difficulty: "5" }]])).toBe(true);
+    expect(draftHasContent([[{ ...emptySet, skipped: true }]])).toBe(true);
+  });
+
+  it("true, gdy seria ma SAMO wgrane nagranie", () => {
+    // Podopieczny nagrał serię, ale nie zdążył wpisać powtórzeń. Bez tego warunku
+    // nie zaproponowalibyśmy przywrócenia szkicu i odniesienie do wgranego pliku
+    // by przepadło — a plik i tak już leży na serwerze.
+    expect(draftHasContent([[{ ...emptySet, videoFileId: "f-1" }]])).toBe(true);
   });
 });

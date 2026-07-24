@@ -11,7 +11,8 @@ domenowej — czysta prezentacja + drobne interakcje (modale, providery kontekst
 | `toast-provider.tsx` | `ToastProvider`, `useToast()`, `ToastTone` | To'sty (success/error/info), auto-dismiss ~3s. |
 | `user-menu.tsx` | `UserMenu({ displayName })` | Chip użytkownika z menu: przełącznik motywu (cookie 1 rok) + wylogowanie (`Form` POST). |
 | `pagination.tsx` | `Pagination({ page, totalPages, total?, … })`, `parsePage(searchParams)` | Paginacja z prev/next i numerami; zachowuje query params. |
-| `file-dropzone.tsx` | `FileDropzone({ name, label, kind: "video"\|"image", … })`, typ `FileKind` | Upload drag&drop z podglądem i walidacją MIME/rozmiaru. |
+| `file-dropzone.tsx` | `FileDropzone({ name, label, kind: "video"\|"image", … })`, typ `FileKind` | Wybór pliku drag&drop z podglądem i walidacją MIME/rozmiaru. Plik jedzie razem z formularzem — używany tam, gdzie formularz niesie JEDEN plik (sylwetka, demo ćwiczenia). |
+| `video-upload-field.tsx` | `VideoUploadField({ name, label, maxBytes, idSuffix, initialFileId?, onStateChange })`, typ `VideoUploadState` | Pole nagrania serii wysyłające plik OD RAZU po wyborze na `/upload/wideo` (XHR — `fetch` nie raportuje postępu wysyłki), z procentem, anulowaniem i stanem „wgrane". W formularzu zostaje tylko ukryty `fileId`. Postęp rysowany jako gradient tła wspólnej skorupy 36 px, żeby lista serii nie skakała przy zmianie stanu. |
 | `copy-button.tsx` | `CopyButton({ value, variant?, label?, … })` | Kopiowanie do schowka z feedbackiem (Clipboard API + fallback). |
 | `exercise-fields.tsx` | `CategoryPicker({ categories, selected })` | Multi-select kategorii ćwiczeń (pigułki/checkboxy). |
 | `photo-card.tsx` | `PhotoCard({ id, url, takenOn, view, note, onOpen })`, `BODY_VIEW_LABELS` | Kafelek zdjęcia sylwetki 3:4 otwierający lightbox. |

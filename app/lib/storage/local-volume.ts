@@ -31,23 +31,32 @@ export class LocalVolumeStorage implements FileStorage {
       return { bytes: source.byteLength };
     }
 
+    // Po wcześniejszym `return` dla Uint8Array zostaje już tylko strumień, ale
+    // zawężenie typu parametru nie przechodzi do domknięcia generatora — łapiemy je
+    // w `const`.
+    const chunks: AsyncIterable<Uint8Array> = source;
     let bytes = 0;
-    const counting = new Readable({
-      async read() {},
-    });
-    // Pump the async iterable, counting bytes, into a node stream we pipeline to disk.
-    (async () => {
-      try {
-        for await (const chunk of source) {
-          bytes += chunk.byteLength;
-          counting.push(chunk);
-        }
-        counting.push(null);
-      } catch (err) {
-        counting.destroy(err as Error);
+    // Generator zliczający, opakowany w `Readable.from` — źródło jest ciągnięte
+    // DOPIERO na żądanie konsumenta, a `pipeline` wstrzymuje je, gdy zapis na dysk
+    // nie nadąża. Poprzednia wersja pompowała `counting.push(chunk)` w pętli i
+    // ignorowała zwracane `false`, więc przy szybkim źródle (plik już w pamięci)
+    // cały strumień lądował w wewnętrznym buforze Readable — druga pełna kopia
+    // pliku w RAM. `objectMode: false` trzyma próg buforowania w bajtach.
+    async function* counting(): AsyncGenerator<Uint8Array> {
+      for await (const chunk of chunks) {
+        bytes += chunk.byteLength;
+        yield chunk;
       }
-    })();
-    await pipeline(counting, createWriteStream(abs));
+    }
+    // `highWaterMark` MUSI być jawne: `Readable.from` ustawia domyślnie 1, i to
+    // *przed* rozłożeniem opcji, więc sam `objectMode: false` zostawiłby próg bufora
+    // na jednym bajcie — czyli obrót `_read()` → `iterator.next()` na każdy chunk.
+    // 64 kB odpowiada rozmiarowi chunka z `File.stream()`: bufor trzyma ~jeden chunk
+    // zapasu, backpressure zostaje ciasny, a obrotów jest tyle co chunków.
+    await pipeline(
+      Readable.from(counting(), { objectMode: false, highWaterMark: 64 * 1024 }),
+      createWriteStream(abs),
+    );
     return { bytes };
   }
 

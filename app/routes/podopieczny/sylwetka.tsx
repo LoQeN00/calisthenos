@@ -3,6 +3,7 @@ import {
   Form,
   useActionData,
   useLoaderData,
+  useNavigation,
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
@@ -23,6 +24,7 @@ import {
   deleteBodyPhoto,
   listBodyPhotosForTrainee,
 } from "~/lib/body-photos";
+import { maxUploadBytesFor } from "~/lib/file-uploads";
 import { db } from "~/lib/db/client";
 import type { BodyPhotoView } from "~/lib/db/schema";
 import { signFileUrl } from "~/lib/files";
@@ -104,6 +106,10 @@ export async function loader(args: LoaderFunctionArgs) {
     resolvedPairs,
     spec: SYLWETKA_SPEC,
     controls,
+    // Z konfiguracji, nie na sztywno: `MAX_UPLOAD_BYTES` jest strojone przez env
+    // („kalibrowalne bez redeployu"), więc zahardkodowana wartość rozjechałaby się
+    // z serwerem przy pierwszej zmianie limitu.
+    maxPhotoBytes: maxUploadBytesFor("body_photo"),
   };
 }
 
@@ -157,9 +163,14 @@ export async function action(args: ActionFunctionArgs) {
 type ViewFilter = "all" | BodyPhotoView;
 
 export default function TraineeBodyGallery() {
-  const { photos, page, totalPages, total, resolvedPairs, spec, controls } =
+  const { photos, page, totalPages, total, resolvedPairs, spec, controls, maxPhotoBytes } =
     useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  // Blokada podwójnej wysyłki — upload zdjęcia z telefonu trwa, a drugie kliknięcie
+  // tworzy DRUGI wiersz `body_photos` i drugi blob na wolumenie (brak ograniczenia
+  // unikalności w bazie).
+  const navigation = useNavigation();
+  const isSubmitting = navigation.formMethod != null;
   const [showAddModal, setShowAddModal] = useState(false);
   const [filter, setFilter] = useState<ViewFilter>("all");
   const [lightboxId, setLightboxId] = useState<string | null>(null);
@@ -262,7 +273,7 @@ export default function TraineeBodyGallery() {
               label="Zdjęcie"
               required
               capture
-              maxBytes={250_000_000}
+              maxBytes={maxPhotoBytes}
             />
             {actionData != null && "error" in actionData && actionData.error != null && (
               <p role="alert" style={{ color: "var(--danger)", fontSize: 13, margin: 0 }}>
@@ -274,8 +285,13 @@ export default function TraineeBodyGallery() {
             <button type="button" onClick={() => setShowAddModal(false)} className="btn btn-ghost">
               Anuluj
             </button>
-            <button type="submit" className="btn btn-primary">
-              <Icons.Upload /> Dodaj zdjęcie
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={isSubmitting}
+              aria-busy={isSubmitting}
+            >
+              <Icons.Upload /> {isSubmitting ? "Wysyłanie…" : "Dodaj zdjęcie"}
             </button>
           </div>
         </Form>
