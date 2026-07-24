@@ -5,6 +5,7 @@ import {
   redirect,
   useActionData,
   useLoaderData,
+  useNavigation,
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
@@ -18,6 +19,7 @@ import * as schema from "~/lib/db/schema";
 import {
   deleteFileBlob,
   deleteFileRow,
+  maxUploadBytesFor,
   UploadCleanupQueue,
   UploadError,
   uploadFile,
@@ -55,6 +57,8 @@ export async function loader(args: LoaderFunctionArgs) {
   return {
     exercise: row.exercise,
     categories,
+    // Ten sam limit co na serwerze — patrz komentarz w biblioteka.nowe.tsx.
+    maxVideoBytes: maxUploadBytesFor("exercise_demo"),
     demo:
       row.demoFile != null
         ? { url: signFileUrl(row.demoFile.id, user.id), mime: row.demoFile.mimeType }
@@ -182,9 +186,14 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function EdytujCwiczenie() {
-  const { exercise, demo, categories } = useLoaderData<typeof loader>();
+  const { exercise, demo, categories, maxVideoBytes } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const isArchived = exercise.archivedAt != null;
+  // Blokada podwójnej wysyłki na formularzu zapisu — niesie wideo demo, więc wysyłka
+  // trwa, a drugie kliknięcie wgrywa drugi blob na wolumen. Dotyczy wyłącznie tego
+  // przycisku; osobne intencje (archiwizacja/przywrócenie) zostają bez zmian.
+  const navigation = useNavigation();
+  const isSubmitting = navigation.formMethod != null;
 
   return (
     <div style={{ maxWidth: 580 }}>
@@ -268,8 +277,16 @@ export default function EdytujCwiczenie() {
           />
         </div>
 
-        <label className="field" style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
-          <input type="checkbox" name="tracksRpe" defaultChecked={exercise.tracksRpe} style={{ marginTop: 3 }} />
+        <label
+          className="field"
+          style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}
+        >
+          <input
+            type="checkbox"
+            name="tracksRpe"
+            defaultChecked={exercise.tracksRpe}
+            style={{ marginTop: 3 }}
+          />
           <span>
             <span style={{ display: "block", fontWeight: 500 }}>
               Zbieraj ocenę trudności (RPE 1–10) przy logowaniu
@@ -288,7 +305,7 @@ export default function EdytujCwiczenie() {
           idSuffix="edit"
           kind="video"
           label={demo ? "Zastąp wideo demo (opcjonalne)" : "Wideo demo (opcjonalne)"}
-          maxBytes={250_000_000}
+          maxBytes={maxVideoBytes}
         />
 
         {actionData?.error != null && (
@@ -298,8 +315,13 @@ export default function EdytujCwiczenie() {
         )}
 
         <div className="row" style={{ gap: 8 }}>
-          <button type="submit" className="btn btn-primary">
-            Zapisz zmiany
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={isSubmitting}
+            aria-busy={isSubmitting}
+          >
+            {isSubmitting ? "Zapisywanie…" : "Zapisz zmiany"}
           </button>
           <Link to="/trener/biblioteka" className="btn btn-ghost">
             Anuluj

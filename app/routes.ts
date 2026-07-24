@@ -6,6 +6,7 @@ export default [
   route("wyloguj", "routes/wyloguj.tsx"),
   route("zaproszenie/:token", "routes/zaproszenie.$token.tsx"),
   route("files/:fileId", "routes/files.$fileId.tsx"),
+  route("upload/wideo", "routes/upload.wideo.tsx"),
   route("webhooks/stripe", "routes/webhooks.stripe.tsx"),
   ...prefix("trener", [
     layout("routes/trener/_layout.tsx", [

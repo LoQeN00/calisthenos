@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { fileTypeFromBuffer } from "file-type";
 import { getEnv, type Env } from "~/lib/env";
+import { errorMeta, logger } from "~/lib/logger";
 import { getStorage } from "~/lib/storage";
 import * as schema from "~/lib/db/schema";
 import type { Db } from "~/lib/db/client";
@@ -201,12 +202,23 @@ export async function uploadFile(
     // sprzątająca jeszcze go nie zna (track() następuje po udanym insercie),
     // więc musimy to zrobić tutaj. Best-effort: brak pliku też łykamy.
     await storage.delete(storagePath).catch(() => {});
+    const code =
+      typeof err === "object" && err !== null ? (err as { code?: string }).code : undefined;
+    // KAŻDA awaria zapisu na wolumen musi zostawić ślad — bez tego zapełniony dysk
+    // albo źle zamontowany wolumen objawia się wyłącznie komunikatem u użytkownika,
+    // a właściciel nie dostaje żadnego sygnału. `storagePath` niesie tylko UUID pliku.
+    // `code` PO spreadzie celowo: `errorMeta` czyta `code` tylko z instancji Error,
+    // a tu chcemy je mieć również gdy storage rzuci czymś innym niż Error.
+    logger.error("upload.storage_write_failed", {
+      kind,
+      storagePath,
+      ...errorMeta(err),
+      code,
+    });
     // EACCES / EPERM almost always means DATA_DIR exists but is not writable
     // by the runtime user — usually a Railway volume mount that wasn't
     // chowned to `node` at container start. Surface a clean error instead of
     // a 500 so the trainee sees an actionable message.
-    const code =
-      typeof err === "object" && err !== null ? (err as { code?: string }).code : undefined;
     if (code === "EACCES" || code === "EPERM") {
       throw new UploadError(
         `${code} writing to ${storagePath} (DATA_DIR not writable by runtime user)`,

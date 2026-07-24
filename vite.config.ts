@@ -22,7 +22,10 @@ export default defineConfig({
         globPatterns: ["**/*.{js,css,svg,ico,woff,woff2}"],
         // Don't try to precache SSR HTML — it's per-user and per-request.
         navigateFallback: null,
-        // File serving routes carry signed URLs; never cache.
+        // Service worker nie cache'uje plików (podpisane URL-e, treść prywatna).
+        // Cache HTTP przeglądarki owszem — `files/$fileId` wysyła
+        // `private, max-age=3600`, a adres jest stabilny dzięki kubełkowaniu `exp`
+        // w `lib/files.ts`. To dwie różne warstwy; ta reguła dotyczy wyłącznie SW.
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.pathname.startsWith("/files/"),

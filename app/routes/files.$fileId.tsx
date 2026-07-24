@@ -58,6 +58,13 @@ export async function loader(args: LoaderFunctionArgs) {
     "Content-Type": file.mimeType,
     "Content-Length": String(readResult.bytes),
     "Accept-Ranges": "bytes",
+    // ŚWIADOMIE 1 h, a NIE długość kubełka podpisu (6 h) i BEZ `immutable`.
+    // Praktyczny zysk z cache bierze się z tego, że adres pliku przestał się zmieniać
+    // przy każdym renderze (`fileUrlExp`) — trafienia realizują się w minutach tej
+    // samej sesji przeglądania, nie w godzinach. Wydłużenie `max-age` nie dołożyłoby
+    // nic zauważalnego, a wydłużyłoby okno, w którym po WYLOGOWANIU na współdzielonym
+    // urządzeniu można odtworzyć zdjęcia sylwetki z dysku przeglądarki (nie ma
+    // `Clear-Site-Data` przy wylogowaniu). Zostawiamy postawę sprzed zmiany.
     "Cache-Control": "private, max-age=3600",
   });
   if (range) {

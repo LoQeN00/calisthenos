@@ -6,20 +6,28 @@ import {
   redirect,
   useActionData,
   useLoaderData,
+  useNavigation,
   useRouteError,
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
 import { z } from "zod";
-import { FileDropzone } from "~/components/file-dropzone";
 import { Icons } from "~/components/icons";
+import { VideoUploadField, type VideoUploadState } from "~/components/video-upload-field";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
-import { maxUploadBytesFor, UploadCleanupQueue, UploadError, uploadFile } from "~/lib/file-uploads";
+import { maxUploadBytesFor } from "~/lib/file-uploads";
 import { pluralizePl, todayISO, type PlForms } from "~/lib/format";
-import { draftHasContent, draftKey, parseDraft, serializeDraft, type SetDraft } from "~/lib/log-draft";
+import {
+  draftHasContent,
+  draftKey,
+  parseDraft,
+  serializeDraft,
+  type SetDraft,
+} from "~/lib/log-draft";
 import { detectNewPRsForLog } from "~/lib/stats";
 import {
+  assertOwnedUnclaimedVideos,
   findActivePlanForTrainee,
   loadSessionForLogging,
   saveWorkoutLog,
@@ -73,7 +81,6 @@ export async function action(args: ActionFunctionArgs) {
   const noteParse = NoteSchema.safeParse(fd.get("note") ?? undefined);
   const note = (noteParse.success ? noteParse.data?.trim() : "") || null;
 
-  const cleanup = new UploadCleanupQueue(db);
   try {
     const exercisesPayload: Array<{
       exerciseId: string;
@@ -98,10 +105,14 @@ export async function action(args: ActionFunctionArgs) {
       for (let sIdx = 0; sIdx < entry.expectedSets; sIdx++) {
         const repsRaw = fd.get(`e_${eIdx}_s_${sIdx}_reps`);
         const diffRaw = fd.get(`e_${eIdx}_s_${sIdx}_diff`);
-        const videoBlob = fd.get(`e_${eIdx}_s_${sIdx}_video`);
+        // Po rozdzieleniu uploadu formularz niesie już tylko IDENTYFIKATOR nagrania —
+        // plik poleciał wcześniej na `/upload/wideo`. Każdy taki identyfikator jest
+        // niżej weryfikowany (`assertOwnedUnclaimedVideos`), bo pochodzi od klienta.
+        const videoIdRaw = fd.get(`e_${eIdx}_s_${sIdx}_video_id`);
+        const videoId = typeof videoIdRaw === "string" && videoIdRaw !== "" ? videoIdRaw : null;
         const hasReps = repsRaw != null && repsRaw !== "";
         const hasDiff = diffRaw != null && diffRaw !== "";
-        const hasVideo = videoBlob instanceof File && videoBlob.size > 0;
+        const hasVideo = videoId != null;
 
         const tracksRpe = entry.tracksRpe;
 
@@ -139,22 +150,7 @@ export async function action(args: ActionFunctionArgs) {
           }
         }
 
-        let videoFileId: string | null = null;
-        if (hasVideo) {
-          const uploaded = await uploadFile(
-            db,
-            {
-              file: videoBlob as File,
-              kind: "set_video",
-              trainerId: user.trainerId,
-              uploadedBy: user.id,
-            },
-            cleanup,
-          );
-          videoFileId = uploaded.id;
-        }
-
-        sets.push({ ordinal: sIdx, reps, difficulty, videoFileId });
+        sets.push({ ordinal: sIdx, reps, difficulty, videoFileId: videoId });
         anySetLogged = true;
       }
 
@@ -162,9 +158,21 @@ export async function action(args: ActionFunctionArgs) {
     }
 
     if (!anySetLogged) {
-      await cleanup.cleanup();
       return { error: "Zapisz co najmniej jedną serię." };
     }
+
+    // Identyfikatory przyszły od klienta, więc PRZED zapisem sprawdzamy, że każdy należy
+    // do tego podopiecznego, jest nagraniem serii i nie jest już podpięty gdzie indziej.
+    // Bez tego podopieczny mógłby podpiąć nagranie innego podopiecznego tego trenera.
+    const videoIds = exercisesPayload
+      .flatMap((ex) => ex.sets)
+      .map((s) => s.videoFileId)
+      .filter((id): id is string => id != null);
+    await assertOwnedUnclaimedVideos(db, {
+      traineeId: user.id,
+      trainerId: user.trainerId,
+      fileIds: videoIds,
+    });
 
     const newLogId = await saveWorkoutLog(db, {
       trainerId: user.trainerId,
@@ -177,7 +185,6 @@ export async function action(args: ActionFunctionArgs) {
       allDone: allSetsFilled,
       exercises: exercisesPayload,
     });
-    cleanup.commit();
 
     // Detect new PRs set in this log and pass exercise IDs via the URL so the
     // log detail page can fire a toast. Read-only side query; failure is a
@@ -196,8 +203,8 @@ export async function action(args: ActionFunctionArgs) {
     throw redirect(`/podopieczny/historia/${newLogId}${qs ? `?${qs}` : ""}`);
   } catch (e) {
     if (e instanceof Response) throw e; // redirect bubbles
-    await cleanup.cleanup();
-    if (e instanceof UploadError) return { error: e.userMessage };
+    // Nie ma już czego sprzątać: pliki są wgrane osobno i mają własny cykl życia —
+    // nieużyte sprzątnie sweeper (`lib/orphan-files.ts`).
     if (e instanceof WorkoutSaveError) return { error: e.userMessage };
     throw e;
   }
@@ -211,6 +218,12 @@ const SERIA: PlForms = { one: "seria", few: "serie", many: "serii" };
 export default function LogForm() {
   const { user, session, entries, maxVideoBytes } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const navigation = useNavigation();
+  // `formMethod != null` zamiast `state !== "idle"`: łapie wyłącznie wysyłkę
+  // formularza (i przeżywa fazę `loading` po redircie, w której najłatwiej kliknąć
+  // drugi raz), ale nie zwykłą nawigację — bez tego przycisk mrugałby
+  // „Zapisywanie…” także po kliknięciu „Anuluj”.
+  const isSubmitting = navigation.formMethod != null;
 
   // Lift set-level state up so we can compute progress + power the
   // "copy from #1" affordance. The form's submit still relies on the
@@ -226,9 +239,31 @@ export default function LogForm() {
         reps: "",
         difficulty: "",
         skipped: false,
+        videoFileId: null,
       })),
     ),
   );
+
+  // Które pola aktualnie wysyłają nagranie — zapis jest zablokowany, dopóki cokolwiek
+  // leci, żeby trening nie zapisał się bez wideo, na które podopieczny właśnie czeka.
+  const [uploadingKeys, setUploadingKeys] = useState<Record<string, boolean>>({});
+  const uploadingCount = Object.values(uploadingKeys).filter(Boolean).length;
+
+  const handleVideoState = (eIdx: number, sIdx: number, state: VideoUploadState) => {
+    const key = `${eIdx}-${sIdx}`;
+    setUploadingKeys((prev) =>
+      Boolean(prev[key]) === state.uploading ? prev : { ...prev, [key]: state.uploading },
+    );
+    setSetStates((prev) => {
+      const current = prev[eIdx]?.[sIdx];
+      if (!current || current.videoFileId === state.fileId) return prev;
+      return prev.map((sets, i) =>
+        i === eIdx
+          ? sets.map((s, j) => (j === sIdx ? { ...s, videoFileId: state.fileId } : s))
+          : sets,
+      );
+    });
+  };
 
   const updateSet = (eIdx: number, sIdx: number, patch: Partial<SetState>) => {
     setSetStates((prev) =>
@@ -244,7 +279,11 @@ export default function LogForm() {
     setSetStates((prev) =>
       prev.map((sets, i) =>
         i === eIdx
-          ? sets.map((s, j) => (j === sIdx ? { reps: "", difficulty: "", skipped: true } : s))
+          ? sets.map((s, j) =>
+              // Pominięta seria traci też odniesienie do nagrania — wgrany plik zostaje
+              // sierotą i sprzątnie go sweeper.
+              j === sIdx ? { reps: "", difficulty: "", skipped: true, videoFileId: null } : s,
+            )
           : sets,
       ),
     );
@@ -254,7 +293,9 @@ export default function LogForm() {
     setSetStates((prev) =>
       prev.map((sets, i) =>
         i === eIdx
-          ? sets.map((s, j) => (j === sIdx ? { reps: "", difficulty: "", skipped: false } : s))
+          ? sets.map((s, j) =>
+              j === sIdx ? { reps: "", difficulty: "", skipped: false, videoFileId: null } : s,
+            )
           : sets,
       ),
     );
@@ -273,6 +314,9 @@ export default function LogForm() {
                 reps: s.reps || first.reps,
                 difficulty: s.difficulty || first.difficulty,
                 skipped: false,
+                // NIE kopiujemy nagrania z pierwszej serii — jedno wgranie może być
+                // podpięte tylko do jednej serii, a duplikat jest odrzucany przy zapisie.
+                videoFileId: s.videoFileId,
               },
         );
       }),
@@ -300,6 +344,11 @@ export default function LogForm() {
   const exerciseIds = useMemo(() => entries.map((e) => e.exerciseId), [entries]);
   const [restoredDraft, setRestoredDraft] = useState(false);
   const [draftReady, setDraftReady] = useState(false);
+  // Licznik przemontowań kart ćwiczeń. `VideoUploadField` trzyma stan wysyłki u siebie
+  // i czyta `initialFileId` tylko raz, więc każde ZEWNĘTRZNE nadpisanie serii
+  // (przywrócenie szkicu, wyczyszczenie go) musi go przemontować. Pola tekstowe są
+  // kontrolowane przez `setStates`, więc remount karty niczego nie gubi.
+  const [videoFieldsEpoch, setVideoFieldsEpoch] = useState(0);
 
   const emptyState = (): SetState[][] =>
     entries.map((entry) =>
@@ -307,6 +356,7 @@ export default function LogForm() {
         reps: "",
         difficulty: "",
         skipped: false,
+        videoFileId: null,
       })),
     );
 
@@ -324,6 +374,9 @@ export default function LogForm() {
       if (restored && draftHasContent(restored)) {
         setSetStates(restored);
         setRestoredDraft(true);
+        // Pola wideo czytają `initialFileId` tylko przy montowaniu, a tu jesteśmy już
+        // po hydracji — bez przemontowania przywrócone nagrania by się nie pokazały.
+        setVideoFieldsEpoch((n) => n + 1);
       }
     } catch {
       // sessionStorage niedostępny (tryb prywatny itd.) — pomijamy przywracanie.
@@ -350,6 +403,7 @@ export default function LogForm() {
   const clearDraft = () => {
     setSetStates(emptyState());
     setRestoredDraft(false);
+    setVideoFieldsEpoch((n) => n + 1);
     try {
       sessionStorage.removeItem(draftKey(session.id));
     } catch {
@@ -377,7 +431,9 @@ export default function LogForm() {
         </div>
       </div>
 
-      <Form method="post" encType="multipart/form-data" style={{ display: "grid", gap: 14 }}>
+      {/* Bez `encType="multipart/form-data"`: nagrania lecą osobno na `/upload/wideo`,
+          a ten POST niesie już tylko tekst i identyfikatory plików. */}
+      <Form method="post" style={{ display: "grid", gap: 14 }}>
         {restoredDraft && (
           <output
             className="card"
@@ -392,7 +448,7 @@ export default function LogForm() {
           >
             <span style={{ fontSize: 13 }}>
               <Icons.Check /> Przywrócono niezapisany szkic tej sesji.{" "}
-              <span className="muted">Nagrania wideo trzeba dodać ponownie.</span>
+              <span className="muted">Wgrane nagrania też zostały przywrócone.</span>
             </span>
             <button
               type="button"
@@ -439,7 +495,7 @@ export default function LogForm() {
         ) : (
           entries.map((entry, eIdx) => (
             <EntryCard
-              key={`${entry.planItemId}-${eIdx}`}
+              key={`${entry.planItemId}-${eIdx}-${videoFieldsEpoch}`}
               entry={entry}
               eIdx={eIdx}
               totalEntries={entries.length}
@@ -449,6 +505,7 @@ export default function LogForm() {
               onSkipSet={(sIdx) => skipSet(eIdx, sIdx)}
               onUnskipSet={(sIdx) => unskipSet(eIdx, sIdx)}
               onCopyFromFirst={() => copyFromFirst(eIdx)}
+              onVideoStateChange={(sIdx, state) => handleVideoState(eIdx, sIdx, state)}
             />
           ))
         )}
@@ -464,13 +521,40 @@ export default function LogForm() {
         )}
 
         <div className="row" style={{ gap: 8, marginTop: 6 }}>
-          <button type="submit" className="btn btn-primary btn-lg" disabled={entries.length === 0}>
-            <Icons.Check /> Zapisz sesję
+          {/* Blokada podwójnej wysyłki: bez niej drugie kliknięcie (albo niecierpliwe
+              tapnięcie na telefonie, gdy upload wideo trwa kilkadziesiąt sekund)
+              tworzy DRUGI trening i drugi komplet nagrań — w bazie nie ma żadnego
+              ograniczenia unikalności, które by to wyłapało. */}
+          <button
+            type="submit"
+            className="btn btn-primary btn-lg"
+            disabled={entries.length === 0 || isSubmitting || uploadingCount > 0}
+            aria-busy={isSubmitting}
+          >
+            <Icons.Check /> {isSubmitting ? "Zapisywanie…" : "Zapisz sesję"}
           </button>
           <Link to="/podopieczny" className="btn btn-ghost btn-lg">
             Anuluj
           </Link>
         </div>
+
+        {/* Widoczny status wysyłki. `disabled` na przycisku zabiera mu fokus, a sama
+            zmiana etykiety nie zostaje ogłoszona czytnikowi ekranu — `role="status"`
+            to naprawia. Przy nagraniach idących kilkadziesiąt sekund informacja
+            „nie zamykaj strony” przydaje się zresztą każdemu. */}
+        {isSubmitting && (
+          <output className="text-xs muted" style={{ display: "block" }}>
+            Zapisywanie treningu… nie zamykaj tej strony.
+          </output>
+        )}
+
+        {uploadingCount > 0 && (
+          <output className="text-xs muted" style={{ display: "block" }}>
+            {uploadingCount === 1
+              ? "Trwa wysyłka nagrania… zapis ruszy sam, gdy się skończy."
+              : `Trwa wysyłka ${uploadingCount} nagrań… zapis ruszy sam, gdy się skończą.`}
+          </output>
+        )}
       </Form>
 
       <div className="text-xs muted" style={{ marginTop: 18 }}>
@@ -502,9 +586,8 @@ export function ErrorBoundary() {
             "Ta sesja nie istnieje albo nie masz do niej dostępu."
           ) : (
             <>
-              Coś przerwało wysyłkę — najczęściej słabe połączenie albo zbyt duże nagranie wideo.
-              Twoje wpisane serie zostały zachowane w tej przeglądarce; wróć do formularza i spróbuj
-              ponownie <span className="muted">(nagrania dodaj jeszcze raz)</span>.
+              Coś przerwało zapis — najczęściej słabe połączenie. Twoje wpisane serie oraz wgrane
+              nagrania zostały zachowane w tej przeglądarce; wróć do formularza i spróbuj ponownie.
             </>
           )}
         </div>
@@ -634,6 +717,7 @@ function EntryCard({
   sets,
   maxVideoBytes,
   onUpdateSet,
+  onVideoStateChange,
   onSkipSet,
   onUnskipSet,
   onCopyFromFirst,
@@ -644,6 +728,7 @@ function EntryCard({
   sets: SetState[];
   maxVideoBytes: number;
   onUpdateSet: (sIdx: number, patch: Partial<SetState>) => void;
+  onVideoStateChange: (sIdx: number, state: VideoUploadState) => void;
   onSkipSet: (sIdx: number) => void;
   onUnskipSet: (sIdx: number) => void;
   onCopyFromFirst: () => void;
@@ -732,6 +817,7 @@ function EntryCard({
               maxVideoBytes={maxVideoBytes}
               onChange={(patch) => onUpdateSet(sIdx, patch)}
               onSkip={() => onSkipSet(sIdx)}
+              onVideoStateChange={(state) => onVideoStateChange(sIdx, state)}
             />
           ),
         )}
@@ -756,6 +842,7 @@ function SetRow({
   maxVideoBytes,
   onChange,
   onSkip,
+  onVideoStateChange,
 }: {
   eIdx: number;
   sIdx: number;
@@ -766,6 +853,7 @@ function SetRow({
   maxVideoBytes: number;
   onChange: (patch: Partial<SetState>) => void;
   onSkip: () => void;
+  onVideoStateChange: (state: VideoUploadState) => void;
 }) {
   const diffName = `e_${eIdx}_s_${sIdx}_diff`;
 
@@ -836,14 +924,13 @@ function SetRow({
             className="input input-num"
           />
         </div>
-        <FileDropzone
-          name={`e_${eIdx}_s_${sIdx}_video`}
+        <VideoUploadField
+          name={`e_${eIdx}_s_${sIdx}_video_id`}
           idSuffix={`${eIdx}-${sIdx}`}
-          kind="video"
           label="Video"
-          compact
-          capture
           maxBytes={maxVideoBytes}
+          initialFileId={set.videoFileId}
+          onStateChange={onVideoStateChange}
         />
       </div>
       {tracksRpe ? (

@@ -4,6 +4,7 @@ import {
   redirect,
   useActionData,
   useLoaderData,
+  useNavigation,
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
@@ -14,7 +15,7 @@ import { requireUser } from "~/lib/auth";
 import { filterToKnownCategoryNames, listCategoriesForTrainer } from "~/lib/categories";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
-import { UploadCleanupQueue, UploadError, uploadFile } from "~/lib/file-uploads";
+import { maxUploadBytesFor, UploadCleanupQueue, UploadError, uploadFile } from "~/lib/file-uploads";
 
 const ExerciseSchema = z.object({
   name: z.string().trim().min(1, "Nazwa jest wymagana.").max(120),
@@ -26,7 +27,10 @@ const ExerciseSchema = z.object({
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainer" });
   const categories = await listCategoriesForTrainer(db, user.id);
-  return { categories };
+  // Limit kliencki MUSI pochodzić z tego samego źródła co serwerowy — inaczej
+  // przeglądarka przepuszcza plik, który serwer i tak odrzuci, ale dopiero PO
+  // zbuforowaniu całego ciała żądania w pamięci.
+  return { categories, maxVideoBytes: maxUploadBytesFor("exercise_demo") };
 }
 
 export async function action(args: ActionFunctionArgs) {
@@ -88,8 +92,12 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function NoweCwiczenie() {
-  const { categories } = useLoaderData<typeof loader>();
+  const { categories, maxVideoBytes } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  // Blokada podwójnej wysyłki — formularz niesie wideo demo, więc wysyłka trwa,
+  // a drugie kliknięcie tworzy DRUGIE ćwiczenie i drugi blob na wolumenie.
+  const navigation = useNavigation();
+  const isSubmitting = navigation.formMethod != null;
   return (
     <div style={{ maxWidth: 580 }}>
       <div className="crumbs">
@@ -144,7 +152,10 @@ export default function NoweCwiczenie() {
           />
         </div>
 
-        <label className="field" style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
+        <label
+          className="field"
+          style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}
+        >
           <input type="checkbox" name="tracksRpe" defaultChecked style={{ marginTop: 3 }} />
           <span>
             <span style={{ display: "block", fontWeight: 500 }}>
@@ -164,7 +175,7 @@ export default function NoweCwiczenie() {
           idSuffix="new"
           kind="video"
           label="Wideo demo (opcjonalne)"
-          maxBytes={250_000_000}
+          maxBytes={maxVideoBytes}
         />
 
         {actionData?.error != null && (
@@ -174,8 +185,13 @@ export default function NoweCwiczenie() {
         )}
 
         <div className="row" style={{ gap: 8 }}>
-          <button type="submit" className="btn btn-primary">
-            Zapisz ćwiczenie
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={isSubmitting}
+            aria-busy={isSubmitting}
+          >
+            {isSubmitting ? "Zapisywanie…" : "Zapisz ćwiczenie"}
           </button>
           <Link to="/trener/biblioteka" className="btn btn-ghost">
             Anuluj

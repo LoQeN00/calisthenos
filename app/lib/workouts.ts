@@ -1,6 +1,20 @@
-import { and, asc, count, desc, eq, exists, ilike, inArray, not, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  exists,
+  ilike,
+  inArray,
+  not,
+  notExists,
+  or,
+  sql,
+} from "drizzle-orm";
 import type { Db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
+import { logger } from "~/lib/logger";
 
 // ============================================================
 // Domain types
@@ -401,10 +415,7 @@ export async function countClientsForTrainer(
   const conds = [eq(schema.users.trainerId, trainerId), eq(schema.users.role, "trainee")];
   if (opts.q && opts.q.length > 0) {
     conds.push(
-      or(
-        ilike(schema.users.displayName, `%${opts.q}%`),
-        ilike(schema.users.email, `%${opts.q}%`),
-      )!,
+      or(ilike(schema.users.displayName, `%${opts.q}%`), ilike(schema.users.email, `%${opts.q}%`))!,
     );
   }
   const activePlanSub = db
@@ -419,7 +430,10 @@ export async function countClientsForTrainer(
     );
   if (opts.plan === "with") conds.push(exists(activePlanSub));
   if (opts.plan === "without") conds.push(not(exists(activePlanSub)));
-  const [row] = await db.select({ c: count() }).from(schema.users).where(and(...conds));
+  const [row] = await db
+    .select({ c: count() })
+    .from(schema.users)
+    .where(and(...conds));
   return Number(row?.c ?? 0);
 }
 
@@ -625,10 +639,7 @@ export async function listClientsForTrainer(
   const conditions = [eq(schema.users.trainerId, trainerId), eq(schema.users.role, "trainee")];
   if (opts.q && opts.q.length > 0) {
     conditions.push(
-      or(
-        ilike(schema.users.displayName, `%${opts.q}%`),
-        ilike(schema.users.email, `%${opts.q}%`),
-      )!,
+      or(ilike(schema.users.displayName, `%${opts.q}%`), ilike(schema.users.email, `%${opts.q}%`))!,
     );
   }
 
@@ -747,6 +758,98 @@ export interface SaveWorkoutLogInput {
   note: string | null;
   allDone: boolean;
   exercises: SaveExerciseLogInput[];
+}
+
+/**
+ * Czysta część walidacji nagrań: które z żądanych identyfikatorów nie nadają się do
+ * podpięcia. Dwie reguły:
+ *  1. id nie wróciło z bazy — jest cudze, złego rodzaju, spoza tenanta, już podpięte
+ *     albo sprzątnięte przez sweeper;
+ *  2. id powtarza się w żądaniu — jeden upload nie może obsłużyć dwóch serii, a samo
+ *     zapytanie tego nie wykryje (zwróci wiersz raz i będzie wyglądał poprawnie).
+ */
+/** Kształt UUID — `files.id` jest kolumną `uuid`, więc śmieć musi odpaść przed zapytaniem. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function findUnusableVideoIds(requested: string[], usable: Array<{ id: string }>): string[] {
+  const ok = new Set(usable.map((r) => r.id));
+  const seen = new Set<string>();
+  const bad: string[] = [];
+  for (const id of requested) {
+    if (!ok.has(id) || seen.has(id)) bad.push(id);
+    seen.add(id);
+  }
+  return bad;
+}
+
+/**
+ * Rzuca `WorkoutSaveError`, jeśli którekolwiek z podanych nagrań nie należy do TEGO
+ * podopiecznego, nie jest rodzaju `set_video`, wypada poza tenanta albo jest już
+ * podpięte do innej serii.
+ *
+ * Konieczne od czasu rozdzielenia uploadu od zapisu: wcześniej `videoFileId` pochodził
+ * z `uploadFile` w tym samym żądaniu, teraz przychodzi od klienta.
+ *
+ * `uploaded_by` jest tu KLUCZOWE i sam `trainer_id` NIE wystarcza — podopieczni jednego
+ * trenera dzielą tę samą wartość `trainer_id`, więc bez tego warunku podopieczny A mógłby
+ * podpiąć pod swój trening nagranie podopiecznego B.
+ */
+export async function assertOwnedUnclaimedVideos(
+  db: Db,
+  args: { traineeId: string; trainerId: string; fileIds: string[] },
+): Promise<void> {
+  if (args.fileIds.length === 0) return;
+
+  // Odsiej identyfikatory o niepoprawnym kształcie PRZED zapytaniem: `files.id` jest
+  // kolumną `uuid`, więc wstawienie tam czegokolwiek innego kończy się błędem Postgresa
+  // 22P02, a ten nie jest `WorkoutSaveError` — poleciałby jako 500 i ErrorBoundary.
+  // Identyfikatory pochodzą od klienta, więc to trywialnie wywoływalne.
+  // Odsiane id trafiają niżej do `bad` przez porównanie z pełną listą żądań.
+  const wellFormed = args.fileIds.filter((id) => UUID_RE.test(id));
+  if (wellFormed.length === 0) {
+    logger.warn("workout.video_ids_rejected", {
+      count: args.fileIds.length,
+      requested: args.fileIds.length,
+      traineeId: args.traineeId,
+    });
+    throw new WorkoutSaveError(
+      `rejected ${args.fileIds.length} malformed video ids`,
+      "Któreś z nagrań nie jest już dostępne. Odśwież stronę i dodaj je ponownie.",
+    );
+  }
+
+  const rows = await db
+    .select({ id: schema.files.id })
+    .from(schema.files)
+    .where(
+      and(
+        inArray(schema.files.id, wellFormed),
+        eq(schema.files.kind, "set_video"),
+        eq(schema.files.trainerId, args.trainerId),
+        eq(schema.files.uploadedBy, args.traineeId),
+        notExists(
+          db
+            .select({ x: sql`1` })
+            .from(schema.workoutSetLogs)
+            .where(eq(schema.workoutSetLogs.videoFileId, schema.files.id)),
+        ),
+      ),
+    );
+
+  const bad = findUnusableVideoIds(args.fileIds, rows);
+  if (bad.length > 0) {
+    // Bez samych identyfikatorów w logu — liczba wystarcza do diagnozy, a nie zdradza
+    // cudzych zasobów w strumieniu logów.
+    logger.warn("workout.video_ids_rejected", {
+      count: bad.length,
+      requested: args.fileIds.length,
+      traineeId: args.traineeId,
+    });
+    throw new WorkoutSaveError(
+      `rejected ${bad.length} of ${args.fileIds.length} video ids`,
+      "Któreś z nagrań nie jest już dostępne. Odśwież stronę i dodaj je ponownie.",
+    );
+  }
 }
 
 /** Persist a workout log + nested exercise logs + set logs inside one transaction. */
