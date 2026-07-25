@@ -1,0 +1,1088 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>kalisthenos — drzewo umiejętności, cztery kierunki</title>
+<style>
+/* ============================================================
+   FONTY — self-hosted, ścieżka względna do repo (docs/ → public/fonts)
+   ============================================================ */
+@font-face{font-family:"DM Sans";font-style:normal;font-weight:400 700;font-display:swap;
+  src:url("../public/fonts/DMSans-latin.woff2") format("woff2");
+  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;}
+@font-face{font-family:"DM Sans";font-style:normal;font-weight:400 700;font-display:swap;
+  src:url("../public/fonts/DMSans-latin-ext.woff2") format("woff2");
+  unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;}
+@font-face{font-family:"Space Grotesk";font-style:normal;font-weight:400 700;font-display:swap;
+  src:url("../public/fonts/SpaceGrotesk-latin.woff2") format("woff2");
+  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;}
+@font-face{font-family:"Space Grotesk";font-style:normal;font-weight:400 700;font-display:swap;
+  src:url("../public/fonts/SpaceGrotesk-latin-ext.woff2") format("woff2");
+  unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;}
+@font-face{font-family:"JetBrains Mono";font-style:normal;font-weight:400 600;font-display:swap;
+  src:url("../public/fonts/JetBrainsMono-latin.woff2") format("woff2");
+  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;}
+@font-face{font-family:"JetBrains Mono";font-style:normal;font-weight:400 600;font-display:swap;
+  src:url("../public/fonts/JetBrainsMono-latin-ext.woff2") format("woff2");
+  unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;}
+
+/* ============================================================
+   TOKENY — 1:1 z app/styles/tokens.css
+   ============================================================ */
+:root{
+  --bg:#f7f7f4; --surface:#fff; --surface-2:#f0efea;
+  --ink:#0e1116; --ink-2:#2a2f38; --muted:#6b7280; --muted-2:#9ca3af;
+  --line:#e5e5df; --line-2:#d9d9d2;
+  --accent:#c7f23c; --accent-ink:#0e1116; --accent-soft:#effbc4;
+  --danger:#e25c3a; --ok:#2f9e6a; --warn:#e2a23a;
+  --radius-sm:6px; --radius:10px; --radius-lg:14px; --radius-pill:999px;
+  --shadow-md:0 2px 4px rgba(14,17,22,.04),0 8px 24px rgba(14,17,22,.06);
+  --font-display:"Space Grotesk",ui-sans-serif,system-ui,sans-serif;
+  --font-body:"DM Sans",ui-sans-serif,system-ui,sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+body.theme-dark{
+  --bg:#0b0e13; --surface:#131822; --surface-2:#1b2230;
+  --ink:#f5f6f4; --ink-2:#c9cdd3; --muted:#8a93a0; --muted-2:#5d6573;
+  --line:#232938; --line-2:#2e3547; --accent-soft:#1d2410;
+  --shadow-md:0 2px 4px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.4);
+}
+
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:var(--font-body); font-size:14px; line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+.mono{font-family:var(--font-mono);font-feature-settings:"tnum"}
+h1,h2,h3{font-family:var(--font-display);font-weight:600;letter-spacing:-.02em;margin:0}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+
+/* ============================ CHROME DOKUMENTU ============================ */
+.wrap{max-width:1360px;margin:0 auto;padding:0 28px 96px}
+
+.topbar{
+  position:sticky;top:0;z-index:60;background:var(--bg);
+  border-bottom:1px solid var(--line);
+}
+.topbar-in{
+  max-width:1360px;margin:0 auto;padding:12px 28px;
+  display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+}
+.brand{display:flex;align-items:center;gap:9px;font-family:var(--font-display);font-weight:600;font-size:14px}
+.brand-mark{
+  width:24px;height:24px;border-radius:7px;background:var(--ink);color:var(--bg);
+  display:grid;place-items:center;font-size:12px;font-weight:700
+}
+.brand-dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.tabs{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+.tab{
+  font-family:var(--font-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+  padding:7px 13px;border-radius:var(--radius-pill);border:1px solid var(--line);
+  background:var(--surface);color:var(--muted);cursor:pointer;transition:background .12s,color .12s,border-color .12s
+}
+.tab:hover{background:var(--surface-2);color:var(--ink)}
+.tab[aria-selected="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.tab-k{opacity:.55;margin-right:7px}
+.tab[aria-selected="true"] .tab-k{opacity:.7}
+.theme-btn{
+  font-family:var(--font-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+  padding:7px 13px;border-radius:var(--radius-pill);border:1px solid var(--line);
+  background:var(--surface);color:var(--muted);cursor:pointer
+}
+.theme-btn:hover{background:var(--surface-2);color:var(--ink)}
+
+.eyebrow{
+  font-family:var(--font-mono);font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)
+}
+.doc-head{padding:44px 0 34px;max-width:760px}
+.doc-head h1{font-size:38px;line-height:1.1;margin:12px 0 14px}
+.doc-head p{margin:0 0 12px;color:var(--ink-2);font-size:15px}
+
+.diag{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));gap:1px;
+  background:var(--line);border:1px solid var(--line);border-radius:var(--radius-lg);
+  overflow:hidden;margin:8px 0 40px
+}
+.diag div{background:var(--surface);padding:16px 18px}
+.diag h3{font-size:13px;margin:0 0 6px}
+.diag p{margin:0;font-size:12.5px;color:var(--muted);line-height:1.5}
+.diag .n{font-family:var(--font-mono);font-size:10.5px;color:var(--danger);letter-spacing:.08em;display:block;margin-bottom:8px}
+
+/* ============================ SEKCJA OPCJI ============================ */
+.opt{display:none}
+.opt.is-on{display:block;animation:slidein .18s ease both}
+@keyframes slidein{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+.opt-head{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,360px);gap:40px;align-items:end;padding:6px 0 24px}
+.opt-head .k{font-family:var(--font-mono);font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.opt-head h2{font-size:30px;line-height:1.1;margin:10px 0 10px}
+.opt-head .lead{margin:0;color:var(--ink-2);font-size:15px;max-width:60ch}
+.fix{margin:0;padding:0;list-style:none;display:grid;gap:9px}
+.fix li{font-size:12.5px;color:var(--muted);line-height:1.5;padding-left:14px;position:relative}
+.fix li::before{content:"";position:absolute;left:0;top:8px;width:6px;height:1px;background:var(--line-2)}
+.fix b{color:var(--ink);font-weight:600}
+.cost{
+  display:inline-flex;align-items:center;gap:8px;margin-top:16px;
+  font-family:var(--font-mono);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--muted);border:1px solid var(--line);border-radius:var(--radius-pill);padding:5px 12px
+}
+
+.stage{
+  border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface);
+  overflow:hidden
+}
+.stage-head{
+  display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;
+  padding:13px 20px;border-bottom:1px solid var(--line);background:var(--surface)
+}
+.stage-title{font-family:var(--font-display);font-weight:600;font-size:15px}
+.stage-sub{font-family:var(--font-mono);font-size:11px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.scroller{overflow:auto;overscroll-behavior-x:contain;padding:26px 24px 30px;background:var(--bg)}
+.board{position:relative;margin:0 auto}
+.board svg{position:absolute;inset:0;pointer-events:none}
+
+/* nagłówek postępu — wspólny dla wszystkich kierunków */
+.hero{
+  display:flex;gap:34px;flex-wrap:wrap;align-items:flex-end;
+  padding:20px 24px;border-bottom:1px solid var(--line);background:var(--surface)
+}
+.hero .v{font-family:var(--font-display);font-weight:600;font-size:30px;line-height:1;letter-spacing:-.02em}
+.hero .v.mono{font-family:var(--font-mono);font-weight:600}
+.hero .k{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-top:7px}
+.hero .grow{margin-left:auto}
+.legend{display:flex;gap:16px;flex-wrap:wrap;align-items:center;font-family:var(--font-mono);font-size:10.5px;color:var(--muted);letter-spacing:.04em}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+
+/* ============================ A · MONUMENT ============================ */
+.strata{position:absolute;left:0;right:0;border-radius:var(--radius-lg);background:var(--surface-2);border:1px solid var(--line)}
+.strata[data-tier="expert"]{background:var(--ink);border-color:var(--ink)}
+.strata-head{display:flex;align-items:center;gap:12px;padding:9px 18px 0}
+.strata-head .lab{font-family:var(--font-mono);font-size:11px;letter-spacing:.11em;text-transform:uppercase;color:var(--muted)}
+.strata-head .cnt{margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--muted)}
+.strata[data-tier="expert"] .lab,.strata[data-tier="expert"] .cnt{color:var(--muted-2)}
+.roman{
+  position:absolute;left:16px;bottom:8px;font-family:var(--font-display);font-weight:700;
+  font-size:64px;line-height:.8;letter-spacing:-.04em;color:var(--ink);opacity:.055;pointer-events:none;user-select:none
+}
+.strata[data-tier="expert"] .roman{color:var(--bg);opacity:.12}
+
+.summit{position:absolute;left:0;right:0;height:0;border-top:1.5px solid var(--accent);z-index:3;pointer-events:none}
+.summit span{
+  position:absolute;right:0;top:-9px;background:var(--accent);color:var(--accent-ink);
+  font-family:var(--font-mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+  padding:2px 9px;border-radius:var(--radius-pill)
+}
+
+.node{
+  position:absolute;z-index:2;display:block;text-decoration:none;overflow:hidden;
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:13px 15px 12px;transition:transform .12s ease,box-shadow .12s ease,border-color .12s ease
+}
+.node:hover{transform:translateY(-2px);box-shadow:var(--shadow-md);border-color:var(--line-2)}
+.node[data-tier="intermediate"]{border-color:var(--line-2)}
+.node[data-tier="advanced"]{border-width:1.5px;border-color:var(--line-2)}
+.node[data-tier="expert"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.node[data-state="locked"]{opacity:.62}
+.node[data-tier="expert"][data-state="locked"]{opacity:.82}
+.node-top{display:flex;align-items:center;gap:7px;margin-bottom:8px}
+.node-dot{width:7px;height:7px;border-radius:50%;background:var(--muted-2);flex:none}
+.node[data-state="mastered"] .node-dot{background:var(--ok)}
+.node[data-state="in_progress"] .node-dot{background:var(--accent)}
+.node[data-state="available"] .node-dot{background:transparent;box-shadow:inset 0 0 0 1.5px var(--accent)}
+.node-state{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.node[data-tier="expert"] .node-state{color:var(--muted-2)}
+.node-name{font-family:var(--font-display);font-weight:600;font-size:16px;line-height:1.2;letter-spacing:-.01em;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.node-lvl{font-family:var(--font-mono);font-size:11px;color:var(--muted);margin-top:5px}
+.node[data-tier="expert"] .node-lvl{color:var(--muted-2)}
+.node-bar{height:3px;border-radius:2px;background:var(--surface-2);margin-top:9px;overflow:hidden}
+.node[data-tier="expert"] .node-bar{background:rgba(255,255,255,.14)}
+.node-bar i{display:block;height:100%;border-radius:2px;background:var(--muted-2)}
+.node[data-state="mastered"] .node-bar i{background:var(--ok)}
+.node[data-state="in_progress"] .node-bar i{background:var(--accent)}
+
+/* ============================ B · METRO ============================ */
+.zone{position:absolute;left:0;right:0;border-top:1px dashed var(--line-2)}
+.zone .zl{
+  position:absolute;right:0;top:-8px;background:var(--bg);padding-left:12px;
+  font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted-2)
+}
+.station{position:absolute;z-index:2;display:flex;align-items:center;gap:11px;text-decoration:none;color:inherit}
+.station .halo{
+  width:26px;height:26px;border-radius:50%;flex:none;display:grid;place-items:center;
+  background:var(--bg);border:2.5px solid var(--ink);position:relative
+}
+.station[data-state="mastered"] .halo{background:var(--ink)}
+.station[data-state="mastered"] .halo::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--ok)}
+.station[data-state="in_progress"] .halo{border-color:var(--ink)}
+.station[data-state="in_progress"] .halo::after{content:"";width:9px;height:9px;border-radius:50%;background:var(--accent)}
+.station[data-state="available"] .halo{border-color:var(--accent);border-style:solid}
+.station[data-state="available"] .halo::after{content:"";width:7px;height:7px;border-radius:50%;background:transparent;box-shadow:inset 0 0 0 1.5px var(--accent)}
+.station[data-state="locked"] .halo{border-color:var(--line-2);border-width:2px}
+.station[data-interchange="1"] .halo{box-shadow:0 0 0 3px var(--bg),0 0 0 4.5px var(--ink)}
+.station[data-state="locked"][data-interchange="1"] .halo{box-shadow:0 0 0 3px var(--bg),0 0 0 4.5px var(--line-2)}
+.station .plate{min-width:0}
+.station .sn{font-family:var(--font-display);font-weight:600;font-size:14.5px;line-height:1.2;letter-spacing:-.01em;white-space:nowrap}
+.station[data-state="locked"] .sn{color:var(--muted)}
+.station .sl{font-family:var(--font-mono);font-size:10px;color:var(--muted);letter-spacing:.03em;margin-top:2px;white-space:nowrap}
+.station .here{
+  display:inline-block;margin-top:4px;background:var(--accent);color:var(--accent-ink);
+  font-family:var(--font-mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;padding:2px 8px;border-radius:var(--radius-pill)
+}
+.lines-legend{display:flex;gap:20px;flex-wrap:wrap;padding:14px 20px;border-top:1px solid var(--line);background:var(--surface)}
+.ll{display:flex;align-items:center;gap:9px;font-family:var(--font-mono);font-size:10.5px;color:var(--muted);letter-spacing:.05em}
+.ll svg{display:block;flex:none}
+
+/* ============================ C · GAŁĄŹ ============================ */
+.leaf{position:absolute;z-index:2;text-align:center;text-decoration:none;color:inherit}
+.leaf .disc{
+  width:60px;height:60px;border-radius:50%;margin:0 auto;display:grid;place-items:center;
+  background:var(--surface);border:1.5px solid var(--line-2);
+  font-family:var(--font-display);font-weight:700;font-size:20px;letter-spacing:-.02em;position:relative
+}
+.leaf[data-state="mastered"] .disc{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.leaf[data-state="in_progress"] .disc{border-color:var(--accent);border-width:2.5px}
+.leaf[data-state="available"] .disc{border-style:dashed;border-color:var(--accent)}
+.leaf[data-state="locked"] .disc{color:var(--muted-2);border-color:var(--line);border-style:dashed}
+.leaf .ring{position:absolute;inset:-7px;border-radius:50%;border:1.5px solid var(--ok);opacity:.35}
+/* Podpis wisi pod dyskiem, a konar wchodzi w węzeł od dołu — plakietka na kolorze tła
+   przepuszcza gałąź za sobą i trzyma tekst czytelnym. */
+.leaf .lwrap{display:block}
+.leaf .lwrap + .lwrap{margin-top:3px}
+.leaf .ln,.leaf .lv{display:inline-block;background:var(--bg);border-radius:5px;padding:1px 8px}
+.leaf .ln{font-family:var(--font-display);font-weight:600;font-size:13.5px;line-height:1.3;margin-top:9px;letter-spacing:-.01em}
+.leaf[data-state="locked"] .ln{color:var(--muted)}
+.leaf .lv{font-family:var(--font-mono);font-size:10px;color:var(--muted)}
+.tierrule{position:absolute;left:0;right:0;border-top:1px solid var(--line)}
+.tierrule span{position:absolute;left:0;top:-8px;background:var(--bg);padding-right:12px;
+  font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted-2)}
+
+/* ============================ D · TRASA ============================ */
+.route-stage{display:grid;grid-template-columns:minmax(0,1fr) 320px}
+@media (max-width:1080px){.route-stage{grid-template-columns:minmax(0,1fr)}}
+.route-board{padding:22px 24px 28px;background:var(--bg);position:relative}
+.tband{margin-bottom:22px}
+.tband:last-child{margin-bottom:0}
+.tband-head{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.tband-head .lab{font-family:var(--font-mono);font-size:11px;letter-spacing:.11em;text-transform:uppercase;color:var(--muted)}
+.tband-head .rule{flex:1;height:1px;background:var(--line)}
+.tband-head .cnt{font-family:var(--font-mono);font-size:11px;color:var(--muted)}
+.tgrid{display:flex;flex-wrap:wrap;gap:12px}
+.rcard{
+  position:relative;z-index:1;
+  width:264px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:14px 16px 13px;cursor:pointer;text-align:left;font:inherit;color:inherit;
+  transition:transform .12s ease,box-shadow .12s ease,opacity .16s ease,border-color .12s
+}
+.rcard:hover{transform:translateY(-2px);box-shadow:var(--shadow-md);border-color:var(--line-2)}
+.rcard[data-tier="advanced"]{border-width:1.5px;border-color:var(--line-2)}
+.rcard[data-tier="expert"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.rcard[data-state="locked"]{opacity:.66}
+.rcard .rn{font-family:var(--font-display);font-weight:600;font-size:16.5px;letter-spacing:-.01em}
+.rcard .rl{font-family:var(--font-mono);font-size:11px;color:var(--muted);margin-top:4px}
+.rcard[data-tier="expert"] .rl{color:var(--muted-2)}
+.rcard .rbar{height:3px;border-radius:2px;background:var(--surface-2);margin-top:10px;overflow:hidden}
+.rcard[data-tier="expert"] .rbar{background:rgba(255,255,255,.14)}
+.rcard .rbar i{display:block;height:100%;background:var(--muted-2)}
+.rcard[data-state="mastered"] .rbar i{background:var(--ok)}
+.rcard[data-state="in_progress"] .rbar i{background:var(--accent)}
+.rcard .rreq{
+  display:flex;align-items:flex-start;gap:6px;margin-top:11px;padding-top:10px;border-top:1px solid var(--line);
+  font-family:var(--font-mono);font-size:10px;letter-spacing:.03em;color:var(--muted);line-height:1.5
+}
+.rcard[data-tier="expert"] .rreq{border-color:rgba(255,255,255,.14);color:var(--muted-2)}
+.rcard .rreq svg{flex:none;margin-top:3px}
+.route-board.is-focus .rcard{opacity:.24}
+.route-board.is-focus .rcard.on{opacity:1}
+.route-board.is-focus .rcard.target{border-color:var(--accent);border-width:1.5px}
+.route-panel{border-left:1px solid var(--line);background:var(--surface);padding:20px 22px}
+@media (max-width:1080px){.route-panel{border-left:0;border-top:1px solid var(--line)}}
+.route-panel .ph{font-family:var(--font-mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--muted)}
+.route-panel h3{font-size:20px;margin:9px 0 4px}
+.route-panel .psub{font-size:12.5px;color:var(--muted);margin:0 0 18px}
+.steps{list-style:none;margin:0;padding:0}
+.steps li{display:flex;gap:12px;padding-bottom:14px;position:relative}
+.steps li:last-child{padding-bottom:0}
+.steps li::before{content:"";position:absolute;left:12.5px;top:26px;bottom:2px;width:1px;background:var(--line)}
+.steps li:last-child::before{display:none}
+.steps .no{
+  width:26px;height:26px;border-radius:50%;flex:none;display:grid;place-items:center;
+  font-family:var(--font-mono);font-size:11px;border:1px solid var(--line);background:var(--surface-2);color:var(--muted);z-index:1
+}
+.steps li[data-state="mastered"] .no{background:var(--ok);border-color:var(--ok);color:#fff}
+.steps li[data-state="in_progress"] .no{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.steps li[data-state="available"] .no{border-color:var(--accent);color:var(--ink)}
+.steps .sn2{font-family:var(--font-display);font-weight:600;font-size:14px;letter-spacing:-.01em}
+.steps .ss{font-family:var(--font-mono);font-size:10px;color:var(--muted);letter-spacing:.04em;margin-top:2px}
+.route-overlay{position:absolute;inset:0;pointer-events:none;z-index:0}
+
+/* ============================ STOPKA ============================ */
+.foot{margin-top:44px;border-top:1px solid var(--line);padding-top:26px;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:28px}
+.foot h3{font-size:14px;margin:0 0 8px}
+.foot p{margin:0 0 10px;font-size:12.5px;color:var(--muted);line-height:1.6}
+.foot code{font-family:var(--font-mono);font-size:11.5px;background:var(--surface-2);padding:1px 5px;border-radius:4px;color:var(--ink-2)}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;transition-duration:.001ms!important}
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-in">
+    <div class="brand"><span class="brand-mark">K</span> kalisthenos <span class="brand-dot"></span></div>
+    <div class="tabs" role="tablist" id="tabs">
+      <button class="tab" role="tab" data-opt="a" aria-selected="true"><span class="tab-k">A</span>Monument</button>
+      <button class="tab" role="tab" data-opt="b" aria-selected="false"><span class="tab-k">B</span>Mapa linii</button>
+      <button class="tab" role="tab" data-opt="c" aria-selected="false"><span class="tab-k">C</span>Gałąź</button>
+      <button class="tab" role="tab" data-opt="d" aria-selected="false"><span class="tab-k">D</span>Trasa</button>
+    </div>
+    <button class="theme-btn" id="theme">Ciemny</button>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <header class="doc-head">
+    <div class="eyebrow">Przegląd wizualny · widok podopiecznego · 25 lip 2026</div>
+    <h1>Drzewo umiejętności — cztery kierunki</h1>
+    <p>Cztery różne odpowiedzi na to samo pytanie: jak pokazać podopiecznemu, co zdobył i co z czego wynika, żeby ten ekran robił wrażenie. Dane są Twoje — te same jedenaście umiejętności co na produkcji, plus jedna zablokowana z pasa <span class="mono">EKSPERT</span>, żeby było widać wszystkie cztery stany.</p>
+    <p>Wybierz literę. Zbuduję ten kierunek w aplikacji; pozostałe idą do kosza.</p>
+  </header>
+
+  <div class="diag">
+    <div>
+      <span class="n">DZIŚ · 01</span>
+      <h3>Karta ma 116 px</h3>
+      <p>Płyta pasa jest szeroka na całą planszę, a karty siedzą w jej środku jak znaczki. Wszystkie kierunki poniżej zaczynają od karty 240 px i planszy, która wypełnia kanwę.</p>
+    </div>
+    <div>
+      <span class="n">DZIŚ · 02</span>
+      <h3>Linia nie ma kierunku</h3>
+      <p>Łuk łączy dwie karty i nic więcej nie mówi. Kierunek musi być zakodowany w formie: grot, grubość albo słowo — nie w domyśle czytelnika.</p>
+    </div>
+    <div>
+      <span class="n">DZIŚ · 03</span>
+      <h3>Rząd sortuje się alfabetycznie</h3>
+      <p>To źródło plątaniny: sąsiedzi w rzędzie nie mają ze sobą nic wspólnego, więc każda zależność biegnie skosem przez pół planszy. Wszystkie kierunki układają węzły w kolumnach łańcuchów.</p>
+    </div>
+  </div>
+
+  <!-- ============================ A ============================ -->
+  <section class="opt is-on" id="opt-a">
+    <div class="opt-head">
+      <div>
+        <div class="k">Kierunek A</div>
+        <h2>Monument</h2>
+        <p class="lead">Piramida przestaje być diagramem, a staje się konstrukcją oglądaną z boku. Cztery warstwy skalne, rzymski numer wykuty w każdej z nich, czarna płyta na szczycie. To, co niżej, dosłownie dźwiga to, co wyżej.</p>
+      </div>
+      <ul class="fix">
+        <li><b>Skala.</b> Karta 240×92, nazwa 16 px, warstwa 138 px wysokości. Plansza w skali 1:1 — SVG nie jest już rozciągany.</li>
+        <li><b>Kierunek.</b> Linia wychodzi <b>grubą stopką</b> z góry prerekwizytu i wchodzi <b>grotem</b> w spód umiejętności, którą odblokowuje. Stopka = fundament, grot = to, co dostajesz.</li>
+        <li><b>Linie.</b> Routing ortogonalny: pion w wolnym korytarzu, załamanie tuż pod celem, wejście od dołu. Poziome odcinki dostają własne pasy, więc się nie nakładają.</li>
+        <li><b>Podpis.</b> Limonkowa <b>linia szczytu</b> na wysokości najwyższego zdobytego tieru — jedno spojrzenie mówi, jak wysoko jesteś.</li>
+      </ul>
+    </div>
+    <div class="stage">
+      <div class="hero" id="hero-a"></div>
+      <div class="stage-head">
+        <div class="stage-title">Twoja piramida</div>
+        <div class="stage-sub">Warstwa niżej dźwiga warstwę wyżej</div>
+      </div>
+      <div class="scroller"><div class="board" id="board-a"></div></div>
+      <div class="lines-legend" id="leg-a"></div>
+    </div>
+    <div class="cost mono">Koszt · nasz renderer + <b style="color:var(--ink)">dagre</b> do układu · SSR zostaje</div>
+  </section>
+
+  <!-- ============================ B ============================ -->
+  <section class="opt" id="opt-b">
+    <div class="opt-head">
+      <div>
+        <div class="k">Kierunek B</div>
+        <h2>Mapa linii</h2>
+        <p class="lead">Drzewo jako mapa metra: stacje, strefy taryfowe zamiast tierów, kierunek jazdy zawsze w górę. Mapy metra istnieją po to, żeby krzyżujące się linie dawały się czytać — to jedyny znany rysunek, który rozwiązuje dokładnie Twój problem numer dwa.</p>
+      </div>
+      <ul class="fix">
+        <li><b>Skala.</b> Plansza dostaje własną, gęstą siatkę; stacja to duża kropka z nazwą obok — nazwy nie łamią się już w dwie linijki.</li>
+        <li><b>Kierunek.</b> Grot na każdym odcinku, zawsze w stronę tego, co odblokowujesz. Stacja końcowa linii dostaje belkę, jak terminus na mapie.</li>
+        <li><b>Linie.</b> Ortogonalne, zaokrąglone łuki 90°, każda w swoim pasie. Przesiadka (dwa prereki) to podwójna obwódka — klasyczny znacznik interchange.</li>
+        <li><b>Kolor.</b> Linie zostają monochromatyczne — różnią się ciężarem, nie barwą. Limonka wyłącznie na „tu jesteś”.</li>
+      </ul>
+    </div>
+    <div class="stage">
+      <div class="hero" id="hero-b"></div>
+      <div class="stage-head">
+        <div class="stage-title">Sieć umiejętności</div>
+        <div class="stage-sub">Strefa I — fundament · strefa IV — ekspert</div>
+      </div>
+      <div class="scroller"><div class="board" id="board-b"></div></div>
+      <div class="lines-legend" id="leg-b"></div>
+    </div>
+    <div class="cost mono">Koszt · nasz renderer + <b style="color:var(--ink)">elkjs</b> (routing ortogonalny) · SSR do sprawdzenia</div>
+  </section>
+
+  <!-- ============================ C ============================ -->
+  <section class="opt" id="opt-c">
+    <div class="opt-head">
+      <div>
+        <div class="k">Kierunek C</div>
+        <h2>Gałąź</h2>
+        <p class="lead">Drzewo, które naprawdę wygląda jak drzewo. Pień u dołu, konary grubieją przy korzeniu i cieńczeją przy liściu. Cała korona jest narysowana konturem od pierwszego dnia — opanowane gałęzie wypełniają się atramentem. Widzisz kształt tego, co przed Tobą, i zamalowujesz go treningami.</p>
+      </div>
+      <ul class="fix">
+        <li><b>Kierunek.</b> Rozwiązany geometrią, nie ikoną: konar jest gruby u nasady i cienki u wierzchołka. Nie da się pomylić, co z czego wyrasta — tak samo jak przy prawdziwym drzewie.</li>
+        <li><b>Linie.</b> Gałęzie wychodzące z jednego węzła są zrośnięte u nasady i rozdzielają się dopiero wyżej, więc plansza nie ma splotu równoległych kresek.</li>
+        <li><b>Wrażenie.</b> Najmocniejszy z czterech. Kontur nieopanowanej korony jest tu prawdziwym haczykiem — pokazuje cel, zanim się go dotknie.</li>
+        <li><b>Ryzyko.</b> Najdalej od reszty systemu: aplikacja jest zbudowana z hairline’ów i prostokątów, a to jest forma organiczna. Świadomy wyłom — obowiązuje tylko na tym ekranie.</li>
+      </ul>
+    </div>
+    <div class="stage">
+      <div class="hero" id="hero-c"></div>
+      <div class="stage-head">
+        <div class="stage-title">Twoje drzewo</div>
+        <div class="stage-sub">Kontur = przed Tobą · atrament = zdobyte</div>
+      </div>
+      <div class="scroller"><div class="board" id="board-c"></div></div>
+      <div class="lines-legend" id="leg-c"></div>
+    </div>
+    <div class="cost mono">Koszt · własna matematyka wstęg · brak biblioteki, która robi to z pudełka</div>
+  </section>
+
+  <!-- ============================ D ============================ -->
+  <section class="opt" id="opt-d">
+    <div class="opt-head">
+      <div>
+        <div class="k">Kierunek D</div>
+        <h2>Trasa</h2>
+        <p class="lead">Plansza milczy, dopóki o coś nie zapytasz. Zero stałych linii — każda karta mówi słowami, czego wymaga. Klikasz umiejętność i reszta gaśnie: zapala się cała droga od fundamentu do niej, ponumerowana krok po kroku.</p>
+      </div>
+      <ul class="fix">
+        <li><b>Kierunek.</b> Napisany wprost: „wymaga · Dipy, Podciąganie”. Żadnego wnioskowania z przebiegu kreski.</li>
+        <li><b>Linie.</b> Problem znika, bo linie pojawiają się tylko dla jednej trasy naraz — maksymalnie kilka odcinków, nigdy dwanaście.</li>
+        <li><b>Skala danych.</b> Jedyny kierunek, który wygląda tak samo dobrze przy 40 umiejętnościach jak przy 12.</li>
+        <li><b>Cena.</b> Najmniej efektowny na zrzucie ekranu — działa dopiero, gdy się go dotknie. <b>Kliknij dowolną kartę</b>, żeby zobaczyć tryb trasy.</li>
+      </ul>
+    </div>
+    <div class="stage">
+      <div class="hero" id="hero-d"></div>
+      <div class="stage-head">
+        <div class="stage-title">Umiejętności</div>
+        <div class="stage-sub">Kliknij kartę, żeby zobaczyć drogę do niej</div>
+      </div>
+      <div class="route-stage">
+        <div class="route-board" id="board-d"></div>
+        <aside class="route-panel" id="panel-d"></aside>
+      </div>
+    </div>
+    <div class="cost mono">Koszt · najniższy · bez biblioteki, bez zmian w SSR</div>
+  </section>
+
+  <footer class="foot">
+    <div>
+      <h3>Czy potrzebna biblioteka?</h3>
+      <p>Do rysowania — nie. Kart, płyt i krzywych nie odda nam żadna biblioteka lepiej niż własny SVG, a przy okazji tracilibyśmy tokeny, dark mode i SSR.</p>
+      <p>Do <b>układu i routingu</b> — tak, i to jest właściwe miejsce: <code>@dagrejs/dagre</code> (czysty JS, liczy się też na serwerze) dla kierunku A i D, <code>elkjs</code> dla B, jeśli chcemy prawdziwy routing ortogonalny z omijaniem węzłów. Kierunek C liczy własną geometrię wstęg.</p>
+      <p><code>@xyflow/react</code> (React Flow) daje pan/zoom i interakcje z pudełka, ale jest wyłącznie kliencki i mierzy DOM — traci SSR, który dziś mamy za darmo. Rozważyłbym go tylko przy trybie edycji drzewa u trenera.</p>
+    </div>
+    <div>
+      <h3>Co dostaje każdy kierunek za darmo</h3>
+      <p>Plansza w skali <b>1:1</b> zamiast rozciąganego <code>preserveAspectRatio="none"</code> — kreski mają wszędzie tę samą grubość, a przerywane nie rozjeżdżają się na szerokim ekranie.</p>
+      <p>Układ w <b>kolumnach łańcuchów</b> zamiast alfabetycznego: łańcuch Handstand → press → HSPU → 90 degree HSPU stoi w jednej pionowej linii, więc jego zależności to proste odcinki, a nie skosy.</p>
+      <p>Nagłówek postępu, legenda stanów i sterowanie klawiaturą zostają bez zmian we wszystkich czterech.</p>
+    </div>
+    <div>
+      <h3>Moja rekomendacja</h3>
+      <p><b>A — Monument</b>, jeśli chcesz efekt bez ryzyka: zostaje w rejestrze kalisthenos, naprawia wszystkie trzy zarzuty, a linia szczytu daje ten moment dumy.</p>
+      <p><b>C — Gałąź</b>, jeśli chcesz, żeby ten ekran zapadał w pamięć i zgadzasz się na wyłom w systemie. To jedyny z czterech, który wygląda inaczej niż jakikolwiek panel treningowy na rynku.</p>
+      <p><b>B</b> wygrywa czytelnością przy dużym drzewie, <b>D</b> — pragmatyzmem. Można też złożyć: układ z A, tryb trasy z D.</p>
+    </div>
+  </footer>
+</div>
+
+<script>
+/* ============================================================
+   DANE — Twoje drzewo z produkcji + jeden węzeł EKSPERT
+   ============================================================ */
+const TIERS = [
+  { key:'basic',        label:'Podstawowy',          roman:'I',   zone:'Strefa I' },
+  { key:'intermediate', label:'Średnio zaawansowany',roman:'II',  zone:'Strefa II' },
+  { key:'advanced',     label:'Zaawansowany',        roman:'III', zone:'Strefa III' },
+  { key:'expert',       label:'Ekspert',             roman:'IV',  zone:'Strefa IV' },
+];
+
+/* c = kolumna (w jednostkach COL), sub = podrząd w obrębie pasa (0 = najniżej) */
+const NODES = [
+  { id:'pull',    name:'Podciąganie',          tier:0, sub:0, c:0,   state:'mastered',    cur:2, max:2 },
+  { id:'dipy',    name:'Dipy',                 tier:0, sub:0, c:1,   state:'mastered',    cur:1, max:1 },
+  { id:'hollow',  name:'Hollow body',          tier:0, sub:0, c:2,   state:'mastered',    cur:1, max:1 },
+  { id:'mu',      name:'muscle up',            tier:1, sub:0, c:0.5, state:'mastered',    cur:2, max:2 },
+  { id:'dragon',  name:'Dragon flag',          tier:1, sub:0, c:1.5, state:'available',   cur:0, max:3 },
+  { id:'hs',      name:'Handstand',            tier:1, sub:0, c:2.5, state:'mastered',    cur:3, max:3 },
+  { id:'press',   name:"press do handstand'a", tier:1, sub:1, c:2.5, state:'mastered',    cur:2, max:2 },
+  { id:'hspu',    name:'HSPU',                 tier:1, sub:2, c:2.5, state:'mastered',    cur:3, max:3 },
+  { id:'fl',      name:'Frontlever',           tier:2, sub:0, c:0.5, state:'mastered',    cur:5, max:5 },
+  { id:'planche', name:'planche',              tier:2, sub:0, c:1.5, state:'in_progress', cur:3, max:5 },
+  { id:'hspu90',  name:'90 degree HSPU',       tier:2, sub:0, c:2.5, state:'available',   cur:0, max:4 },
+  { id:'oahs',    name:'One arm handstand',    tier:3, sub:0, c:2.5, state:'locked',      cur:0, max:4 },
+];
+
+/* from = umiejętność zależna (wyżej), requires = prerekwizyt (niżej) */
+const EDGES = [
+  { from:'mu',      requires:'pull'   },
+  { from:'mu',      requires:'dipy'   },
+  { from:'dragon',  requires:'hollow' },
+  { from:'hs',      requires:'hollow' },
+  { from:'press',   requires:'hs'     },
+  { from:'hspu',    requires:'press'  },
+  { from:'fl',      requires:'pull'   },
+  { from:'fl',      requires:'dragon' },
+  { from:'planche', requires:'dipy'   },
+  { from:'planche', requires:'press'  },
+  { from:'hspu90',  requires:'hspu'   },
+  { from:'oahs',    requires:'hspu90' },
+];
+
+const STATE_LABEL = { mastered:'opanowane', in_progress:'w toku', available:'gotowe do startu', locked:'zablokowane' };
+const byId = Object.fromEntries(NODES.map(n => [n.id, n]));
+const prereqsOf = id => EDGES.filter(e => e.from === id).map(e => e.requires);
+const childrenOf = id => EDGES.filter(e => e.requires === id).map(e => e.from);
+
+/* ============================================================
+   POMOCNIKI
+   ============================================================ */
+const SVGNS = 'http://www.w3.org/2000/svg';
+function el(tag, cls, html){ const n = document.createElement(tag); if(cls) n.className = cls; if(html != null) n.innerHTML = html; return n; }
+function sv(tag, attrs){ const n = document.createElementNS(SVGNS, tag); for(const k in attrs) n.setAttribute(k, attrs[k]); return n; }
+function pct(n){ return n.max > 0 ? Math.round((n.cur / n.max) * 100) : 0; }
+function barW(n){ if(n.state === 'mastered') return '100%'; if(n.state === 'in_progress') return pct(n) + '%'; return '0%'; }
+function levelText(n){
+  if(n.state === 'available') return 'gotowe do startu';
+  if(n.state === 'locked')    return 'zablokowane';
+  return 'poziom ' + n.cur + '/' + n.max;
+}
+/* Przydział pasów dla poziomych odcinków, żeby się nie nakładały. */
+function laneAlloc(){
+  const lanes = [];
+  return function(a, b){
+    const lo = Math.min(a, b) - 6, hi = Math.max(a, b) + 6;
+    for(let i = 0; i < lanes.length; i++){
+      if(lanes[i].every(iv => hi < iv[0] || lo > iv[1])){ lanes[i].push([lo, hi]); return i; }
+    }
+    lanes.push([[lo, hi]]);
+    return lanes.length - 1;
+  };
+}
+
+/* ============================================================
+   GEOMETRIA — wspólna dla A, B, C
+   ============================================================ */
+function geometry(g){
+  const rowsInTier = TIERS.map((_, t) => Math.max(1, ...NODES.filter(n => n.tier === t).map(n => n.sub + 1)));
+  const maxC = Math.max(...NODES.map(n => n.c));
+  const W = g.padX * 2 + maxC * g.col + g.w;
+
+  /* pasy od góry planszy (najwyższy tier) w dół */
+  const bands = [];
+  let y = 0;
+  for(let t = TIERS.length - 1; t >= 0; t--){
+    const h = g.head + rowsInTier[t] * g.layer;
+    bands.push({ tier:t, y, h, rows:rowsInTier[t] });
+    y += h + g.gap;
+  }
+  const H = Math.max(0, y - g.gap);
+
+  const box = {};
+  for(const n of NODES){
+    const band = bands.find(b => b.tier === n.tier);
+    const rowFromTop = band.rows - 1 - n.sub;
+    const cy = band.y + g.head + rowFromTop * g.layer + g.layer / 2;
+    let x = g.padX + n.c * g.col + g.w / 2;
+    if(g.fan){                                   /* rozchylenie korony (kierunek C) */
+      const L = bands.length - 1 - bands.indexOf(band) + n.sub;
+      x = W / 2 + (x - W / 2) * (1 + g.fan * L);
+    }
+    box[n.id] = { cx:x, cy, x:x - g.w / 2, y:cy - g.h / 2, w:g.w, h:g.h, top:cy - g.h / 2, bot:cy + g.h / 2 };
+  }
+  return { W, H, bands, box };
+}
+
+/* Pionowy odcinek nie może przechodzić przez kartę — szukamy wolnego korytarza. */
+function freeX(box, x, yTop, yBot, skip, w){
+  const hits = () => NODES.some(n => {
+    if(skip.includes(n.id)) return false;
+    const b = box[n.id];
+    return x > b.x - 16 - w/2 && x < b.x + b.w + 16 + w/2 && yBot > b.top - 4 && yTop < b.bot + 4;
+  });
+  if(!hits()) return x;
+  for(let d = 22; d <= 400; d += 22){
+    for(const cand of [x - d, x + d]){ const orig = x; x = cand; if(!hits()) return x; x = orig; }
+  }
+  return x;
+}
+
+/* Ścieżka ortogonalna: stopka u prereka → pion → załamanie pod celem → grot.
+   Promień zaokrąglenia przycinamy do miejsca, jakie realnie zostało w przerwie —
+   inaczej przy trzecim pasie łuk wychodziłby poza własny odcinek. */
+function orthPath(src, dst, laneY){
+  const x1 = src.cx, y1 = src.top, x2 = dst.cx, y2 = dst.bot;
+  if(Math.abs(x1 - x2) < 2) return 'M' + x1 + ',' + y1 + ' L' + x2 + ',' + y2;
+  const dir = x2 > x1 ? 1 : -1;
+  const r = Math.max(3, Math.min(12, (y1 - laneY) / 2, (laneY - y2) / 2, Math.abs(x2 - x1) / 2));
+  return 'M' + x1 + ',' + y1
+       + ' L' + x1 + ',' + (laneY + r)
+       + ' Q' + x1 + ',' + laneY + ' ' + (x1 + dir * r) + ',' + laneY
+       + ' L' + (x2 - dir * r) + ',' + laneY
+       + ' Q' + x2 + ',' + laneY + ' ' + x2 + ',' + (laneY - r)
+       + ' L' + x2 + ',' + y2;
+}
+
+/* ============================================================
+   NAGŁÓWEK POSTĘPU + LEGENDY
+   ============================================================ */
+function renderHero(id){
+  const host = document.getElementById(id);
+  const mastered = NODES.filter(n => n.state === 'mastered').length;
+  const inprog   = NODES.filter(n => n.state === 'in_progress').length;
+  const top      = TIERS[Math.max(...NODES.filter(n => n.state === 'mastered').map(n => n.tier))].label;
+  host.innerHTML =
+    '<div><div class="v mono">' + mastered + '/' + NODES.length + '</div><div class="k">Opanowane</div></div>' +
+    '<div><div class="v">' + top + '</div><div class="k">Najwyższy zdobyty tier</div></div>' +
+    '<div><div class="v mono">' + inprog + '</div><div class="k">W toku</div></div>' +
+    '<div class="grow"><div class="v mono">' + NODES.filter(n => n.state === 'available').length + '</div><div class="k">Gotowe do startu</div></div>';
+}
+function renderLegend(id, extra){
+  const host = document.getElementById(id);
+  const dot = (c, t) => '<span><i style="background:' + c + '"></i>' + t + '</span>';
+  host.innerHTML = '<div class="legend">' +
+    dot('var(--ok)', 'opanowane') +
+    dot('var(--accent)', 'w toku') +
+    '<span><i style="background:transparent;box-shadow:inset 0 0 0 1.5px var(--accent)"></i>gotowe do startu</span>' +
+    dot('var(--muted-2)', 'zablokowane') +
+    (extra || '') + '</div>';
+}
+
+/* ============================================================
+   A · MONUMENT
+   ============================================================ */
+function renderMonument(){
+  const G = { col:280, w:240, h:106, layer:146, head:36, gap:20, padX:44 };
+  const { W, H, bands, box } = geometry(G);
+  const board = document.getElementById('board-a');
+  board.style.width = W + 'px';
+  board.style.height = H + 'px';
+
+  /* płyty warstw */
+  for(const b of bands){
+    const t = TIERS[b.tier];
+    const nodes = NODES.filter(n => n.tier === b.tier);
+    const done = nodes.filter(n => n.state === 'mastered').length;
+    const slab = el('div', 'strata');
+    slab.dataset.tier = t.key;
+    slab.style.cssText = 'top:' + b.y + 'px;height:' + b.h + 'px';
+    slab.appendChild(el('div', 'strata-head',
+      '<span class="lab">' + t.label + '</span><span class="cnt">' + done + '/' + nodes.length + '</span>'));
+    slab.appendChild(el('div', 'roman', t.roman));
+    board.appendChild(slab);
+  }
+
+  /* linia szczytu */
+  const topTier = Math.max(...NODES.filter(n => n.state === 'mastered').map(n => n.tier));
+  const topBand = bands.find(b => b.tier === topTier);
+  const summit = el('div', 'summit', '<span>Twój szczyt · ' + TIERS[topTier].label + '</span>');
+  summit.style.top = (topBand.y - 10) + 'px';
+  board.appendChild(summit);
+
+  /* krawędzie */
+  const svg = sv('svg', { width:W, height:H, viewBox:'0 0 ' + W + ' ' + H, 'aria-hidden':'true' });
+  const defs = sv('defs', {});
+  for(const [id, col] of [['ar-ok', 'var(--ok)'], ['ar-mut', 'var(--line-2)']]){
+    const m = sv('marker', { id, viewBox:'0 0 10 10', refX:'9', refY:'5', markerWidth:'9', markerHeight:'9',
+                             orient:'auto-start-reverse', markerUnits:'userSpaceOnUse' });
+    m.appendChild(sv('path', { d:'M0,1 L9,5 L0,9 z', fill:col }));
+    defs.appendChild(m);
+  }
+  svg.appendChild(defs);
+
+  const lanesByGap = {};
+  for(const e of EDGES){
+    const s = box[e.requires], d = box[e.from];
+    const key = Math.round(d.bot);
+    lanesByGap[key] = lanesByGap[key] || laneAlloc();
+    const lane = lanesByGap[key](s.cx, d.cx);
+    const laneY = d.bot + 16 + lane * 9;
+    const live = byId[e.requires].state === 'mastered';
+    const col = live ? 'var(--ok)' : 'var(--line-2)';
+
+    /* pion nie może przecinać kart — szukamy wolnego korytarza */
+    const vx = freeX(box, s.cx, laneY, s.top, [e.requires, e.from], 3);
+    const shifted = Math.abs(vx - s.cx) > 1;
+    const src = { cx:vx, top: shifted ? s.top - 9 : s.top };
+
+    svg.appendChild(sv('path', {
+      d: orthPath(src, d, laneY),
+      fill:'none', stroke:col,
+      'stroke-width': live ? 2 : 1.5,
+      'stroke-linecap':'round',
+      'stroke-dasharray': live ? '' : '5 6',
+      opacity: live ? .95 : .8,
+      'marker-end': live ? 'url(#ar-ok)' : 'url(#ar-mut)'
+    }));
+
+    /* zejście ze stopki do korytarza, gdy pion musiał się przesunąć */
+    if(shifted){
+      svg.appendChild(sv('path', { d:'M' + s.cx + ',' + (s.top - 2) + ' L' + vx + ',' + (s.top - 9),
+        stroke:col, 'stroke-width': live ? 2 : 1.5, 'stroke-linecap':'round', fill:'none' }));
+    }
+    /* stopka — gruba nasada dokładnie przy prerekwizycie */
+    svg.appendChild(sv('rect', { x:s.cx - 3.5, y:s.top - 9, width:7, height:9, rx:2.5, fill:col }));
+  }
+  board.appendChild(svg);
+
+  /* karty */
+  for(const n of NODES){
+    const b = box[n.id];
+    const a = el('a', 'node');
+    a.href = '#'; a.dataset.tier = TIERS[n.tier].key; a.dataset.state = n.state;
+    a.style.cssText = 'left:' + b.x + 'px;top:' + b.y + 'px;width:' + b.w + 'px;height:' + b.h + 'px';
+    a.setAttribute('aria-label', n.name + ' — ' + TIERS[n.tier].label + ', ' + STATE_LABEL[n.state]);
+    a.innerHTML =
+      '<div class="node-top"><span class="node-dot"></span><span class="node-state">' + STATE_LABEL[n.state] + '</span></div>' +
+      '<div class="node-name">' + n.name + '</div>' +
+      '<div class="node-lvl">' + levelText(n) + '</div>' +
+      '<div class="node-bar"><i style="width:' + barW(n) + '"></i></div>';
+    board.appendChild(a);
+  }
+
+  renderHero('hero-a');
+  renderLegend('leg-a',
+    '<span style="display:flex;align-items:center;gap:7px"><svg width="26" height="12">' +
+    '<rect x="0" y="1" width="7" height="10" rx="2.5" fill="var(--ok)"></rect>' +
+    '<path d="M3.5,6 L20,6" stroke="var(--ok)" stroke-width="2"></path>' +
+    '<path d="M18,2.5 L25,6 L18,9.5 z" fill="var(--ok)"></path></svg>stopka przy prerekwizycie, grot przy tym, co odblokowuje</span>');
+}
+
+/* ============================================================
+   B · MAPA LINII
+   ============================================================ */
+function renderMetro(){
+  const G = { col:250, w:26, h:26, layer:104, head:26, gap:26, padX:34 };
+  const { H, bands, box } = geometry(G);
+  const W = 34 + 2.5 * 250 + 26 + 190;  /* + miejsce na etykietę ostatniej kolumny */
+  const board = document.getElementById('board-b');
+  board.style.width = W + 'px';
+  board.style.height = H + 'px';
+
+  /* strefy */
+  for(const b of bands){
+    const t = TIERS[b.tier];
+    const nodes = NODES.filter(n => n.tier === b.tier);
+    const done = nodes.filter(n => n.state === 'mastered').length;
+    const z = el('div', 'zone', '<span class="zl">' + t.zone + ' · ' + t.label + ' · ' + done + '/' + nodes.length + '</span>');
+    z.style.top = b.y + 'px';
+    board.appendChild(z);
+  }
+
+  const svg = sv('svg', { width:W, height:H, viewBox:'0 0 ' + W + ' ' + H, 'aria-hidden':'true' });
+
+  /* Do omijania: stacja to nie sama kropka, tylko kropka razem z etykietą po prawej. */
+  const hitBox = {};
+  for(const n of NODES) hitBox[n.id] = Object.assign({}, box[n.id], { w:200 });
+
+  const lanesByGap = {};
+  for(const e of EDGES){
+    const s = box[e.requires], d = box[e.from];
+    const key = Math.round(d.bot);
+    lanesByGap[key] = lanesByGap[key] || laneAlloc();
+    const lane = lanesByGap[key](s.cx, d.cx);
+    const laneY = d.bot + 24 + lane * 15;
+    const live = byId[e.requires].state === 'mastered';
+    const col = live ? 'var(--ink)' : 'var(--line-2)';
+    const vx = freeX(hitBox, s.cx, laneY, s.top, [e.requires, e.from], 5);
+    const shifted = Math.abs(vx - s.cx) > 1;
+
+    svg.appendChild(sv('path', {
+      d: orthPath({ cx:vx, top: shifted ? s.top - 10 : s.top }, d, laneY), fill:'none',
+      stroke:col, 'stroke-width': live ? 4.5 : 3,
+      'stroke-linecap':'round', 'stroke-linejoin':'round',
+      'stroke-dasharray': live ? '' : '1 9',
+      opacity: live ? 1 : .95
+    }));
+    if(shifted){
+      svg.appendChild(sv('path', { d:'M' + s.cx + ',' + (s.top - 1) + ' L' + vx + ',' + (s.top - 10),
+        stroke:col, 'stroke-width': live ? 4.5 : 3, 'stroke-linecap':'round', fill:'none' }));
+    }
+    /* grot w połowie pionowego odcinka — kierunek jazdy, zawsze w górę */
+    const midY = (laneY + s.top) / 2;
+    svg.appendChild(sv('path', {
+      d:'M' + (vx - 6.5) + ',' + (midY + 5) + ' L' + vx + ',' + (midY - 6) + ' L' + (vx + 6.5) + ',' + (midY + 5) + ' Z',
+      fill:col, stroke:'none'
+    }));
+  }
+
+  /* belka terminusa przy stacjach końcowych */
+  for(const n of NODES){
+    if(childrenOf(n.id).length === 0){
+      const b = box[n.id];
+      svg.appendChild(sv('path', { d:'M' + (b.cx - 13) + ',' + (b.top - 9) + ' L' + (b.cx + 13) + ',' + (b.top - 9),
+        stroke: n.state === 'locked' ? 'var(--line-2)' : 'var(--ink)', 'stroke-width':4, 'stroke-linecap':'round' }));
+    }
+  }
+  board.appendChild(svg);
+
+  /* stacje */
+  for(const n of NODES){
+    const b = box[n.id];
+    const a = el('a', 'station');
+    a.href = '#'; a.dataset.state = n.state; a.dataset.interchange = prereqsOf(n.id).length > 1 ? '1' : '0';
+    a.style.cssText = 'left:' + b.x + 'px;top:' + b.y + 'px';
+    a.setAttribute('aria-label', n.name + ' — ' + STATE_LABEL[n.state]);
+    a.innerHTML = '<span class="halo"></span><span class="plate">' +
+      '<span class="sn">' + n.name + '</span>' +
+      '<span class="sl">' + levelText(n) + '</span>' +
+      (n.state === 'available' ? '<span class="here">Tu jesteś</span>' : '') + '</span>';
+    board.appendChild(a);
+  }
+
+  renderHero('hero-b');
+  renderLegend('leg-b',
+    '<span style="display:flex;align-items:center;gap:7px"><svg width="26" height="12">' +
+    '<path d="M2,6 L18,6" stroke="var(--ink)" stroke-width="4.5" stroke-linecap="round"></path>' +
+    '<path d="M17,2 L25,6 L17,10 z" fill="var(--ink)"></path></svg>kierunek: w stronę odblokowanej umiejętności</span>' +
+    '<span style="display:flex;align-items:center;gap:7px"><svg width="20" height="16">' +
+    '<circle cx="9" cy="8" r="5" fill="none" stroke="var(--ink)" stroke-width="2.5"></circle>' +
+    '<circle cx="9" cy="8" r="7.5" fill="none" stroke="var(--ink)" stroke-width="1"></circle></svg>przesiadka — dwa prereki</span>');
+}
+
+/* ============================================================
+   C · GAŁĄŹ
+   ============================================================ */
+/* Wstęga o zmiennej grubości: szeroka u nasady (prereq), wąska u wierzchołka. */
+function ribbon(x1, y1, x2, y2, w1, w2){
+  const dy = y1 - y2, c = dy * 0.42, N = 26;
+  const P = t => {
+    const mt = 1 - t;
+    return {
+      x: mt*mt*mt*x1 + 3*mt*mt*t*x1 + 3*mt*t*t*x2 + t*t*t*x2,
+      y: mt*mt*mt*y1 + 3*mt*mt*t*(y1 - c) + 3*mt*t*t*(y2 + c) + t*t*t*y2
+    };
+  };
+  const L = [], R = [];
+  for(let i = 0; i <= N; i++){
+    const t = i / N, p = P(t);
+    /* styczna liczona z obu stron punktu — na końcu krzywej „do przodu” nic już nie ma */
+    const a = P(t < 1 ? t : t - 0.01), q = P(t < 1 ? t + 0.01 : t);
+    const dx = q.x - a.x, dyy = q.y - a.y, len = Math.hypot(dx, dyy) || 1;
+    const nx = -dyy / len, ny = dx / len;
+    const w = (w1 + (w2 - w1) * (t * t * (3 - 2 * t))) / 2;
+    L.push([p.x + nx * w, p.y + ny * w]);
+    R.push([p.x - nx * w, p.y - ny * w]);
+  }
+  return 'M' + L.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' L') +
+         ' L' + R.reverse().map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' L') + ' Z';
+}
+
+function renderBranch(){
+  const G = { col:250, w:60, h:60, layer:150, head:30, gap:30, padX:60, fan:0.045 };
+  const { H, bands, box } = geometry(G);
+  const board = document.getElementById('board-c');
+  const TRUNK = 70;                     /* miejsce na pień pod najniższym pasem */
+
+  /* Rozchylenie korony wypycha skrajne węzły poza pierwotną szerokość —
+     normalizujemy plansze do realnego zasięgu liści (etykieta ma 164 px). */
+  const LEAF = 82;
+  let minX = Infinity, maxX = -Infinity;
+  for(const n of NODES){ minX = Math.min(minX, box[n.id].cx - LEAF); maxX = Math.max(maxX, box[n.id].cx + LEAF); }
+  const shift = 26 - minX;
+  for(const n of NODES){ box[n.id].cx += shift; box[n.id].x += shift; }
+  const W = maxX - minX + 52;
+
+  board.style.width = W + 'px';
+  board.style.height = (H + TRUNK) + 'px';
+
+  for(const b of bands){
+    const t = TIERS[b.tier];
+    const nodes = NODES.filter(n => n.tier === b.tier);
+    const done = nodes.filter(n => n.state === 'mastered').length;
+    const r = el('div', 'tierrule', '<span>' + t.label + ' · ' + done + '/' + nodes.length + '</span>');
+    r.style.top = b.y + 'px';
+    board.appendChild(r);
+  }
+
+  const svg = sv('svg', { width:W, height:H + TRUNK, viewBox:'0 0 ' + W + ' ' + (H + TRUNK), 'aria-hidden':'true' });
+
+  /* pień: od dołu planszy do każdego korzenia */
+  const roots = NODES.filter(n => prereqsOf(n.id).length === 0);
+  const trunkX = roots.reduce((s, n) => s + box[n.id].cx, 0) / roots.length;
+  for(const n of roots){
+    const b = box[n.id];
+    const live = n.state === 'mastered';
+    svg.appendChild(sv('path', {
+      d: ribbon(trunkX, H + TRUNK, b.cx, b.cy + 6, 46, 21),
+      fill: live ? 'var(--ink)' : 'none',
+      stroke: live ? 'none' : 'var(--line-2)', 'stroke-width':1, 'stroke-dasharray': live ? '' : '4 5',
+      opacity: live ? .93 : 1
+    }));
+  }
+
+  /* konary */
+  for(const e of EDGES){
+    const s = box[e.requires], d = box[e.from];
+    const live = byId[e.requires].state === 'mastered';
+    svg.appendChild(sv('path', {
+      d: ribbon(s.cx, s.cy - 4, d.cx, d.cy + 8, 20, 8),
+      fill: live ? 'var(--ink)' : 'none',
+      stroke: live ? 'none' : 'var(--line-2)', 'stroke-width':1, 'stroke-dasharray': live ? '' : '4 5',
+      opacity: live ? .93 : 1
+    }));
+  }
+  board.appendChild(svg);
+
+  for(const n of NODES){
+    const b = box[n.id];
+    const a = el('a', 'leaf');
+    a.href = '#'; a.dataset.state = n.state;
+    a.style.cssText = 'left:' + (b.cx - 82) + 'px;top:' + b.y + 'px;width:164px';
+    a.setAttribute('aria-label', n.name + ' — ' + STATE_LABEL[n.state]);
+    a.innerHTML = '<span class="disc">' + (n.state === 'mastered' ? '<span class="ring"></span>' : '') +
+      n.name.charAt(0).toUpperCase() + '</span>' +
+      '<span class="lwrap"><span class="ln">' + n.name + '</span></span>' +
+      '<span class="lwrap"><span class="lv">' + levelText(n) + '</span></span>';
+    board.appendChild(a);
+  }
+
+  renderHero('hero-c');
+  renderLegend('leg-c',
+    '<span style="display:flex;align-items:center;gap:7px"><svg width="30" height="14">' +
+    '<path d="M2,13 C2,7 26,9 28,2" stroke="var(--ink)" stroke-width="6" fill="none" stroke-linecap="round" opacity=".18"></path>' +
+    '<path d="M2,13 C2,7 26,9 28,2" stroke="var(--ink)" stroke-width="2" fill="none" stroke-linecap="round"></path>' +
+    '</svg>gruby koniec = prerekwizyt, cienki = to, co z niego wyrasta</span>');
+}
+
+/* ============================================================
+   D · TRASA
+   ============================================================ */
+function chevron(){
+  return '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" ' +
+         'stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+}
+function ancestorsOf(id, acc){
+  acc = acc || [];
+  for(const p of prereqsOf(id)){ if(!acc.includes(p)){ acc.push(p); ancestorsOf(p, acc); } }
+  return acc;
+}
+function renderRoute(){
+  const board = document.getElementById('board-d');
+  const panel = document.getElementById('panel-d');
+  const overlay = sv('svg', { class:'route-overlay' });
+  board.appendChild(overlay);
+
+  for(let t = TIERS.length - 1; t >= 0; t--){
+    const nodes = NODES.filter(n => n.tier === t);
+    if(!nodes.length) continue;
+    const done = nodes.filter(n => n.state === 'mastered').length;
+    const band = el('div', 'tband');
+    band.appendChild(el('div', 'tband-head',
+      '<span class="lab">' + TIERS[t].label + '</span><span class="rule"></span><span class="cnt">' + done + '/' + nodes.length + '</span>'));
+    const grid = el('div', 'tgrid');
+    for(const n of nodes){
+      const req = prereqsOf(n.id).map(p => byId[p].name);
+      const b = el('button', 'rcard');
+      b.type = 'button'; b.dataset.id = n.id; b.dataset.tier = TIERS[n.tier].key; b.dataset.state = n.state;
+      b.innerHTML =
+        '<div class="rn">' + n.name + '</div>' +
+        '<div class="rl">' + levelText(n) + '</div>' +
+        '<div class="rbar"><i style="width:' + barW(n) + '"></i></div>' +
+        '<div class="rreq">' + chevron() + '<span>' + (req.length ? 'wymaga · ' + req.join(', ') : 'fundament — bez prerekwizytów') + '</span></div>';
+      b.addEventListener('click', () => focusRoute(n.id));
+      grid.appendChild(b);
+    }
+    band.appendChild(grid);
+    board.appendChild(band);
+  }
+
+  function clearRoute(){
+    board.classList.remove('is-focus');
+    board.querySelectorAll('.rcard').forEach(c => c.classList.remove('on', 'target'));
+    overlay.innerHTML = '';
+    panel.innerHTML =
+      '<div class="ph">Trasa</div><h3>Wybierz umiejętność</h3>' +
+      '<p class="psub">Kliknij dowolną kartę, żeby zobaczyć całą drogę do niej — od fundamentu, krok po kroku.</p>';
+  }
+
+  function focusRoute(id){
+    const chain = ancestorsOf(id).concat([id]);
+    /* kolejność: od fundamentu w górę */
+    chain.sort((a, b) => byId[a].tier - byId[b].tier || byId[a].sub - byId[b].sub);
+    board.classList.add('is-focus');
+    board.querySelectorAll('.rcard').forEach(c => {
+      c.classList.toggle('on', chain.includes(c.dataset.id));
+      c.classList.toggle('target', c.dataset.id === id);
+    });
+
+    /* linie trasy — liczone z realnych pozycji kart */
+    const br = board.getBoundingClientRect();
+    overlay.setAttribute('width', br.width); overlay.setAttribute('height', br.height);
+    overlay.setAttribute('viewBox', '0 0 ' + br.width + ' ' + br.height);
+    overlay.innerHTML = '';
+    const center = nid => {
+      const c = board.querySelector('.rcard[data-id="' + nid + '"]').getBoundingClientRect();
+      return { x:c.left - br.left + c.width / 2, y:c.top - br.top + c.height / 2 };
+    };
+    for(const e of EDGES){
+      if(!chain.includes(e.from) || !chain.includes(e.requires)) continue;
+      const a = center(e.requires), b = center(e.from);
+      const p = sv('path', {
+        d:'M' + a.x + ',' + a.y + ' C' + a.x + ',' + ((a.y + b.y) / 2) + ' ' + b.x + ',' + ((a.y + b.y) / 2) + ' ' + b.x + ',' + b.y,
+        fill:'none', stroke:'var(--accent)', 'stroke-width':2.5, 'stroke-linecap':'round', opacity:.9
+      });
+      overlay.appendChild(p);
+    }
+
+    const missing = chain.filter(n => byId[n].state !== 'mastered').length;
+    panel.innerHTML =
+      '<div class="ph">Trasa do celu</div>' +
+      '<h3>' + byId[id].name + '</h3>' +
+      '<p class="psub">' + (missing === 0
+        ? 'Cała droga zamknięta — ta umiejętność jest Twoja.'
+        : 'Do zdobycia zostało ' + missing + (missing === 1 ? ' krok' : (missing < 5 ? ' kroki' : ' kroków')) + '.') + '</p>' +
+      '<ol class="steps">' + chain.map((nid, i) => {
+        const n = byId[nid];
+        return '<li data-state="' + n.state + '"><span class="no">' + (i + 1) + '</span><span>' +
+          '<span class="sn2">' + n.name + '</span>' +
+          '<span class="ss" style="display:block">' + STATE_LABEL[n.state] + ' · ' + TIERS[n.tier].label + '</span></span></li>';
+      }).join('') + '</ol>' +
+      '<button class="theme-btn" style="margin-top:18px" id="route-clear">Wyczyść trasę</button>';
+    panel.querySelector('#route-clear').addEventListener('click', clearRoute);
+  }
+
+  clearRoute();
+  renderHero('hero-d');
+}
+
+/* ============================================================
+   START
+   ============================================================ */
+renderMonument();
+renderMetro();
+renderBranch();
+renderRoute();
+
+document.getElementById('tabs').addEventListener('click', ev => {
+  const btn = ev.target.closest('.tab'); if(!btn) return;
+  document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', String(t === btn)));
+  document.querySelectorAll('.opt').forEach(s => s.classList.toggle('is-on', s.id === 'opt-' + btn.dataset.opt));
+  window.scrollTo(0, 0);
+});
+document.getElementById('theme').addEventListener('click', ev => {
+  const dark = document.body.classList.toggle('theme-dark');
+  ev.target.textContent = dark ? 'Jasny' : 'Ciemny';
+});
+</script>
+</body>
+</html>
