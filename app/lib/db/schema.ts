@@ -55,6 +55,7 @@ export const subscriptionStatus = pgEnum("subscription_status", [
   "unpaid",
   "paused",
 ]);
+export const skillTier = pgEnum("skill_tier", ["basic", "intermediate", "advanced", "expert"]);
 
 // ---------------- Users ----------------
 
@@ -517,6 +518,9 @@ export const skills = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     description: text("description").notNull().default(""),
+    // Stopień trudności — steruje pasem piramidy w drzewie umiejętności.
+    // DEFAULT + NOT NULL backfilluje istniejące wiersze w tym samym ALTER TABLE.
+    tier: skillTier("tier").notNull().default("basic"),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

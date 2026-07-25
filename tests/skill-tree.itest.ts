@@ -86,11 +86,11 @@ describe("authoring prereqs — addPrerequisite / removePrerequisite / edges", (
   let skillO = ""; // "One-arm Pull-up"
 
   beforeAll(async () => {
-    const sP = await createSkill(db, trainerA, "Pull-up prereq", "");
+    const sP = await createSkill(db, trainerA, "Pull-up prereq", "", "basic");
     skillP = sP.id;
-    const sA = await createSkill(db, trainerA, "Archer Pull-up prereq", "");
+    const sA = await createSkill(db, trainerA, "Archer Pull-up prereq", "", "basic");
     skillA = sA.id;
-    const sO = await createSkill(db, trainerA, "One-arm Pull-up prereq", "");
+    const sO = await createSkill(db, trainerA, "One-arm Pull-up prereq", "", "basic");
     skillO = sO.id;
   });
 
@@ -140,9 +140,9 @@ describe("tenant-scope prereqs", () => {
   let skillTA2 = ""; // druga umiejętność trenera A
 
   beforeAll(async () => {
-    const s1 = await createSkill(db, trainerA, "Tenant prereq skill A1", "");
+    const s1 = await createSkill(db, trainerA, "Tenant prereq skill A1", "", "basic");
     skillTA = s1.id;
-    const s2 = await createSkill(db, trainerA, "Tenant prereq skill A2", "");
+    const s2 = await createSkill(db, trainerA, "Tenant prereq skill A2", "", "basic");
     skillTA2 = s2.id;
   });
 
@@ -182,11 +182,11 @@ describe("archiwizacja: węzeł i krawędź znikają z drzewa", () => {
   let skillTop = "";
 
   beforeAll(async () => {
-    const sBase = await createSkill(db, trainerA, "Archive base", "");
+    const sBase = await createSkill(db, trainerA, "Archive base", "", "basic");
     skillBase = sBase.id;
-    const sMid = await createSkill(db, trainerA, "Archive mid", "");
+    const sMid = await createSkill(db, trainerA, "Archive mid", "", "basic");
     skillMid = sMid.id;
-    const sTop = await createSkill(db, trainerA, "Archive top", "");
+    const sTop = await createSkill(db, trainerA, "Archive top", "", "basic");
     skillTop = sTop.id;
 
     // Łańcuch: top → mid → base
@@ -216,9 +216,7 @@ describe("archiwizacja: węzeł i krawędź znikają z drzewa", () => {
     expect(nodeIds).not.toContain(skillMid);
 
     // Krawędzie dotykające skillMid są pominięte (filtrowane po activeIds).
-    const edgeMidBase = tree.edges.find(
-      (e) => e.from === skillMid || e.requires === skillMid,
-    );
+    const edgeMidBase = tree.edges.find((e) => e.from === skillMid || e.requires === skillMid);
     expect(edgeMidBase).toBeUndefined();
 
     // Base i top nadal są widoczne.
@@ -258,7 +256,7 @@ describe("stany węzłów per-podopieczny", () => {
       .values({ trainerId: trainerA, name: "State goal ex low", unit: "REPS" })
       .returning({ id: schema.exercises.id });
 
-    const sRoot = await createSkill(db, trainerA, "State root skill", "");
+    const sRoot = await createSkill(db, trainerA, "State root skill", "", "basic");
     skillRoot = sRoot.id;
     await addVariation(db, trainerA, skillRoot, exRootLow!.id);
     await addVariation(db, trainerA, skillRoot, exRootTop!.id);
@@ -268,7 +266,7 @@ describe("stany węzłów per-podopieczny", () => {
     varRootLow = detail!.variations[0]!.id; // ordinal 1
     varRootTop = detail!.variations[1]!.id; // ordinal 2 (top)
 
-    const sGoal = await createSkill(db, trainerA, "State goal skill", "");
+    const sGoal = await createSkill(db, trainerA, "State goal skill", "", "basic");
     skillGoal = sGoal.id;
     await addVariation(db, trainerA, skillGoal, exGoalLow!.id);
 
@@ -339,7 +337,7 @@ describe("stany węzłów per-podopieczny", () => {
       .values({ trainerId: trainerA, name: "State goal2 ex top", unit: "REPS" })
       .returning({ id: schema.exercises.id });
 
-    const sGoal2 = await createSkill(db, trainerA, "State goal2 skill", "");
+    const sGoal2 = await createSkill(db, trainerA, "State goal2 skill", "", "basic");
     const skillGoal2 = sGoal2.id;
     await addVariation(db, trainerA, skillGoal2, exGoal2Low!.id);
     await addVariation(db, trainerA, skillGoal2, exGoal2Top!.id);

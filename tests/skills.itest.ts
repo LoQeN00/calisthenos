@@ -119,13 +119,13 @@ afterAll(async () => {
 // ---------------------------------------------------------------------------
 describe("tenant-scope", () => {
   it("getSkillWithVariations: obcy trener dostaje null (→ 404)", async () => {
-    const skillA = await createSkill(db, trainerA, "Podciąganie A", "");
+    const skillA = await createSkill(db, trainerA, "Podciąganie A", "", "basic");
     const asB = await getSkillWithVariations(db, trainerB, skillA.id);
     expect(asB).toBeNull();
   });
 
   it("setStartingLevel: obcy trener rzuca SkillError dla umiejętności nie-swojej", async () => {
-    const skillA = await createSkill(db, trainerA, "Podciąganie tenant-setStart", "");
+    const skillA = await createSkill(db, trainerA, "Podciąganie tenant-setStart", "", "basic");
     // Świeże ćwiczenie — exA1/exA2 są zarezerwowane dla lifecycle-testu (UNIQUE(exercise_id)).
     const [exTen1] = await db
       .insert(schema.exercises)
@@ -140,7 +140,7 @@ describe("tenant-scope", () => {
   });
 
   it("recordAdvancement: obcy trener rzuca SkillError dla podopiecznego nie-swojego", async () => {
-    const skillA = await createSkill(db, trainerA, "Podciąganie tenant-record", "");
+    const skillA = await createSkill(db, trainerA, "Podciąganie tenant-record", "", "basic");
     // Świeże ćwiczenie — exA1/exA2 są zarezerwowane dla lifecycle-testu (UNIQUE(exercise_id)).
     const [exTen2] = await db
       .insert(schema.exercises)
@@ -168,7 +168,7 @@ describe("full lifecycle", () => {
   let varId3 = "";
 
   it("createSkill tworzy umiejętność", async () => {
-    const skill = await createSkill(db, trainerA, "Drabina podciągania", "Opis drabiny");
+    const skill = await createSkill(db, trainerA, "Drabina podciągania", "Opis drabiny", "basic");
     expect(skill.id).toBeTruthy();
     expect(skill.name).toBe("Drabina podciągania");
     skillId = skill.id;
@@ -255,7 +255,7 @@ describe("full lifecycle", () => {
 describe("UNIQUE(exercise_id) constraint", () => {
   it("addVariation: rzuca SkillError('exercise taken') gdy ćwiczenie już jest wariantem innej umiejętności", async () => {
     // exA1 jest już wariantem z lifecycle-testu powyżej; tworzymy nową umiejętność
-    const skill2 = await createSkill(db, trainerA, "Druga drabina", "");
+    const skill2 = await createSkill(db, trainerA, "Druga drabina", "", "basic");
     await expect(addVariation(db, trainerA, skill2.id, exA1)).rejects.toThrow(SkillError);
 
     // Weryfikujemy dokładny klucz błędu
@@ -279,7 +279,7 @@ describe("ON DELETE RESTRICT on skill_advancements", () => {
       .returning({ id: schema.exercises.id });
     const freshExId = freshEx!.id;
 
-    const skill = await createSkill(db, trainerA, "Restrict-test skill", "");
+    const skill = await createSkill(db, trainerA, "Restrict-test skill", "", "basic");
     await addVariation(db, trainerA, skill.id, freshExId);
     const detail = await getSkillWithVariations(db, trainerA, skill.id);
     const varId = detail!.variations[0]!.id;
@@ -314,7 +314,7 @@ describe("recordAdvancement guards", () => {
       .values({ trainerId: trainerA, name: "Australian Pull-up", unit: "REPS" })
       .returning({ id: schema.exercises.id });
 
-    const skill = await createSkill(db, trainerA, "Guard-test skill", "");
+    const skill = await createSkill(db, trainerA, "Guard-test skill", "", "basic");
     guardSkillId = skill.id;
     await addVariation(db, trainerA, guardSkillId, freshEx1!.id);
     await addVariation(db, trainerA, guardSkillId, freshEx2!.id);
@@ -351,7 +351,7 @@ describe("audyt usuwania: archiwizacja i warianty", () => {
         archivedAt: new Date(),
       })
       .returning({ id: schema.exercises.id });
-    const skill = await createSkill(db, trainerA, "Skill z archiwum", "");
+    const skill = await createSkill(db, trainerA, "Skill z archiwum", "", "basic");
     await expect(addVariation(db, trainerA, skill.id, arch!.id)).rejects.toMatchObject({
       message: "archived",
     });
@@ -365,7 +365,7 @@ describe("audyt usuwania: archiwizacja i warianty", () => {
         .returning({ id: schema.exercises.id });
       return e!.id;
     };
-    const skill = await createSkill(db, trainerA, "Repack skill", "");
+    const skill = await createSkill(db, trainerA, "Repack skill", "", "basic");
     await addVariation(db, trainerA, skill.id, await mk("Repack ex 1"));
     await addVariation(db, trainerA, skill.id, await mk("Repack ex 2"));
     await addVariation(db, trainerA, skill.id, await mk("Repack ex 3"));
@@ -388,7 +388,7 @@ describe("audyt usuwania: archiwizacja i warianty", () => {
       .values({ trainerId: trainerA, name: "FindSkill loose ex", unit: "REPS" })
       .returning({ id: schema.exercises.id });
 
-    const skill = await createSkill(db, trainerA, "FindSkill skill", "");
+    const skill = await createSkill(db, trainerA, "FindSkill skill", "", "basic");
     await addVariation(db, trainerA, skill.id, ex!.id);
 
     expect(await findSkillForExercise(db, trainerA, ex!.id)).toMatchObject({ skillId: skill.id });
@@ -401,9 +401,9 @@ describe("audyt usuwania: archiwizacja i warianty", () => {
 
 describe("audyt usuwania: archiveSkill czyści prereki i zwalnia nazwę", () => {
   it("archiveSkill: usuwa krawędzie prerekwizytów (jako zależna i jako prerek)", async () => {
-    const base = await createSkill(db, trainerA, "Prereq base", "");
-    const dep = await createSkill(db, trainerA, "Prereq dependent", "");
-    const dep2 = await createSkill(db, trainerA, "Prereq dependent 2", "");
+    const base = await createSkill(db, trainerA, "Prereq base", "", "basic");
+    const dep = await createSkill(db, trainerA, "Prereq dependent", "", "basic");
+    const dep2 = await createSkill(db, trainerA, "Prereq dependent 2", "", "basic");
     // dep wymaga base; dep2 wymaga base → base jest prerekiem dwóch.
     await addPrerequisite(db, trainerA, dep.id, base.id);
     await addPrerequisite(db, trainerA, dep2.id, base.id);
@@ -417,10 +417,10 @@ describe("audyt usuwania: archiveSkill czyści prereki i zwalnia nazwę", () => 
   });
 
   it("createSkill: nazwa zarchiwizowanej umiejętności jest znów wolna (partial unique)", async () => {
-    const s = await createSkill(db, trainerA, "Nazwa do recyklingu", "");
+    const s = await createSkill(db, trainerA, "Nazwa do recyklingu", "", "basic");
     await archiveSkill(db, trainerA, s.id);
     // Ta sama nazwa po archiwizacji — nie powinno rzucić 'duplicate'.
-    const again = await createSkill(db, trainerA, "Nazwa do recyklingu", "");
+    const again = await createSkill(db, trainerA, "Nazwa do recyklingu", "", "basic");
     expect(again.id).toBeTruthy();
     expect(again.id).not.toBe(s.id);
   });
@@ -447,10 +447,18 @@ describe("audyt usuwania: deleteTraineeFully z historią awansów", () => {
       .values({ trainerId: tc!.id, name: "Trainee-del ex", unit: "REPS" })
       .returning({ id: schema.exercises.id });
 
-    const skill = await createSkill(db, tc!.id, "Trainee-del skill", "");
+    const skill = await createSkill(db, tc!.id, "Trainee-del skill", "", "basic");
     await addVariation(db, tc!.id, skill.id, ex!.id);
     const detail = await getSkillWithVariations(db, tc!.id, skill.id);
-    await setStartingLevel(db, tc!.id, pc!.id, skill.id, detail!.variations[0]!.id, "2026-01-01", null);
+    await setStartingLevel(
+      db,
+      tc!.id,
+      pc!.id,
+      skill.id,
+      detail!.variations[0]!.id,
+      "2026-01-01",
+      null,
+    );
 
     // Usunięcie podopiecznego z istniejącym skill_advancement NIE może rzucić błędu FK.
     const res = await deleteTraineeFully(db, tc!.id, pc!.id);

@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { Db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
+import { TIER_LABEL, canBePrerequisite, type SkillTier } from "~/lib/skill-tier";
 import { wouldCreateCycle, type Edge } from "~/lib/skill-tree-math";
 
 export class SkillError extends Error {
@@ -16,6 +17,7 @@ export interface SkillListRow {
   id: string;
   name: string;
   description: string;
+  tier: SkillTier;
   variationCount: number;
 }
 
@@ -26,6 +28,7 @@ export async function listSkillsForTrainer(db: Db, trainerId: string): Promise<S
       id: schema.skills.id,
       name: schema.skills.name,
       description: schema.skills.description,
+      tier: schema.skills.tier,
       variationCount: sql<number>`COUNT(${schema.skillVariations.id})::int`,
     })
     .from(schema.skills)
@@ -48,6 +51,7 @@ export interface SkillDetail {
   id: string;
   name: string;
   description: string;
+  tier: SkillTier;
   variations: VariationRow[]; // posortowane rosnąco po ordinal
 }
 
@@ -81,6 +85,7 @@ export async function getSkillWithVariations(
     id: skill.id,
     name: skill.name,
     description: skill.description,
+    tier: skill.tier,
     variations,
   };
 }
@@ -90,11 +95,12 @@ export async function createSkill(
   trainerId: string,
   name: string,
   description: string,
+  tier: SkillTier,
 ): Promise<schema.Skill> {
   try {
     const [row] = await db
       .insert(schema.skills)
-      .values({ trainerId, name, description })
+      .values({ trainerId, name, description, tier })
       .returning();
     return row!;
   } catch (e) {
@@ -105,17 +111,23 @@ export async function createSkill(
   }
 }
 
+/**
+ * Uwaga: celowo NIE waliduje kolizji tieru z istniejącymi krawędziami prerekwizytów —
+ * zmiana tieru zawsze przechodzi (spec §6.2). Ostrzeżenie o kolizji pokazuje edytor
+ * (Task 6) na podstawie `listConflictingPrerequisites`.
+ */
 export async function updateSkill(
   db: Db,
   trainerId: string,
   skillId: string,
   name: string,
   description: string,
+  tier: SkillTier,
 ): Promise<void> {
   try {
     await db
       .update(schema.skills)
-      .set({ name, description })
+      .set({ name, description, tier })
       .where(and(eq(schema.skills.id, skillId), eq(schema.skills.trainerId, trainerId)));
   } catch (e) {
     if (e instanceof Error && e.message.includes("skills_trainer_name_uniq")) {
@@ -394,15 +406,25 @@ async function listEdgesForTrainer(db: Db, trainerId: string): Promise<Edge[]> {
   return rows.map((r) => ({ from: r.from, requires: r.requires }));
 }
 
-/** Czy obie umiejętności należą do trenera? (walidacja własności). */
-async function bothSkillsOwned(
+interface OwnedSkillRow {
+  id: string;
+  name: string;
+  tier: SkillTier;
+}
+
+/**
+ * Zwraca obie umiejętności, gdy OBIE należą do trenera i są aktywne; inaczej null.
+ * Musi być wołane PRZED porównaniem tierów — inaczej komunikat błędu zdradzałby
+ * tier cudzej umiejętności.
+ */
+async function loadPairForPrerequisite(
   db: Db,
   trainerId: string,
   skillId: string,
   requiresSkillId: string,
-): Promise<boolean> {
+): Promise<{ skill: OwnedSkillRow; requires: OwnedSkillRow } | null> {
   const rows = await db
-    .select({ id: schema.skills.id })
+    .select({ id: schema.skills.id, name: schema.skills.name, tier: schema.skills.tier })
     .from(schema.skills)
     .where(
       and(
@@ -411,10 +433,14 @@ async function bothSkillsOwned(
         inArray(schema.skills.id, [skillId, requiresSkillId]),
       ),
     );
-  return new Set(rows.map((r) => r.id)).size === 2;
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const skill = byId.get(skillId);
+  const requires = byId.get(requiresSkillId);
+  if (!skill || !requires) return null;
+  return { skill, requires };
 }
 
-/** Dodaje krawędź „skillId wymaga requiresSkillId". Odrzuca obce, samopętlę, cykl, duplikat. */
+/** Dodaje krawędź „skillId wymaga requiresSkillId". Odrzuca obce, samopętlę, wyższy tier, cykl, duplikat. */
 export async function addPrerequisite(
   db: Db,
   trainerId: string,
@@ -424,17 +450,23 @@ export async function addPrerequisite(
   if (skillId === requiresSkillId) {
     throw new SkillError("self loop", "Umiejętność nie może wymagać samej siebie.");
   }
-  if (!(await bothSkillsOwned(db, trainerId, skillId, requiresSkillId))) {
+  const pair = await loadPairForPrerequisite(db, trainerId, skillId, requiresSkillId);
+  if (!pair) {
     throw new SkillError("not found", "Nie znaleziono umiejętności.");
+  }
+  // Reguła piramidy: prerekwizyt nie może być trudniejszy od tego, co odblokowuje.
+  if (!canBePrerequisite(pair.requires.tier, pair.skill.tier)) {
+    throw new SkillError(
+      "tier order",
+      `Prerekwizyt nie może być trudniejszy od umiejętności, która go wymaga: „${pair.requires.name}” to ${TIER_LABEL[pair.requires.tier].toUpperCase()}, a „${pair.skill.name}” to ${TIER_LABEL[pair.skill.tier].toUpperCase()}.`,
+    );
   }
   const edges = await listEdgesForTrainer(db, trainerId);
   if (wouldCreateCycle(edges, skillId, requiresSkillId)) {
     throw new SkillError("cycle", "To połączenie utworzyłoby cykl w drzewie.");
   }
   try {
-    await db
-      .insert(schema.skillPrerequisites)
-      .values({ trainerId, skillId, requiresSkillId });
+    await db.insert(schema.skillPrerequisites).values({ trainerId, skillId, requiresSkillId });
   } catch (e) {
     if (e instanceof Error && e.message.includes("skill_prerequisites_edge_uniq")) {
       throw new SkillError("duplicate", "Ten prerekwizyt jest już dodany.");
@@ -466,42 +498,71 @@ export async function listPrerequisitesForSkill(
   db: Db,
   trainerId: string,
   skillId: string,
-): Promise<Array<{ id: string; name: string }>> {
+): Promise<Array<{ id: string; name: string; tier: SkillTier }>> {
   return await db
-    .select({ id: schema.skills.id, name: schema.skills.name })
+    .select({
+      id: schema.skills.id,
+      name: schema.skills.name,
+      tier: schema.skills.tier,
+    })
     .from(schema.skillPrerequisites)
     .innerJoin(schema.skills, eq(schema.skills.id, schema.skillPrerequisites.requiresSkillId))
     .where(
       and(
         eq(schema.skillPrerequisites.trainerId, trainerId),
         eq(schema.skillPrerequisites.skillId, skillId),
+        eq(schema.skills.trainerId, trainerId),
       ),
     )
     .orderBy(asc(schema.skills.name));
 }
 
 /**
- * Umiejętności trenera, które MOŻNA dodać jako prereq danej (bez siebie, bez już
- * dodanych, bez tych, które domknęłyby cykl). Aktywne (nie zarchiwizowane).
+ * Umiejętności trenera, które MOŻNA dodać jako prereq danej: bez siebie, bez już
+ * dodanych, bez wyższego tieru i bez tych, które domknęłyby cykl. Aktywne.
+ * Picker musi zgadzać się z walidacją w `addPrerequisite` — inaczej UI proponuje
+ * coś, co akcja odrzuci.
  */
 export async function listAssignablePrerequisites(
   db: Db,
   trainerId: string,
   skillId: string,
-): Promise<Array<{ id: string; name: string }>> {
+): Promise<Array<{ id: string; name: string; tier: SkillTier }>> {
   const all = await db
-    .select({ id: schema.skills.id, name: schema.skills.name })
+    .select({ id: schema.skills.id, name: schema.skills.name, tier: schema.skills.tier })
     .from(schema.skills)
     .where(and(eq(schema.skills.trainerId, trainerId), isNull(schema.skills.archivedAt)))
     .orderBy(asc(schema.skills.name));
+  const self = all.find((s) => s.id === skillId);
+  // Nie nasza / zarchiwizowana umiejętność — nie proponujemy niczego.
+  if (!self) return [];
   const edges = await listEdgesForTrainer(db, trainerId);
-  const existing = new Set(
-    edges.filter((e) => e.from === skillId).map((e) => e.requires),
-  );
+  const existing = new Set(edges.filter((e) => e.from === skillId).map((e) => e.requires));
   return all.filter(
     (s) =>
       s.id !== skillId &&
       !existing.has(s.id) &&
+      canBePrerequisite(s.tier, self.tier) &&
       !wouldCreateCycle(edges, skillId, s.id),
   );
+}
+
+/**
+ * Prereki danej umiejętności o WYŻSZYM tierze. Niemożliwe do utworzenia przez
+ * `addPrerequisite`, ale osiągalne przez późniejszą zmianę tieru (spec §6.2) —
+ * edytor pokazuje je jako ostrzeżenie, drzewo rysuje wyróżnionym stylem.
+ */
+export async function listConflictingPrerequisites(
+  db: Db,
+  trainerId: string,
+  skillId: string,
+): Promise<Array<{ id: string; name: string; tier: SkillTier }>> {
+  const [skill] = await db
+    .select({ tier: schema.skills.tier })
+    .from(schema.skills)
+    .where(and(eq(schema.skills.id, skillId), eq(schema.skills.trainerId, trainerId)))
+    .limit(1);
+  if (!skill) return [];
+  const prereqs = await listPrerequisitesForSkill(db, trainerId, skillId);
+  return prereqs.filter((p) => !canBePrerequisite(p.tier, skill.tier));
 }

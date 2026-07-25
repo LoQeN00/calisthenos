@@ -5,6 +5,7 @@ import {
   ReorderFormSchema,
   PrerequisiteFormSchema,
 } from "./skill-types";
+import { SKILL_TIERS } from "./skill-tier";
 
 describe("SkillFormSchema", () => {
   it("accepts a valid skill", () => {
@@ -70,5 +71,21 @@ describe("PrerequisiteFormSchema", () => {
   it("odrzuca nie-uuid", () => {
     const r = PrerequisiteFormSchema.safeParse({ skillId: "x", requiresSkillId: "y" });
     expect(r.success).toBe(false);
+  });
+});
+
+describe("SkillFormSchema — tier", () => {
+  it("bez pola tier wpada w domyślny basic", () => {
+    const parsed = SkillFormSchema.safeParse({ name: "Front Lever" });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.tier).toBe("basic");
+  });
+  it("przyjmuje każdą wartość ze słownika tierów", () => {
+    for (const t of SKILL_TIERS) {
+      expect(SkillFormSchema.safeParse({ name: "X", tier: t }).success).toBe(true);
+    }
+  });
+  it("odrzuca wartość spoza słownika", () => {
+    expect(SkillFormSchema.safeParse({ name: "X", tier: "nope" }).success).toBe(false);
   });
 });

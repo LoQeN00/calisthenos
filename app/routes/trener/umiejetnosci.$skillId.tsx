@@ -9,8 +9,11 @@ import {
 } from "react-router";
 import { ConfirmSubmitButton } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
+import { TierBadge } from "~/components/tier-badge";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
+import { pluralizePl } from "~/lib/format";
+import { SKILL_TIERS, TIER_LABEL } from "~/lib/skill-tier";
 import {
   SkillError,
   addPrerequisite,
@@ -19,6 +22,7 @@ import {
   getSkillWithVariations,
   listAssignableExercises,
   listAssignablePrerequisites,
+  listConflictingPrerequisites,
   listPrerequisitesForSkill,
   removePrerequisite,
   removeVariation,
@@ -33,11 +37,12 @@ export async function loader(args: LoaderFunctionArgs) {
   const skill = await getSkillWithVariations(db, user.id, skillId);
   if (!skill) throw new Response("not found", { status: 404 });
   const assignable = await listAssignableExercises(db, user.id);
-  const [prerequisites, assignablePrereqs] = await Promise.all([
+  const [prerequisites, assignablePrereqs, conflicts] = await Promise.all([
     listPrerequisitesForSkill(db, user.id, skillId),
     listAssignablePrerequisites(db, user.id, skillId),
+    listConflictingPrerequisites(db, user.id, skillId),
   ]);
-  return { skill, assignable, prerequisites, assignablePrereqs };
+  return { skill, assignable, prerequisites, assignablePrereqs, conflicts };
 }
 
 export async function action(args: ActionFunctionArgs) {
@@ -50,9 +55,17 @@ export async function action(args: ActionFunctionArgs) {
       const parsed = SkillFormSchema.safeParse({
         name: String(fd.get("name") ?? ""),
         description: String(fd.get("description") ?? ""),
+        tier: fd.has("tier") ? String(fd.get("tier")) : undefined,
       });
       if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Niepoprawne dane." };
-      await updateSkill(db, user.id, skillId, parsed.data.name, parsed.data.description);
+      await updateSkill(
+        db,
+        user.id,
+        skillId,
+        parsed.data.name,
+        parsed.data.description,
+        parsed.data.tier,
+      );
       return { success: "Zapisano zmiany." };
     }
     if (intent === "add-variation") {
@@ -100,7 +113,8 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function EdytorUmiejetnosci() {
-  const { skill, assignable, prerequisites, assignablePrereqs } = useLoaderData<typeof loader>();
+  const { skill, assignable, prerequisites, assignablePrereqs, conflicts } =
+    useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const ids = skill.variations.map((v) => v.id);
 
@@ -117,6 +131,7 @@ export default function EdytorUmiejetnosci() {
         <Link to="/trener/umiejetnosci">Umiejętności</Link>
         <span className="sep">›</span>
         <span className="current">{skill.name}</span>
+        <TierBadge tier={skill.tier} />
       </div>
 
       {actionData != null && "error" in actionData && actionData.error != null && (
@@ -150,6 +165,16 @@ export default function EdytorUmiejetnosci() {
             maxLength={2000}
             rows={3}
           />
+        </label>
+        <label className="col" style={{ gap: 4 }}>
+          <span className="text-sm">Poziom trudności</span>
+          <select name="tier" className="input" defaultValue={skill.tier}>
+            {SKILL_TIERS.map((t) => (
+              <option key={t} value={t}>
+                {TIER_LABEL[t]}
+              </option>
+            ))}
+          </select>
         </label>
         <button type="submit" className="btn">
           Zapisz
@@ -239,6 +264,18 @@ export default function EdytorUmiejetnosci() {
         <p className="text-sm muted" style={{ marginBottom: 12 }}>
           Umiejętności, które trzeba opanować, zanim odblokuje się ta.
         </p>
+        {conflicts.length > 0 && (
+          <div className="alert alert-error" role="alert">
+            {`${conflicts.length} ${pluralizePl(conflicts.length, {
+              one: "prerekwizyt jest trudniejszy",
+              few: "prerekwizyty są trudniejsze",
+              many: "prerekwizytów jest trudniejszych",
+            })} od tej umiejętności:`}{" "}
+            {conflicts.map((c) => `${c.name} (${TIER_LABEL[c.tier].toUpperCase()})`).join(", ")}.{" "}
+            Podnieś tier tej umiejętności albo usuń te połączenia — w drzewie rysują się odwrotnie
+            do kierunku piramidy.
+          </div>
+        )}
         {prerequisites.length === 0 ? (
           <div className="text-sm muted" style={{ marginBottom: 12 }}>
             Brak prerekwizytów — to korzeń drzewa.
@@ -246,8 +283,15 @@ export default function EdytorUmiejetnosci() {
         ) : (
           <div className="col" style={{ gap: 8, marginBottom: 16 }}>
             {prerequisites.map((p) => (
-              <div key={p.id} className="card row between" style={{ padding: "10px 14px", gap: 10 }}>
-                <span style={{ fontWeight: 500 }}>{p.name}</span>
+              <div
+                key={p.id}
+                className="card row between"
+                style={{ padding: "10px 14px", gap: 10 }}
+              >
+                <span className="row" style={{ gap: 8 }}>
+                  <span style={{ fontWeight: 500 }}>{p.name}</span>
+                  <TierBadge tier={p.tier} />
+                </span>
                 <Form method="post">
                   <input type="hidden" name="intent" value="remove-prereq" />
                   <input type="hidden" name="requiresSkillId" value={p.id} />

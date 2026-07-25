@@ -9,6 +9,7 @@ import {
   type AdvancementEvent,
 } from "~/lib/skill-progression-math";
 import { SkillError } from "~/lib/skills";
+import type { SkillTier } from "~/lib/skill-tier";
 
 export interface SkillMapVariation {
   id: string;
@@ -29,6 +30,7 @@ export interface SkillAdvancementHistoryRow {
 export interface SkillMapEntry {
   skillId: string;
   skillName: string;
+  tier: SkillTier;
   variations: SkillMapVariation[];
   currentVariationId: string | null;
   // exerciseId bieżącego wariantu (do deep-linku w wyniki/Progresję); null gdy nieprzypisane.
@@ -50,7 +52,7 @@ export async function getSkillMapForTrainee(
   opts: { withSuggestions?: boolean } = {},
 ): Promise<SkillMap> {
   const skills = await db
-    .select({ id: schema.skills.id, name: schema.skills.name })
+    .select({ id: schema.skills.id, name: schema.skills.name, tier: schema.skills.tier })
     .from(schema.skills)
     .where(and(eq(schema.skills.trainerId, trainerId), isNull(schema.skills.archivedAt)))
     .orderBy(asc(schema.skills.name));
@@ -169,6 +171,7 @@ export async function getSkillMapForTrainee(
     return {
       skillId: skill.id,
       skillName: skill.name,
+      tier: skill.tier,
       variations: vars.map((v) => ({
         id: v.id,
         exerciseId: v.exerciseId,

@@ -87,7 +87,6 @@ export default function TrenerRozwoj() {
 
       <SkillTreeView
         tree={tree}
-        showStates
         hrefForNode={(skillId) => `/trener/podopieczni/${trainee.id}/rozwoj/umiejetnosc/${skillId}`}
       />
 

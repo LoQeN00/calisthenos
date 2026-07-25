@@ -76,7 +76,6 @@ export default function PodopiecznyRozwoj() {
 
       <SkillTreeView
         tree={tree}
-        showStates
         hrefForNode={(skillId) => `/podopieczny/rozwoj/umiejetnosc/${skillId}`}
       />
 
