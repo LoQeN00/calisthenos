@@ -4,17 +4,64 @@ import {
   VIEW_W,
   buildPyramid,
   layoutPyramid,
+  orderAndPlace,
   type PyramidMetrics,
   type PyramidNodeInput,
 } from "./skill-pyramid";
 import type { Edge } from "./skill-tree-math";
 
+/**
+ * Drzewo z produkcji (zrzut `docs/skill-tree.png`) + jeden węzeł EKSPERT.
+ * Służy testom układu: to na nim właściciel zgłosił plątaninę krawędzi.
+ */
+const PROD_NODES: PyramidNodeInput[] = [
+  { id: "pull", name: "Podciąganie", tier: "basic" },
+  { id: "dipy", name: "Dipy", tier: "basic" },
+  { id: "hollow", name: "Hollow body", tier: "basic" },
+  { id: "mu", name: "muscle up", tier: "intermediate" },
+  { id: "dragon", name: "Dragon flag", tier: "intermediate" },
+  { id: "hs", name: "Handstand", tier: "intermediate" },
+  { id: "press", name: "press do handstand'a", tier: "intermediate" },
+  { id: "hspu", name: "HSPU", tier: "intermediate" },
+  { id: "fl", name: "Frontlever", tier: "advanced" },
+  { id: "planche", name: "planche", tier: "advanced" },
+  { id: "hspu90", name: "90 degree HSPU", tier: "advanced" },
+  { id: "oahs", name: "One arm handstand", tier: "expert" },
+];
+
+const PROD_EDGES: Edge[] = [
+  { from: "mu", requires: "pull" },
+  { from: "mu", requires: "dipy" },
+  { from: "dragon", requires: "hollow" },
+  { from: "hs", requires: "hollow" },
+  { from: "press", requires: "hs" },
+  { from: "hspu", requires: "press" },
+  { from: "fl", requires: "pull" },
+  { from: "fl", requires: "dragon" },
+  { from: "planche", requires: "dipy" },
+  { from: "planche", requires: "press" },
+  { from: "hspu90", requires: "hspu" },
+  { from: "oahs", requires: "hspu90" },
+];
+
+function namesOf(nodes: PyramidNodeInput[]): Map<string, string> {
+  return new Map(nodes.map((x) => [x.id, x.name]));
+}
+
+function placeProd() {
+  return orderAndPlace(buildPyramid(PROD_NODES, PROD_EDGES), PROD_EDGES, namesOf(PROD_NODES));
+}
+
+/** Skrót „zbuduj pasy i rozstaw je" — wejście `layoutPyramid`. */
+function place(nodes: PyramidNodeInput[], edges: Edge[] = []) {
+  return orderAndPlace(buildPyramid(nodes, edges), edges, namesOf(nodes));
+}
+
 const M: PyramidMetrics = {
   rowH: 100,
   bandHeaderH: 20,
   bandGap: 10,
-  insetStep: 60,
-  maxInsetFrac: 0.28,
+  cardH: 70,
 };
 
 function n(id: string, tier: PyramidNodeInput["tier"], name = id): PyramidNodeInput {
@@ -122,126 +169,196 @@ describe("buildPyramid — kolejność", () => {
   });
 });
 
+/** Suma poziomych przebiegów krawędzi — im mniejsza, tym mniej skosów na planszy. */
+function travel(columnOf: Map<string, number>, edges: Edge[]): number {
+  return edges.reduce(
+    (sum, e) => sum + Math.abs(columnOf.get(e.from)! - columnOf.get(e.requires)!),
+    0,
+  );
+}
+
+/** Układ, jaki daje dzisiejsza kolejność alfabetyczna: x = indeks w rzędzie. */
+function alphabeticalColumns(bands: ReturnType<typeof buildPyramid>): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const b of bands) for (const row of b.rows) row.forEach((id, i) => m.set(id, i));
+  return m;
+}
+
+describe("orderAndPlace — kolumny", () => {
+  it("czysty łańcuch prereków stoi w jednej kolumnie", () => {
+    // Handstand → press → HSPU → 90 degree HSPU → One arm handstand: każde ogniwo
+    // ma dokładnie jednego prereka, a ten dokładnie jedną zależną.
+    const { columnOf } = placeProd();
+    const chain = ["hs", "press", "hspu", "hspu90", "oahs"];
+    const xs = chain.map((id) => columnOf.get(id)!);
+    for (const x of xs) expect(x).toBeCloseTo(xs[0]!, 6);
+  });
+
+  it("dwie zależne jednego prereka rozchodzą się symetrycznie wokół niego", () => {
+    const nodes: PyramidNodeInput[] = [
+      { id: "r", name: "Rdzeń", tier: "basic" },
+      { id: "a", name: "Alfa", tier: "intermediate" },
+      { id: "b", name: "Beta", tier: "intermediate" },
+    ];
+    const edges: Edge[] = [
+      { from: "a", requires: "r" },
+      { from: "b", requires: "r" },
+    ];
+    const { columnOf } = orderAndPlace(buildPyramid(nodes, edges), edges, namesOf(nodes));
+    const [xa, xb, xr] = [columnOf.get("a")!, columnOf.get("b")!, columnOf.get("r")!];
+    expect(xa).not.toBeCloseTo(xb, 6);
+    expect((xa + xb) / 2).toBeCloseTo(xr, 6);
+  });
+
+  it("równoległe łańcuchy nie zlewają się w jedną kolumnę", () => {
+    const nodes: PyramidNodeInput[] = [
+      { id: "a1", name: "A1", tier: "basic" },
+      { id: "a2", name: "A2", tier: "basic" },
+      { id: "b1", name: "B1", tier: "basic" },
+      { id: "b2", name: "B2", tier: "basic" },
+    ];
+    const edges: Edge[] = [
+      { from: "a2", requires: "a1" },
+      { from: "b2", requires: "b1" },
+    ];
+    const { columnOf } = orderAndPlace(buildPyramid(nodes, edges), edges, namesOf(nodes));
+    expect(columnOf.get("a1")!).toBeCloseTo(columnOf.get("a2")!, 6);
+    expect(columnOf.get("b1")!).toBeCloseTo(columnOf.get("b2")!, 6);
+    expect(Math.abs(columnOf.get("a1")! - columnOf.get("b1")!)).toBeGreaterThanOrEqual(1);
+  });
+
+  it("żadne dwa węzły w jednym rzędzie nie są bliżej niż jedna kolumna", () => {
+    const { bands, columnOf } = placeProd();
+    for (const band of bands) {
+      for (const row of band.rows) {
+        const xs = row.map((id) => columnOf.get(id)!);
+        // Tolerancja pokrywa zaokrąglenie do 6 miejsc, które domyka determinizm.
+        for (let i = 1; i < xs.length; i++) {
+          expect(xs[i]! - xs[i - 1]!).toBeGreaterThanOrEqual(1 - 1e-5);
+        }
+      }
+    }
+  });
+
+  it("rzędy wracają uporządkowane rosnąco po x", () => {
+    const { bands, columnOf } = placeProd();
+    for (const band of bands) {
+      for (const row of band.rows) {
+        const xs = row.map((id) => columnOf.get(id)!);
+        expect([...xs].sort((a, b) => a - b)).toEqual(xs);
+      }
+    }
+  });
+
+  it("graf bez krawędzi zachowuje kolejność alfabetyczną (locale pl)", () => {
+    const nodes: PyramidNodeInput[] = [
+      { id: "1", name: "Łokieć", tier: "basic" },
+      { id: "2", name: "Antagonista", tier: "basic" },
+      { id: "3", name: "Zwis", tier: "basic" },
+    ];
+    const { bands, columnOf } = orderAndPlace(buildPyramid(nodes, []), [], namesOf(nodes));
+    expect(bands[0]!.rows[0]).toEqual(["2", "1", "3"]);
+    expect(columnOf.get("2")).toBeCloseTo(0, 6);
+    expect(columnOf.get("1")).toBeCloseTo(1, 6);
+    expect(columnOf.get("3")).toBeCloseTo(2, 6);
+  });
+
+  it("jest deterministyczny — permutacja wejścia daje ten sam wynik", () => {
+    const reversed = [...PROD_NODES].reverse();
+    const shuffledEdges = [...PROD_EDGES].reverse();
+    const a = placeProd();
+    const b = orderAndPlace(
+      buildPyramid(reversed, shuffledEdges),
+      shuffledEdges,
+      namesOf(reversed),
+    );
+    expect([...b.columnOf.entries()].sort()).toEqual([...a.columnOf.entries()].sort());
+    expect(b.bands).toEqual(a.bands);
+    expect(b.boardCols).toBeCloseTo(a.boardCols, 6);
+  });
+
+  it("każdy węzeł dostaje kolumnę, a najmniejsza z nich to 0", () => {
+    const { columnOf } = placeProd();
+    expect(columnOf.size).toBe(PROD_NODES.length);
+    expect(Math.min(...columnOf.values())).toBeCloseTo(0, 6);
+  });
+
+  it("boardCols mieści najszerszy rząd", () => {
+    const { bands, boardCols } = placeProd();
+    const widest = Math.max(...bands.flatMap((b) => b.rows.map((r) => r.length)));
+    expect(boardCols).toBeGreaterThanOrEqual(widest);
+  });
+
+  it("krawędzie biegną mniej na boki niż przy kolejności alfabetycznej", () => {
+    // To jest zarzut nr 3 właściciela wyrażony liczbą: alfabet ustawia obok siebie
+    // węzły, które nie mają ze sobą nic wspólnego, więc każda zależność jedzie skosem.
+    const bands = buildPyramid(PROD_NODES, PROD_EDGES);
+    const before = travel(alphabeticalColumns(bands), PROD_EDGES);
+    const after = travel(placeProd().columnOf, PROD_EDGES);
+    expect(after).toBeLessThan(before);
+  });
+});
+
 describe("layoutPyramid — wymiary", () => {
   it("pusta piramida ma zerową wysokość", () => {
-    const l = layoutPyramid([], M);
+    const l = layoutPyramid(place([]), M);
     expect(l.totalH).toBe(0);
     expect(l.centers.size).toBe(0);
   });
 
   it("totalH = suma (nagłówek + rzędy) wszystkich pasów + odstępy między nimi", () => {
-    const bands = buildPyramid([n("a", "basic"), n("b", "expert")], []);
-    const l = layoutPyramid(bands, M);
+    const l = layoutPyramid(place([n("a", "basic"), n("b", "expert")]), M);
     // dwa pasy po (20 + 1*100) + jeden odstęp 10
     expect(l.totalH).toBe(20 + 100 + 10 + 20 + 100);
   });
 
   it("pasy nie nachodzą na siebie i idą od góry w dół", () => {
-    const bands = buildPyramid([n("a", "basic"), n("b", "intermediate"), n("c", "expert")], []);
-    const l = layoutPyramid(bands, M);
+    const l = layoutPyramid(place([n("a", "basic"), n("b", "intermediate"), n("c", "expert")]), M);
     for (let i = 1; i < l.bands.length; i++) {
       expect(l.bands[i]!.y).toBeGreaterThanOrEqual(l.bands[i - 1]!.y + l.bands[i - 1]!.h);
     }
   });
 
   it("pasy zwracane są od najwyższego tieru (góra planszy) do najniższego", () => {
-    const bands = buildPyramid([n("a", "basic"), n("b", "expert")], []);
-    const l = layoutPyramid(bands, M);
+    const l = layoutPyramid(place([n("a", "basic"), n("b", "expert")]), M);
     expect(l.bands.map((b) => b.tier)).toEqual(["expert", "basic"]);
   });
 
-  it("płaska piramida: boardCols równa się liczbie węzłów w rzędzie", () => {
-    // Jeden pas → zerowe zawężenie → plansza dokładnie tak szeroka jak rząd.
-    const bands = buildPyramid([n("a", "basic"), n("b", "basic"), n("c", "basic")], []);
-    expect(layoutPyramid(bands, M).boardCols).toBeCloseTo(3, 6);
-  });
-
-  it("boardCols nigdy nie jest mniejsze niż najszerszy rząd", () => {
-    const bands = buildPyramid(
-      [n("a", "basic"), n("b", "basic"), n("c", "basic"), n("d", "expert")],
-      [],
-    );
-    expect(layoutPyramid(bands, M).boardCols).toBeGreaterThanOrEqual(3);
-  });
-});
-
-describe("layoutPyramid — zawężenie (sylwetka piramidy)", () => {
-  it("wyższy pas jest węższy, gdy pasy mają tyle samo węzłów", () => {
-    const bands = buildPyramid([n("a", "basic"), n("b", "intermediate")], []);
-    const l = layoutPyramid(bands, M);
-    const top = l.bands.find((b) => b.tier === "intermediate")!;
-    const bottom = l.bands.find((b) => b.tier === "basic")!;
-    expect(top.x1 - top.x0).toBeLessThan(bottom.x1 - bottom.x0);
-  });
-
-  it("najniższy pas zajmuje pełną szerokość", () => {
-    const bands = buildPyramid([n("a", "basic")], []);
-    const l = layoutPyramid(bands, M);
-    expect(l.bands[0]!.x0).toBe(0);
-    expect(l.bands[0]!.x1).toBe(VIEW_W);
-  });
-
-  it("zatłoczony górny pas poszerza planszę zamiast ściskać karty", () => {
-    // Dół: 1 węzeł. Góra: 4 węzły w zawężonym pasie. Zawężenie ZOSTAJE
-    // (sylwetka piramidy jest nienaruszalna), a koszt bierze na siebie
-    // szerokość planszy — karta nigdy nie chudnie.
-    const bands = buildPyramid(
-      [n("d", "basic"), n("a", "expert"), n("b", "expert"), n("c", "expert")],
-      [],
-    );
-    const l = layoutPyramid(bands, M);
-    const top = l.bands.find((b) => b.tier === "expert")!;
-    expect(top.x1 - top.x0).toBeLessThan(VIEW_W); // zawężenie nie zniknęło
-    expect(l.boardCols).toBeGreaterThan(3); // plansza szersza niż 3 karty
-  });
-
-  it("zawężenie nie przekracza twardego limitu maxInsetFrac", () => {
-    // Duży insetStep przy czterech pasach zwęziłby szczyt do paska —
-    // limit musi to zatrzymać.
-    const wide: PyramidMetrics = { ...M, insetStep: 400 };
-    const bands = buildPyramid(
-      [n("a", "basic"), n("b", "intermediate"), n("c", "advanced"), n("d", "expert")],
-      [],
-    );
-    const top = layoutPyramid(bands, wide).bands.find((b) => b.tier === "expert")!;
-    // 1000 - 2*280 = 440. Literał celowo, nie wzór — inaczej test powiela
-    // implementację i nie złapie błędu współczynnika.
-    expect(top.x1 - top.x0).toBeCloseTo(440, 6);
-  });
-
-  it("pas nigdy nie ma ujemnej ani zerowej szerokości", () => {
-    const bands = buildPyramid(
-      [n("a", "basic"), n("b", "intermediate"), n("c", "advanced"), n("d", "expert")],
-      [],
-    );
-    for (const b of layoutPyramid(bands, M).bands) {
-      expect(b.x1).toBeGreaterThan(b.x0);
+  it("płyty są pełnej szerokości — geometria nie niesie już wcięcia", () => {
+    const l = layoutPyramid(place([n("a", "basic"), n("b", "intermediate")]), M);
+    for (const b of l.bands) {
+      expect(b).not.toHaveProperty("x0");
+      expect(b).not.toHaveProperty("x1");
     }
   });
 
-  it("pusty środkowy tier nie tworzy dziury w zawężeniu", () => {
-    // basic + expert, bez intermediate/advanced → expert jest DRUGIM renderowanym
-    // pasem, więc dostaje jedno insetStep, a nie trzy.
-    const bands = buildPyramid([n("a", "basic"), n("b", "expert")], []);
-    const top = layoutPyramid(bands, M).bands.find((b) => b.tier === "expert")!;
-    expect(top.x0).toBeCloseTo(M.insetStep, 6);
+  it("boardCols przechodzi z rozstawienia bez zmian", () => {
+    const p = place([n("a", "basic"), n("b", "basic"), n("c", "basic")]);
+    expect(layoutPyramid(p, M).boardCols).toBeCloseTo(p.boardCols, 6);
+  });
+
+  it("cardHalfW mieści się w połowie slotu — inaczej karty nachodziłyby na siebie", () => {
+    const p = place([n("a", "basic"), n("b", "basic"), n("c", "basic")]);
+    const l = layoutPyramid(p, M);
+    expect(l.cardHalfW).toBeGreaterThan(0);
+    expect(l.cardHalfW).toBeLessThan(VIEW_W / p.boardCols / 2);
   });
 });
 
 describe("layoutPyramid — środki węzłów", () => {
   it("każdy węzeł dostaje środek", () => {
     const nodes = [n("a", "basic"), n("b", "intermediate"), n("c", "expert")];
-    const l = layoutPyramid(buildPyramid(nodes, []), M);
+    const l = layoutPyramid(place(nodes), M);
     for (const node of nodes) expect(l.centers.get(node.id)).toBeDefined();
   });
 
-  it("pojedynczy węzeł w rzędzie siedzi w środku swojego pasa", () => {
-    const l = layoutPyramid(buildPyramid([n("a", "basic")], []), M);
-    expect(l.centers.get("a")!.x).toBe(VIEW_W / 2);
+  it("pojedynczy węzeł siedzi w środku planszy", () => {
+    const l = layoutPyramid(place([n("a", "basic")]), M);
+    expect(l.centers.get("a")!.x).toBeCloseTo(VIEW_W / 2, 6);
   });
 
-  it("węzły w rzędzie mają rosnące x i są symetryczne względem środka pasa", () => {
-    const l = layoutPyramid(buildPyramid([n("a", "basic", "A"), n("b", "basic", "B")], []), M);
+  it("węzły w rzędzie mają rosnące x i są symetryczne względem środka planszy", () => {
+    const l = layoutPyramid(place([n("a", "basic", "A"), n("b", "basic", "B")]), M);
     const xa = l.centers.get("a")!.x;
     const xb = l.centers.get("b")!.x;
     expect(xa).toBeLessThan(xb);
@@ -251,23 +368,30 @@ describe("layoutPyramid — środki węzłów", () => {
   it("podrząd 0 leży NIŻEJ (większe y) niż podrząd 1 w tym samym pasie", () => {
     const nodes = [n("dip", "basic", "Dip"), n("pull", "basic", "Pull-up")];
     const edges: Edge[] = [{ from: "dip", requires: "pull" }];
-    const l = layoutPyramid(buildPyramid(nodes, edges), M);
+    const l = layoutPyramid(place(nodes, edges), M);
     expect(l.centers.get("pull")!.y).toBeGreaterThan(l.centers.get("dip")!.y);
   });
 
   it("węzeł z wyższego tieru leży wyżej (mniejsze y) niż z niższego", () => {
-    const l = layoutPyramid(buildPyramid([n("a", "basic"), n("z", "expert")], []), M);
+    const l = layoutPyramid(place([n("a", "basic"), n("z", "expert")]), M);
     expect(l.centers.get("z")!.y).toBeLessThan(l.centers.get("a")!.y);
   });
 
   it("wszystkie środki mieszczą się w planszy", () => {
-    const nodes = [n("a", "basic"), n("b", "intermediate"), n("c", "expert")];
-    const l = layoutPyramid(buildPyramid(nodes, []), M);
+    const l = layoutPyramid(place(PROD_NODES, PROD_EDGES), M);
     for (const c of l.centers.values()) {
       expect(c.x).toBeGreaterThanOrEqual(0);
       expect(c.x).toBeLessThanOrEqual(VIEW_W);
       expect(c.y).toBeGreaterThanOrEqual(0);
       expect(c.y).toBeLessThanOrEqual(l.totalH);
+    }
+  });
+
+  it("karta nie wystaje poza planszę żadną krawędzią", () => {
+    const l = layoutPyramid(place(PROD_NODES, PROD_EDGES), M);
+    for (const c of l.centers.values()) {
+      expect(c.x - l.cardHalfW).toBeGreaterThanOrEqual(0);
+      expect(c.x + l.cardHalfW).toBeLessThanOrEqual(VIEW_W);
     }
   });
 });
@@ -276,11 +400,11 @@ describe("DEFAULT_METRICS", () => {
   it("ma dodatnie wymiary", () => {
     expect(DEFAULT_METRICS.rowH).toBeGreaterThan(0);
     expect(DEFAULT_METRICS.bandHeaderH).toBeGreaterThan(0);
-    expect(DEFAULT_METRICS.insetStep).toBeGreaterThan(0);
+    expect(DEFAULT_METRICS.bandGap).toBeGreaterThan(0);
+    expect(DEFAULT_METRICS.cardH).toBeGreaterThan(0);
   });
-  it("maxInsetFrac trzyma pas z dala od zera szerokości", () => {
-    // Przy 0.5 pas zwinąłby się do linii; poniżej 0.5 zawsze coś zostaje.
-    expect(DEFAULT_METRICS.maxInsetFrac).toBeGreaterThan(0);
-    expect(DEFAULT_METRICS.maxInsetFrac).toBeLessThan(0.5);
+  it("rząd jest wyższy od karty — inaczej nie ma gdzie poprowadzić krawędzi", () => {
+    // Przerwa musi pomieścić pasy poziomych odcinków (skill-pyramid-routing).
+    expect(DEFAULT_METRICS.rowH - DEFAULT_METRICS.cardH).toBeGreaterThanOrEqual(30);
   });
 });

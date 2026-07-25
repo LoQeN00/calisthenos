@@ -1506,10 +1506,15 @@ dialog.modal::backdrop {
 /* ============== PIRAMIDA UMIEJĘTNOŚCI ============== */
 /* Szerokość kolumny steruje min-width planszy — plansza przewija się w poziomie
    dopiero, gdy najszerszy rząd nie mieści się na ekranie. Wiedza o rozmiarze
-   karty jest tu, nie w JS. */
+   karty jest tu, nie w JS.
+
+   Stosunek karty do rozstawu musi zostać ≈ 0,855 na obu viewportach: routing
+   krawędzi (`skill-pyramid-routing`) zakłada, że pół karty to 0,43 slotu, i tylko
+   dzięki temu korytarz w połowie slotu mija kartę. Zmieniając te dwie liczby,
+   zmień je razem. */
 :root {
-  --pyramid-col: 132px;
-  --pyramid-card-w: 116px;
+  --pyramid-col: 280px;
+  --pyramid-card-w: 240px;
 }
 
 .pyramid-scroll {
@@ -1526,12 +1531,22 @@ dialog.modal::backdrop {
   margin: 0 auto;
 }
 
-/* Płyta pasa — well z hairline'em; wcięcie liczy layoutPyramid. */
+/* Płyta warstwy — pełna szerokość planszy. Sylwetka schodkowej piramidy została
+   wycofana (spec 2026-07-25): rzędy nie wykorzystywały zarezerwowanego wcięcia,
+   więc karty siedziały małe na pustych płytach. Masę niesie teraz sama warstwa,
+   rzymski numer i atramentowy szczyt. */
 .pyramid-band {
   position: absolute;
+  left: 0;
+  right: 0;
+  overflow: hidden;
   background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
+}
+.pyramid-band[data-tier="expert"] {
+  background: var(--ink);
+  border-color: var(--ink);
 }
 
 .pyramid-band-head {
@@ -1539,27 +1554,174 @@ dialog.modal::backdrop {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 7px 14px 0;
+  padding: 8px 16px 0;
+  color: var(--muted);
 }
-/* Bez tego długa etykieta tieru na wąskim pasie zawija się, nagłówek rośnie
-   ponad zarezerwowane `bandHeaderH` (JS) i wjeżdża w kartę pod spodem. */
+/* `white-space` — bez niego długa etykieta tieru zawija się, nagłówek rośnie ponad
+   zarezerwowane `bandHeaderH` (JS) i wjeżdża w kartę pod spodem.
+   `background` — warstwa krawędzi leży w DOM po płytach, więc pion wchodzący do
+   niższej warstwy przechodziłby PRZEZ napis. Tło płyty pod tekstem przepuszcza
+   linię za nim; podniesienie nagłówka z-indeksem nic by nie dało, bo płyta nie
+   tworzy własnego kontekstu składania (a gdyby tworzyła, zasłoniłaby krawędzie). */
 .pyramid-band-head > * {
   white-space: nowrap;
+  padding: 0 3px;
+  background: var(--surface-2);
+}
+.pyramid-band[data-tier="expert"] .pyramid-band-head > * {
+  background: var(--ink);
 }
 .pyramid-band-head .uppercase-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Na atramentowej płycie --muted schodzi poniżej progu kontrastu (patrz karta
+   eksperta niżej) — ta sama zamiana na --muted-2. */
+.pyramid-band[data-tier="expert"] .pyramid-band-head {
+  color: var(--muted-2);
+}
+
+/* Rzymski numer wykuty w płycie: koduje kolejność warstw, więc jest strukturą,
+   nie ozdobą. Siedzi pod nagłówkiem i kartami (bez z-index), stąd `overflow`
+   na płycie — inaczej wystawałby poza jej zaokrąglony róg. */
+.pyramid-band-roman {
+  position: absolute;
+  left: 14px;
+  bottom: -6px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 64px;
+  line-height: 0.8;
+  letter-spacing: -0.04em;
+  color: var(--ink);
+  opacity: 0.055;
+  pointer-events: none;
+  user-select: none;
+}
+.pyramid-band[data-tier="expert"] .pyramid-band-roman {
+  color: var(--bg);
+  opacity: 0.12;
+}
+
+/* Linia szczytu — jedyne miejsce, gdzie limonka wychodzi poza kartę. Nadal znaczy
+   postęp podopiecznego: „dotąd doszedłeś". Bez opanowanej umiejętności nie jest
+   renderowana (komponent). */
+.pyramid-summit {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  z-index: 3;
+  border-top: 1.5px solid var(--accent);
+  pointer-events: none;
+}
+.pyramid-summit-tag {
+  position: absolute;
+  right: 0;
+  top: -9px;
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
 
 .pyramid-node {
   position: absolute;
   transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
   width: var(--pyramid-card-w);
-  padding: 10px 8px;
-  text-align: center;
+  min-height: var(--pyramid-card-h, 112px);
+  padding: 12px 14px;
+  text-align: left;
   --node-op: 1;
   opacity: var(--node-op);
+}
+
+/* Pasek stanu — to, co wcześniej istniało wyłącznie w aria-label. */
+.pyramid-node-state {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 8px;
+  font-size: 9.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.pyramid-node-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted-2);
+}
+.pyramid-node[data-state="mastered"] .pyramid-node-dot {
+  background: var(--ok);
+}
+.pyramid-node[data-state="in_progress"] .pyramid-node-dot {
+  background: var(--accent);
+}
+/* Gotowe do startu i „w toku" dzielą odcień (brak tokenu „info"), więc odróżnia
+   je forma: kontur zamiast wypełnienia. */
+.pyramid-node[data-state="available"] .pyramid-node-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+.pyramid-node-name {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.pyramid-node-sub {
+  margin-top: 5px;
+  margin-bottom: 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Znaczniki kierunku. Są w DOM, nie w SVG: oś X planszy jest rozciągana, więc
+   `<marker>` byłby spłaszczony na szerokim ekranie. */
+.pyramid-node-foot {
+  position: absolute;
+  left: 50%;
+  top: -9px;
+  transform: translateX(-50%);
+  width: 7px;
+  height: 9px;
+  border-radius: 3px 3px 0 0;
+  background: var(--line-2);
+}
+.pyramid-node[data-state="mastered"] .pyramid-node-foot {
+  background: var(--ok);
+}
+.pyramid-node-notch {
+  position: absolute;
+  left: 50%;
+  bottom: -7px;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 7px solid var(--line-2);
+}
+.pyramid-node-notch[data-open="1"] {
+  border-bottom-color: var(--ok);
 }
 
 /* `.card-hover:hover` podmienia CAŁY transform — bez tego nadpisania karta
@@ -1577,22 +1739,30 @@ dialog.modal::backdrop {
   opacity: var(--node-op);
 }
 
-.pyramid-node-sub {
-  color: var(--muted);
-}
-
-/* Rowek postępu — well jak wszędzie w systemie. */
+/* Rowek postępu — well jak wszędzie w systemie. `margin-top: auto` dociska go do
+   dolnej krawędzi karty, więc rowki wszystkich kart w rzędzie stoją w jednej
+   linii niezależnie od tego, czy nazwa zajęła jedną linię, czy dwie. Odstęp od
+   linii poziomu gwarantuje `margin-bottom` na `.pyramid-node-sub` — `auto` samo
+   z siebie może zejść do zera przy wysokiej treści. */
 .pyramid-node-bar {
   height: 5px;
-  margin-top: 7px;
+  margin-top: auto;
   border-radius: var(--radius-pill);
   background: var(--surface-2);
   border: 1px solid var(--line);
   overflow: hidden;
 }
-.pyramid-node-bar > div {
+.pyramid-node-bar > span {
+  display: block;
   height: 100%;
   border-radius: var(--radius-pill);
+  background: var(--muted-2);
+}
+.pyramid-node[data-state="mastered"] .pyramid-node-bar > span {
+  background: var(--ok);
+}
+.pyramid-node[data-state="in_progress"] .pyramid-node-bar > span {
+  background: var(--accent);
 }
 
 /* Tier = CIĘŻAR karty, nie kolor. Lime zostaje zarezerwowany dla postępu. */
@@ -1611,7 +1781,8 @@ dialog.modal::backdrop {
 /* Na atramentowej karcie tekst drugorzędny musi zejść z --muted: dałby 3,9:1 w
    motywie jasnym i 2,9:1 w ciemnym. --muted-2 odwraca się razem z --ink/--bg,
    więc czyta się na obu — 7,4:1 (jasny) i 5,4:1 (ciemny). */
-.pyramid-node[data-tier="expert"] .pyramid-node-sub {
+.pyramid-node[data-tier="expert"] .pyramid-node-sub,
+.pyramid-node[data-tier="expert"] .pyramid-node-state {
   color: var(--muted-2);
 }
 /* Ten sam well na inwersji zamienia się w jasny pasek, który bije w oczy
@@ -1638,6 +1809,44 @@ dialog.modal::backdrop {
    karta zostaje atramentowa, a kontrast trzyma się powyżej 4,5:1 w obu motywach. */
 .pyramid-node-locked[data-tier="expert"] {
   --node-op: 0.8;
+}
+
+/* Wskazanie karty wygasza krawędzie, które jej nie dotyczą — przy większym drzewie
+   to najtańszy sposób na „co z czego wynika". Tylko tam, gdzie hover naprawdę
+   istnieje: na telefonie dotyk jest nawigacją, nie podglądem. Krycie zostaje
+   atrybutem SVG (`opacity="…"`), więc ta reguła CSS wygrywa bez !important. */
+@media (hover: hover) {
+  .pyramid-edge {
+    transition: opacity 0.12s ease;
+  }
+  .pyramid-board[data-focus="1"] .pyramid-edge[data-dim="1"] {
+    opacity: 0.12;
+  }
+}
+
+/* Legenda pod planszą — klucz stanów i reguła kierunku. */
+.pyramid-legend {
+  gap: 16px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+.pyramid-legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--muted-2);
+}
+.pyramid-legend-swatch[data-state="mastered"] {
+  background: var(--ok);
+}
+.pyramid-legend-swatch[data-state="in_progress"] {
+  background: var(--accent);
+}
+.pyramid-legend-swatch[data-state="available"] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--accent);
 }
 
 /* Wejście: pasy wynurzają się od dołu do góry. Globalna reguła
@@ -1689,9 +1898,32 @@ dialog.modal::backdrop {
 
 /* ============== MOBILE ============== */
 @media (max-width: 880px) {
+  /* Ten sam stosunek karty do rozstawu co na desktopie (≈ 0,855) — routing
+     krawędzi zakłada go w `CARD_HALF_RATIO`. Karta mobilna jest wielkości
+     dotychczasowej desktopowej: trzy kolumny mieszczą się w ~408 px. */
   :root {
-    --pyramid-col: 104px;
-    --pyramid-card-w: 92px;
+    --pyramid-col: 136px;
+    --pyramid-card-w: 116px;
+  }
+
+  .pyramid-node {
+    padding: 10px 11px;
+  }
+  .pyramid-node-name {
+    font-size: 12.5px;
+  }
+  .pyramid-node-state {
+    margin-bottom: 6px;
+    font-size: 9px;
+    letter-spacing: 0.06em;
+  }
+  .pyramid-node-sub {
+    margin-bottom: 8px;
+    font-size: 10px;
+  }
+  .pyramid-band-roman {
+    font-size: 44px;
+    left: 10px;
   }
 
   .layout {
