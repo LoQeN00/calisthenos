@@ -183,6 +183,19 @@ Custom line-icon set, Lucide-style. See ICONOGRAPHY below.
 - Emoji of any kind.
 - Tooltips that auto-appear on hover.
 
+### Piramida umiejętności (rozszerzenie systemu)
+
+Drzewo umiejętności to jedyne miejsce, gdzie system dostaje własny, nazwany zestaw środków — bo to ekran, na który podopieczny patrzy, żeby zobaczyć swoje osiągnięcia. Rozszerzenie jest wąskie i obowiązuje wyłącznie tutaj:
+
+- **Tier niesie ciężar, nie kolor.** Cztery poziomy trudności różnią się wypełnieniem i grubością karty: płaski well (podstawowy) → hairline → ramka 1.5px → **inwersja atramentowa** (`background: var(--ink)`, `color: var(--bg)`) na szczycie. To ten sam środek, co `.nav-item.active` i `.brand-mark`, więc dark mode odwraca się sam.
+- **Lime pozostaje zarezerwowany dla postępu.** Akcent nigdy nie oznacza tieru — tylko stan podopiecznego (opanowane / w toku). W motywie jasnym karta eksperta jest atramentowa i to na niej lime świeci najmocniejszym kontrastem w całej aplikacji — zamierzone. W motywie ciemnym ta sama inwersja robi z karty niemal biel, więc `--ok`/`--accent` są tam lokalnie ściemniane wyłącznie wewnątrz karty eksperta, żeby akcenty stanu zostały czytelne.
+- **Tekst drugorzędny na karcie odwróconej to `--muted-2`, nie `--muted`.** Na `--ink` `--muted` daje 3,9:1 w motywie jasnym i 2,9:1 w ciemnym — poniżej progu. `--muted-2` odwraca się razem z parą `--ink`/`--bg` (jasny: `#9ca3af`, ciemny: `#5d6573`), więc czyta się na obu: 7,4:1 i 5,4:1. **Regułę trzymamy w CSS, nie w stylu inline** — inline wygrałby ze specyficznością i cicho ją unieważnił.
+- **Karta odwrócona nie gaśnie do 0,6.** Wygaszenie stanu „zablokowane" na inwersji rozmywa ją w szarość, więc szczyt traci swój sygnał, a tekst drugorzędny spada do ~3:1. Ink dostaje 0,8 — karta zostaje atramentowa, kontrast trzyma się powyżej 4,5:1 w obu motywach.
+- **Pasy jako płyty.** Każdy tier to well `--surface-2` z hairline'em, wcięty względem pasa pod sobą — sylwetka schodkowej piramidy powstaje z geometrii, nie z gradientu ani cienia.
+- **Ruch przy wejściu.** Pasy wynurzają się od dołu do góry: `translateY(6px)` + fade, 0,22 s, 40 ms przesunięcia między pasami. Mieści się w rejestrze `slidein`/`rise`. Karty i warstwa krawędzi animują **wyłącznie krycie** — mają własny `transform`/`inset`, który animacja transformu by nadpisała i rozjechała końce krawędzi względem kart. `prefers-reduced-motion` zeruje i czas trwania (reguła globalna), i opóźnienie (reguła w sekcji piramidy).
+
+Nadal obowiązuje reszta systemu: zero emoji, zero gradientów, zero glow, zero kolorowych cieni.
+
 ---
 
 ## ICONOGRAPHY

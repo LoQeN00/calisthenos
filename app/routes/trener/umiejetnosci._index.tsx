@@ -1,17 +1,57 @@
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
+import { ListControls } from "~/components/list-controls";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
-import { listSkillsForTrainer } from "~/lib/skills";
+import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
+import { SKILL_TIERS, TIER_LABEL, type SkillTier } from "~/lib/skill-tier";
+import { listSkillsForTrainer, type SkillListRow } from "~/lib/skills";
 
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainer" });
-  const skills = await listSkillsForTrainer(db, user.id);
-  return { skills };
+  const url = new URL(args.request.url);
+  const all = await listSkillsForTrainer(db, user.id);
+
+  const spec: ListControlsSpec = {
+    sortOptions: [
+      { key: "name", label: "Nazwa" },
+      { key: "variations", label: "Liczba wariantów" },
+    ],
+    defaultSort: "name",
+    filterGroups: [
+      {
+        param: "tier",
+        label: "Poziom trudności",
+        options: [
+          { value: "all", label: "Wszystkie" },
+          ...SKILL_TIERS.map((t) => ({ value: t, label: TIER_LABEL[t] })),
+        ],
+        defaultValue: "all",
+      },
+    ],
+    searchable: false,
+  };
+  const controls = parseListControls(url.searchParams, spec);
+
+  const tier = controls.filters.tier ?? "all";
+  const filtered = tier === "all" ? all : all.filter((s) => s.tier === tier);
+  const sorted = [...filtered].sort((a, b) =>
+    controls.sort === "variations"
+      ? b.variationCount - a.variationCount || a.name.localeCompare(b.name, "pl")
+      : a.name.localeCompare(b.name, "pl"),
+  );
+
+  // Sekcje od podstaw w górę — lista czyta się jak program, nie jak piramida.
+  const sections = SKILL_TIERS.map((t) => ({
+    tier: t,
+    skills: sorted.filter((s) => s.tier === t),
+  })).filter((s) => s.skills.length > 0);
+
+  return { sections, total: all.length, shown: sorted.length, spec, controls };
 }
 
 export default function UmiejetnosciList() {
-  const { skills } = useLoaderData<typeof loader>();
+  const { sections, total, shown, spec, controls } = useLoaderData<typeof loader>();
   return (
     <div>
       <div className="pagehead">
@@ -21,7 +61,11 @@ export default function UmiejetnosciList() {
           </div>
           <h1>Umiejętności</h1>
           <div className="sub">
-            {skills.length === 0 ? "Brak umiejętności." : `${skills.length} umiejętności.`}
+            {total === 0
+              ? "Brak umiejętności."
+              : shown === total
+                ? `${total} umiejętności.`
+                : `${shown} z ${total} umiejętności.`}
           </div>
         </div>
         <Link to="/trener/umiejetnosci/nowa" className="btn btn-primary">
@@ -29,36 +73,70 @@ export default function UmiejetnosciList() {
         </Link>
       </div>
 
-      {skills.length === 0 ? (
+      {total > 0 && <ListControls spec={spec} state={controls} />}
+
+      {total === 0 ? (
         <div className="empty">
           <h3>Brak umiejętności</h3>
           <div>Utwórz pierwszą drabinę wariantów (np. Front Lever), by śledzić progresję.</div>
         </div>
+      ) : sections.length === 0 ? (
+        <div className="empty">
+          <h3>Brak umiejętności na tym poziomie</h3>
+          <div>Zmień filtr, by zobaczyć pozostałe.</div>
+        </div>
       ) : (
-        <div
-          className="grid"
-          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}
-        >
-          {skills.map((s) => (
-            <Link
-              key={s.id}
-              to={`/trener/umiejetnosci/${s.id}`}
-              className="card card-hover"
-              style={{ padding: 14 }}
-            >
-              <h3 style={{ margin: 0 }}>{s.name}</h3>
-              <div className="text-xs muted" style={{ marginTop: 8 }}>
-                {s.variationCount} wariantów
-              </div>
-              {s.description && (
-                <div className="text-sm muted" style={{ marginTop: 8, lineHeight: 1.4 }}>
-                  {s.description}
-                </div>
-              )}
-            </Link>
+        <div className="col" style={{ gap: 26 }}>
+          {sections.map((section) => (
+            <TierSection key={section.tier} tier={section.tier} skills={section.skills} />
           ))}
         </div>
       )}
     </div>
+  );
+}
+
+function TierSection({
+  tier,
+  skills,
+}: {
+  tier: SkillTier;
+  skills: SkillListRow[];
+}) {
+  return (
+    <section>
+      <div
+        className="row between"
+        style={{ marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid var(--line)" }}
+      >
+        <h2 className="uppercase-label" style={{ margin: 0 }}>
+          {TIER_LABEL[tier]}
+        </h2>
+        <span className="mono text-xs muted">{skills.length}</span>
+      </div>
+      <div
+        className="grid"
+        style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}
+      >
+        {skills.map((s) => (
+          <Link
+            key={s.id}
+            to={`/trener/umiejetnosci/${s.id}`}
+            className="card card-hover"
+            style={{ padding: 14 }}
+          >
+            <h3 style={{ margin: 0 }}>{s.name}</h3>
+            <div className="text-xs muted" style={{ marginTop: 8 }}>
+              {s.variationCount} wariantów
+            </div>
+            {s.description && (
+              <div className="text-sm muted" style={{ marginTop: 8, lineHeight: 1.4 }}>
+                {s.description}
+              </div>
+            )}
+          </Link>
+        ))}
+      </div>
+    </section>
   );
 }

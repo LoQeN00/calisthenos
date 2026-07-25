@@ -1,37 +1,47 @@
 import { Link } from "react-router";
 import { Icons } from "~/components/icons";
+import {
+  DEFAULT_METRICS,
+  VIEW_W,
+  buildPyramid,
+  layoutPyramid,
+  type PyramidBandBox,
+} from "~/lib/skill-pyramid";
+import { TIER_LABEL, highestEarnedTier, type SkillTier } from "~/lib/skill-tier";
 import type { SkillTree, TreeNode } from "~/lib/skill-tree";
 import type { NodeState } from "~/lib/skill-tree-math";
 
 // ============================================================
-// SkillTreeView — game-like skill tree, re-skinned to the kalisthenos
-// design system: hairline borders, mono labels, one lime accent, NO glow,
-// NO emoji (per design-system/README.md). Mirrors the idiom of
-// stat-widgets.tsx / progression-charts.tsx: all colors via var(--*),
-// numbers in var(--font-mono), SVG layer with role="img" + aria-label,
-// responsive via CSS grid + a normalized-viewBox SVG.
+// SkillTreeView — piramida umiejętności. Fundament (PODSTAWOWY) na dole,
+// EKSPERT na szczycie; każdy wyższy pas jest węższy.
 //
-// Pure presentation: no data fetching, no loaders/actions, only `Link` from
-// react-router.
+// Dwa kodowania na jednej karcie, na różnych warstwach:
+//   • TIER → ciężar karty (płaski well → hairline → 1.5px → inwersja atramentowa)
+//   • STAN → akcent (kafel z inicjałem, linia poziomu, pasek postępu)
+// Lime jest zarezerwowany dla postępu podopiecznego — nigdy nie oznacza tieru.
 //
-// COORDINATE MODEL (for the SVG edge layer)
-// ------------------------------------------
-// The DOM nodes live in a CSS grid (one grid-row per `layer`, columns within a
-// row by `orderInLayer`). The SVG sits behind them with a *normalized* viewBox
-// of `0..VIEW_W` × `0..VIEW_H` and `preserveAspectRatio="none"`, so SVG units
-// stretch 1:1 onto the board's pixel box. We compute every node's center in
-// that normalized space purely from counts — no DOM measurement, SSR-clean:
-//   • y = top padding for the node's layer row (each row gets an equal band;
-//     the node center sits in the middle of its band).
-//   • x = the node's column center, spreading `nodesInLayer` evenly across the
-//     full width. A layer with N nodes splits the width into N equal columns;
-//     node i sits at the center of column i.
-// These match the grid's own even distribution (`1fr` columns, equal rows), so
-// the bezier endpoints line up with the card centers at any board size.
+// Karta w piramidzie jest węższa niż w dawnym układzie warstwowym, więc pigułka
+// stanu nad kartą znika: przy czterech kartach w rzędzie na telefonie napis
+// „gotowe do startu" i tak by się nie zmieścił. Stan niesie kolor kafla, linia
+// poziomu, pasek postępu i legenda pod planszą; pełną nazwę stanu dostaje
+// czytnik ekranu przez aria-label.
+//
+// MODEL WSPÓŁRZĘDNYCH
+// -------------------
+// Geometrię liczy `layoutPyramid` (czysta funkcja, testowana jednostkowo):
+// oś X w jednostkach 0..VIEW_W (rozciągana na szerokość planszy), oś Y w px 1:1.
+// Karty pozycjonowane absolutnie w procentach X i pikselach Y; SVG krawędzi ma
+// viewBox 0 0 VIEW_W totalH z preserveAspectRatio="none". Dzięki temu końce
+// beziera trafiają w środki kart przy każdej szerokości — bez pomiaru DOM,
+// bez useEffect, bezpiecznie w SSR.
 // ============================================================
 
-const VIEW_W = 1000;
-const ROW_H = 100; // normalized height per layer band
+/**
+ * Ile razy szerzej od minimum wolno rozciągnąć planszę. Bez sufitu na szerokim
+ * monitorze karty rozjeżdżają się w rzadką siatkę i sylwetka piramidy ginie —
+ * `.pyramid-board { margin: 0 auto }` dopiero z tym limitem ma co centrować.
+ */
+const BOARD_SLACK = 1.35;
 
 const STATE_LABEL: Record<NodeState, string> = {
   mastered: "opanowane",
@@ -48,223 +58,292 @@ function stateColor(state: NodeState): string {
     case "in_progress":
       return "var(--accent)";
     case "available":
-      // Distinct from in_progress: same accent hue but used as outline only
-      // (no token "info" color exists — closest tasteful token is the accent).
+      // Ten sam odcień co in_progress (brak osobnego tokenu "info") — stany
+      // odróżniają się nie kolorem, tylko formą: kontur zamiast wypełnienia
+      // w legendzie (StateLegend) i pusty pasek postępu (0%) na karcie.
       return "var(--accent)";
     case "locked":
       return "var(--muted-2)";
   }
 }
 
-/** Normalized center of a node given its layer/order and the per-layer counts. */
-function nodeCenter(
-  layer: number,
-  orderInLayer: number,
-  nodesInLayer: number,
-): { x: number; y: number } {
-  const cols = Math.max(nodesInLayer, 1);
-  const x = ((orderInLayer + 0.5) / cols) * VIEW_W;
-  const y = layer * ROW_H + ROW_H / 2;
-  return { x, y };
-}
-
-/** Group nodes into rows by layer (ascending), each row ordered by orderInLayer. */
-function groupByLayer(nodes: TreeNode[]): TreeNode[][] {
-  const byLayer = new Map<number, TreeNode[]>();
-  for (const n of nodes) {
-    const arr = byLayer.get(n.layer) ?? [];
-    arr.push(n);
-    byLayer.set(n.layer, arr);
-  }
-  const layers = [...byLayer.keys()].sort((a, b) => a - b);
-  return layers.map((l) =>
-    [...byLayer.get(l)!].sort((a, b) => a.orderInLayer - b.orderInLayer),
-  );
-}
-
 export function SkillTreeView({
   tree,
   hrefForNode,
-  showStates,
 }: {
   tree: SkillTree;
   /** Link docelowy drill-in (zależny od roli). */
   hrefForNode: (skillId: string) => string;
-  /** true: koloruj wg stanu (per-podopieczny); false: szkielet (autor). */
-  showStates: boolean;
 }): React.JSX.Element {
   if (tree.nodes.length === 0) {
     return (
       <div className="empty">
         <h3>Brak umiejętności w drzewie.</h3>
         <p className="muted text-sm" style={{ margin: 0 }}>
-          Dodaj umiejętności i połącz je prerekwizytami, aby zobaczyć drzewo.
+          Dodaj umiejętności i połącz je prerekwizytami, aby zobaczyć piramidę.
         </p>
       </div>
     );
   }
 
-  const rows = groupByLayer(tree.nodes);
-  const layerCount = rows.length;
+  const bands = buildPyramid(
+    tree.nodes.map((n) => ({ id: n.skillId, name: n.name, tier: n.tier })),
+    tree.edges,
+  );
+  const layout = layoutPyramid(bands, DEFAULT_METRICS);
 
-  // Per-node geometry + per-node lookup, computed once from counts.
-  const countByLayer = new Map<number, number>();
+  const nodeById = new Map(tree.nodes.map((n) => [n.skillId, n]));
+  const stateById = new Map(tree.nodes.map((n) => [n.skillId, n.state ?? "locked"]));
+
+  // Liczniki per pas — „4/6" na railu płyty.
+  const countsByTier = new Map<SkillTier, { total: number; mastered: number }>();
   for (const n of tree.nodes) {
-    countByLayer.set(n.layer, (countByLayer.get(n.layer) ?? 0) + 1);
-  }
-  const centerById = new Map<string, { x: number; y: number }>();
-  const stateById = new Map<string, NodeState>();
-  for (const n of tree.nodes) {
-    centerById.set(
-      n.skillId,
-      nodeCenter(n.layer, n.orderInLayer, countByLayer.get(n.layer) ?? 1),
-    );
-    stateById.set(n.skillId, n.state ?? "locked");
+    const c = countsByTier.get(n.tier) ?? { total: 0, mastered: 0 };
+    c.total += 1;
+    if ((n.state ?? "locked") === "mastered") c.mastered += 1;
+    countsByTier.set(n.tier, c);
   }
 
-  const viewH = Math.max(layerCount, 1) * ROW_H;
+  // `layout.bands` idzie od góry planszy; opóźnienie animacji ma rosnąć OD DOŁU.
+  const revealOf = (i: number) => layout.bands.length - 1 - i;
+
+  const cols = layout.boardCols.toFixed(2);
 
   return (
     <div className="col" style={{ gap: 18 }}>
-      <div style={{ position: "relative" }}>
-        {/* Edge layer — behind the cards, decorative-but-labelled. */}
-        <svg
-          viewBox={`0 0 ${VIEW_W} ${viewH}`}
-          preserveAspectRatio="none"
-          role="img"
-          aria-label="Połączenia prerekwizytów między umiejętnościami"
+      <PyramidProgress nodes={tree.nodes} />
+
+      <div className="pyramid-scroll">
+        <div
+          className="pyramid-board"
           style={{
-            position: "absolute",
-            inset: 0,
-            width: "100%",
-            height: "100%",
-            pointerEvents: "none",
-            zIndex: 0,
+            height: layout.totalH,
+            minWidth: `calc(var(--pyramid-col) * ${cols})`,
+            maxWidth: `max(420px, var(--pyramid-col) * ${cols} * ${BOARD_SLACK})`,
           }}
         >
-          {tree.edges.map((e) => {
-            const from = centerById.get(e.from); // węzeł zależny (niżej)
-            const req = centerById.get(e.requires); // prerekwizyt (wyżej)
-            if (!from || !req) return null;
-            // Pionowy bezier: od prerekwizytu (góra) do zależnego (dół).
-            const midY = (req.y + from.y) / 2;
-            const d = `M${req.x},${req.y} C${req.x},${midY} ${from.x},${midY} ${from.x},${from.y}`;
-            const sourceMastered =
-              showStates && stateById.get(e.requires) === "mastered";
-            const stroke = sourceMastered ? "var(--ok)" : "var(--line)";
+          {layout.bands.map((box, i) => (
+            <BandPlate
+              key={box.tier}
+              box={box}
+              counts={countsByTier.get(box.tier) ?? { total: 0, mastered: 0 }}
+              reveal={revealOf(i)}
+            />
+          ))}
+
+          <svg
+            className="pyramid-edges"
+            viewBox={`0 0 ${VIEW_W} ${layout.totalH}`}
+            preserveAspectRatio="none"
+            role="img"
+            aria-label="Połączenia prerekwizytów między umiejętnościami"
+            style={
+              {
+                position: "absolute",
+                inset: 0,
+                width: "100%",
+                height: layout.totalH,
+                pointerEvents: "none",
+                zIndex: 1,
+                // Krawędzie pojawiają się po wszystkich pasach.
+                "--reveal": layout.bands.length,
+              } as React.CSSProperties
+            }
+          >
+            {tree.edges.map((e) => {
+              const from = layout.centers.get(e.from); // węzeł zależny (wyżej)
+              const req = layout.centers.get(e.requires); // prerekwizyt (niżej)
+              if (!from || !req) return null;
+
+              // Krawędź odwrócona: prereq leży WYŻEJ na planszy (mniejsze y) niż to,
+              // co odblokowuje. Wystarczy porównać y — w obrębie pasa podrząd liczy
+              // się z tych samych krawędzi, więc fałszywy alarm jest niemożliwy.
+              const reversed = req.y < from.y;
+
+              const sourceMastered = stateById.get(e.requires) === "mastered";
+              const bothMastered = sourceMastered && stateById.get(e.from) === "mastered";
+
+              const midY = (req.y + from.y) / 2;
+              const d = `M${req.x},${req.y} C${req.x},${midY} ${from.x},${midY} ${from.x},${from.y}`;
+
+              const stroke = reversed
+                ? "var(--warn)"
+                : sourceMastered
+                  ? "var(--ok)"
+                  : "var(--line)";
+              const dash = reversed ? "2 6" : sourceMastered ? undefined : "6 7";
+
+              return (
+                <path
+                  key={`${e.from}->${e.requires}`}
+                  d={d}
+                  fill="none"
+                  stroke={stroke}
+                  strokeWidth={bothMastered ? 2.5 : 2}
+                  strokeLinecap="round"
+                  strokeDasharray={dash}
+                  // Oś X jest skalowana szerokością planszy, oś Y nie — bez tego
+                  // ta sama krawędź byłaby chudsza na wąskim ekranie i grubsza na
+                  // szerokim, a kreski przerywane rozciągałyby się razem z nią.
+                  vectorEffect="non-scaling-stroke"
+                  opacity={bothMastered ? 1 : sourceMastered ? 0.85 : 0.7}
+                />
+              );
+            })}
+          </svg>
+
+          {[...layout.centers].map(([skillId, c]) => {
+            const node = nodeById.get(skillId);
+            if (!node) return null;
+            const bandIndex = layout.bands.findIndex((b) => b.tier === node.tier);
             return (
-              <path
-                key={`${e.from}->${e.requires}`}
-                d={d}
-                fill="none"
-                stroke={stroke}
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeDasharray={sourceMastered ? undefined : "6 7"}
-                opacity={sourceMastered ? 0.85 : 0.7}
+              <NodeCard
+                key={skillId}
+                node={node}
+                href={hrefForNode(skillId)}
+                x={c.x}
+                y={c.y}
+                reveal={revealOf(bandIndex < 0 ? 0 : bandIndex)}
               />
             );
           })}
-        </svg>
-
-        {/* Node rows — CSS grid, one row per layer. */}
-        <div className="col" style={{ position: "relative", zIndex: 1, gap: 56 }}>
-          {rows.map((row, i) => (
-            <div
-              // biome-ignore lint/suspicious/noArrayIndexKey: rows indexed by layer position, stable
-              key={`layer-${i}`}
-              style={{
-                display: "grid",
-                gridTemplateColumns: `repeat(${row.length}, minmax(0, 1fr))`,
-                gap: 24,
-                justifyItems: "center",
-              }}
-            >
-              {row.map((node) => (
-                <NodeCard
-                  key={node.skillId}
-                  node={node}
-                  href={hrefForNode(node.skillId)}
-                  showStates={showStates}
-                />
-              ))}
-            </div>
-          ))}
         </div>
       </div>
 
-      {showStates ? <StateLegend /> : null}
+      <StateLegend />
     </div>
   );
 }
 
 // ============================================================
-// NodeCard — a single skill, linking to its drill-in (variation ladder).
+// PyramidProgress — nagłówek dumy: ile zdobyte, jak wysoko, ile w toku.
+// ============================================================
+
+function PyramidProgress({ nodes }: { nodes: TreeNode[] }) {
+  const total = nodes.length;
+  const mastered = nodes.filter((n) => (n.state ?? "locked") === "mastered").length;
+  const inProgress = nodes.filter((n) => (n.state ?? "locked") === "in_progress").length;
+  const top = highestEarnedTier(
+    nodes.map((n) => ({ tier: n.tier, mastered: (n.state ?? "locked") === "mastered" })),
+  );
+
+  return (
+    <div className="card row wrap" style={{ gap: 32, padding: 16 }}>
+      <div className="stat">
+        <div className="v mono">
+          {mastered}/{total}
+        </div>
+        <div className="k">Opanowane</div>
+      </div>
+      <div className="stat">
+        <div className="v" style={{ fontSize: 18, lineHeight: 1.4 }}>
+          {top === null ? "—" : TIER_LABEL[top]}
+        </div>
+        <div className="k">Najwyższy zdobyty tier</div>
+      </div>
+      <div className="stat">
+        <div className="v mono">{inProgress}</div>
+        <div className="k">W toku</div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// BandPlate — płyta jednego pasa: well + rail z nazwą tieru i licznikiem.
+// ============================================================
+
+function BandPlate({
+  box,
+  counts,
+  reveal,
+}: {
+  box: PyramidBandBox;
+  counts: { total: number; mastered: number };
+  reveal: number;
+}) {
+  return (
+    <div
+      className="pyramid-band"
+      style={
+        {
+          left: `${(box.x0 / VIEW_W) * 100}%`,
+          width: `${((box.x1 - box.x0) / VIEW_W) * 100}%`,
+          top: box.y,
+          height: box.h,
+          "--reveal": reveal,
+        } as React.CSSProperties
+      }
+    >
+      <div className="pyramid-band-head">
+        <span className="uppercase-label">{TIER_LABEL[box.tier]}</span>
+        <span className="mono text-xs muted">
+          {counts.mastered}/{counts.total}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// NodeCard — jedna umiejętność, link do drabiny wariantów.
 // ============================================================
 
 function NodeCard({
   node,
   href,
-  showStates,
+  x,
+  y,
+  reveal,
 }: {
   node: TreeNode;
   href: string;
-  showStates: boolean;
+  x: number;
+  y: number;
+  reveal: number;
 }) {
   const state: NodeState = node.state ?? "locked";
   const color = stateColor(state);
-  const isLocked = showStates && state === "locked";
-  const isMastered = showStates && state === "mastered";
-  const isInProgress = showStates && state === "in_progress";
-  const isAvailable = showStates && state === "available";
+  const isLocked = state === "locked";
+  const isInProgress = state === "in_progress";
+  const isExpert = node.tier === "expert";
 
-  // Outline treatment differentiates available (accent ring) from in_progress
-  // (accent ring + lighter weight) without inventing colors.
-  const borderColor = !showStates
-    ? "var(--line)"
-    : isLocked
-      ? "var(--line)"
-      : color;
+  // Na karcie atramentowej `--muted` daje 3.9:1 (jasny) / 2.9:1 (ciemny) —
+  // za mało. `--muted-2` odwraca się razem z motywem tak samo jak `--ink`,
+  // więc czyta się na obu. Ta sama zamiana co dla `.pyramid-node-sub` w CSS.
+  const mutedInk = isExpert ? "var(--muted-2)" : "var(--muted)";
 
   return (
     <Link
       to={href}
-      className="card card-hover"
-      style={{
-        position: "relative",
-        width: "100%",
-        maxWidth: 230,
-        padding: 14,
-        textAlign: "center",
-        display: "block",
-        borderColor,
-        borderWidth: isMastered || isInProgress ? 1.5 : 1,
-        opacity: isLocked ? 0.6 : 1,
-      }}
-      aria-label={
-        showStates
-          ? `${node.name} — ${STATE_LABEL[state]}`
-          : `${node.name} — ${node.variationCount} wariantów`
+      data-tier={node.tier}
+      className={`card card-hover pyramid-node${isLocked ? " pyramid-node-locked" : ""}`}
+      style={
+        {
+          left: `${(x / VIEW_W) * 100}%`,
+          top: y,
+          zIndex: 2,
+          "--reveal": reveal,
+        } as React.CSSProperties
       }
+      aria-label={`${node.name} — ${TIER_LABEL[node.tier]}, ${STATE_LABEL[state]}`}
     >
-      {showStates ? <StatePill state={state} /> : null}
-
-      {/* Glyph tile — mono initial, no emoji (design-system rule). */}
+      {/* Kafel z inicjałem — bez emoji (reguła design-systemu). */}
       <div
         aria-hidden="true"
         style={{
-          width: 44,
-          height: 44,
-          margin: "4px auto 10px",
+          width: 34,
+          height: 34,
+          margin: "0 auto 7px",
           borderRadius: "var(--radius)",
           display: "grid",
           placeItems: "center",
-          background: "var(--surface-2)",
-          border: `1px solid ${showStates && !isLocked ? color : "var(--line)"}`,
-          color: showStates && !isLocked ? color : "var(--muted)",
+          background: isExpert ? "transparent" : "var(--surface-2)",
+          border: `1px solid ${isLocked ? "var(--line)" : color}`,
+          color: isLocked ? mutedInk : color,
           fontFamily: "var(--font-display)",
           fontWeight: 700,
-          fontSize: 18,
+          fontSize: 15,
         }}
       >
         {node.name.charAt(0).toUpperCase()}
@@ -274,58 +353,51 @@ function NodeCard({
         style={{
           fontFamily: "var(--font-display)",
           fontWeight: 600,
-          fontSize: 15,
+          fontSize: 12.5,
+          lineHeight: 1.25,
           letterSpacing: "-0.01em",
-          color: isLocked ? "var(--ink-2)" : "var(--ink)",
+          display: "-webkit-box",
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: "vertical",
+          overflow: "hidden",
+          overflowWrap: "anywhere",
         }}
       >
         {node.name}
       </div>
 
-      {/* Level indicator / skeleton variation count. */}
-      <div className="mono" style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 5 }}>
-        {showStates ? levelText(node) : `${node.variationCount} wariantów`}
+      {/* Kolor CELOWO w CSS, nie inline: styl inline wygrałby z regułą
+          kontrastu `.pyramid-node[data-tier="expert"] .pyramid-node-sub`. */}
+      <div className="mono pyramid-node-sub" style={{ fontSize: 10.5, marginTop: 4 }}>
+        {levelText(node)}
       </div>
 
-      {/* Progress bar — fill driven by state, accent-coded. */}
-      {showStates ? (
+      {/* Rowek i jego wypełnienie stylowane w CSS — tło rowka musi dać się
+          nadpisać na karcie odwróconej, a inline by na to nie pozwolił. */}
+      <div aria-hidden="true" className="pyramid-node-bar">
         <div
-          aria-hidden="true"
           style={{
-            height: 6,
-            borderRadius: "var(--radius-pill)",
-            background: "var(--surface-2)",
-            border: "1px solid var(--line)",
-            overflow: "hidden",
-            marginTop: 9,
+            width: barFill(state, node),
+            background: isInProgress ? "var(--accent)" : color,
           }}
-        >
-          <div
-            style={{
-              height: "100%",
-              borderRadius: "var(--radius-pill)",
-              width: barFill(state, node),
-              background: isInProgress ? "var(--accent)" : color,
-            }}
-          />
-        </div>
-      ) : null}
+        />
+      </div>
     </Link>
   );
 }
 
-/** Level line for the per-trainee view: "poziom n/m" + current variation hint. */
+/** Linia poziomu: "poziom n/m" albo status, gdy umiejętność nieprzypisana. */
 function levelText(node: TreeNode): string {
   const state: NodeState = node.state ?? "locked";
-  if (state === "available") return "prereki spełnione";
+  if (state === "available") return "gotowe";
   if (state === "locked") return "zablokowane";
   if (node.variationCount === 0) return "brak wariantów";
-  // mastered/in_progress — we know there are events; show the exact level.
-  const total = node.variationCount;
-  return node.currentOrdinal != null ? `poziom ${node.currentOrdinal}/${total}` : `${total} poziomów`;
+  return node.currentOrdinal != null
+    ? `poziom ${node.currentOrdinal}/${node.variationCount}`
+    : `${node.variationCount} poziomów`;
 }
 
-/** Bar fill width by state. mastered = full, available/locked = empty, in_progress = ordinal/total. */
+/** Wypełnienie paska wg stanu. mastered = pełny, available/locked = pusty. */
 function barFill(state: NodeState, node: TreeNode): string {
   if (state === "mastered") return "100%";
   if (state === "in_progress") {
@@ -338,67 +410,17 @@ function barFill(state: NodeState, node: TreeNode): string {
 }
 
 // ============================================================
-// StatePill — small mono uppercase pill, mirrors the system's `.badge`.
-// ============================================================
-
-function StatePill({ state }: { state: NodeState }) {
-  const color = stateColor(state);
-  const bg =
-    state === "mastered"
-      ? "var(--accent-soft)"
-      : state === "in_progress"
-        ? "var(--accent)"
-        : state === "available"
-          ? "var(--accent-soft)"
-          : "var(--surface-2)";
-  const ink =
-    state === "in_progress"
-      ? "var(--accent-ink)"
-      : state === "locked"
-        ? "var(--muted)"
-        : color;
-  return (
-    <span
-      style={{
-        position: "absolute",
-        top: -10,
-        left: "50%",
-        transform: "translateX(-50%)",
-        fontFamily: "var(--font-mono)",
-        fontSize: 10,
-        letterSpacing: "0.05em",
-        textTransform: "uppercase",
-        fontWeight: 600,
-        padding: "3px 9px",
-        borderRadius: "var(--radius-pill)",
-        whiteSpace: "nowrap",
-        background: bg,
-        color: ink,
-        border: state === "in_progress" ? "1px solid transparent" : `1px solid ${color}`,
-      }}
-    >
-      {STATE_LABEL[state]}
-    </span>
-  );
-}
-
-// ============================================================
-// StateLegend — color key + edge legend, matching SegmentedBarLegend idiom.
+// StateLegend — klucz kolorów stanu + legenda krawędzi.
 // ============================================================
 
 function StateLegend() {
-  const items: Array<{ state: NodeState }> = [
-    { state: "mastered" },
-    { state: "in_progress" },
-    { state: "available" },
-    { state: "locked" },
-  ];
+  const items: NodeState[] = ["mastered", "in_progress", "available", "locked"];
   return (
     <div
       className="row wrap"
       style={{ gap: 16, fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--muted)" }}
     >
-      {items.map(({ state }) => (
+      {items.map((state) => (
         <span key={state} className="row" style={{ gap: 6, alignItems: "center" }}>
           <span
             aria-hidden="true"
@@ -407,7 +429,8 @@ function StateLegend() {
               width: 10,
               height: 10,
               borderRadius: 3,
-              background: stateColor(state),
+              background: state === "available" ? "transparent" : stateColor(state),
+              border: state === "available" ? "1px solid var(--accent)" : undefined,
             }}
           />
           <span>{STATE_LABEL[state]}</span>
@@ -425,7 +448,21 @@ function StateLegend() {
             strokeDasharray="4 4"
           />
         </svg>
-        <span>prowadzi do zablokowanej</span>
+        <span>prerekwizyt nieopanowany</span>
+      </span>
+      <span className="row" style={{ gap: 6, alignItems: "center" }}>
+        <svg width={22} height={10} aria-hidden="true" style={{ display: "block" }}>
+          <line
+            x1={1}
+            y1={5}
+            x2={21}
+            y2={5}
+            stroke="var(--warn)"
+            strokeWidth={2}
+            strokeDasharray="2 4"
+          />
+        </svg>
+        <span>prerekwizyt trudniejszy — do poprawy</span>
       </span>
     </div>
   );
@@ -466,9 +503,7 @@ export function VariationLadder({
 }): React.JSX.Element {
   if (variations.length === 0) {
     return (
-      <span className="text-xs muted">
-        Brak wariantów — uzupełnij w edytorze umiejętności.
-      </span>
+      <span className="text-xs muted">Brak wariantów — uzupełnij w edytorze umiejętności.</span>
     );
   }
 
@@ -566,11 +601,7 @@ function LadderStep({
               : isDone
                 ? "var(--accent-soft)"
                 : "var(--surface-2)",
-            color: isCurrent
-              ? "var(--accent-ink)"
-              : isDone
-                ? "var(--ok)"
-                : "var(--muted)",
+            color: isCurrent ? "var(--accent-ink)" : isDone ? "var(--ok)" : "var(--muted)",
             fontFamily: "var(--font-mono)",
             fontSize: 12,
             fontWeight: 600,

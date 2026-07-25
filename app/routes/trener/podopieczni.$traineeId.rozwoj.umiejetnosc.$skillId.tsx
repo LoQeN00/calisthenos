@@ -9,6 +9,7 @@ import {
 import { ExerciseProgressionPanel } from "~/components/exercise-progression-panel";
 import { Icons } from "~/components/icons";
 import { VariationLadder } from "~/components/skill-tree";
+import { TierBadge } from "~/components/tier-badge";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import { fmtDate } from "~/lib/format";
@@ -118,7 +119,10 @@ export default function TrenerRozwojWezel() {
         <div className="text-xs muted" style={{ marginBottom: 4 }}>
           {trainee.displayName}
         </div>
-        <h1 style={{ margin: "0 0 4px" }}>{entry.skillName}</h1>
+        <div className="row" style={{ gap: 10, alignItems: "center" }}>
+          <h1 style={{ margin: "0 0 4px" }}>{entry.skillName}</h1>
+          <TierBadge tier={entry.tier} />
+        </div>
         <div className="text-sm muted">Drabina wariantów, awanse i wyniki bieżącego wariantu.</div>
       </div>
 

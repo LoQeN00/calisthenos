@@ -254,7 +254,7 @@ beforeAll(async () => {
   });
 
   // --- Skill for node detail tests ---
-  const skill = await createSkill(db, trainerA, "Front Lever", "");
+  const skill = await createSkill(db, trainerA, "Front Lever", "", "basic");
   skillId = skill.id;
 
   // Add two variations: exWithLogs (ordinal 1) and exNoLogs (ordinal 2).
@@ -475,7 +475,7 @@ describe("lista Pozostałe: warianty umiejętności nie trafiają na listę", ()
 
   it("po dodaniu ćwiczenia jako wariantu: znika z listy, pojawia się jako węzeł w drzewie", async () => {
     // Create a new skill and add skillExId (Archer Pull-up) as its variation.
-    const newSkill = await createSkill(db, trainerA, "Archer Pull-up Skill", "");
+    const newSkill = await createSkill(db, trainerA, "Archer Pull-up Skill", "", "basic");
     await addVariation(db, trainerA, newSkill.id, skillExId);
 
     const allRows = await listProgressionExercises(db, traineePA);

@@ -3,20 +3,13 @@ import type { Db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import { getSkillMapForTrainee } from "~/lib/skill-progression";
 import { listSkillsForTrainer } from "~/lib/skills";
-import {
-  assignLayers,
-  nodeState,
-  orderWithinLayer,
-  topoOrder,
-  type Edge,
-  type NodeState,
-} from "~/lib/skill-tree-math";
+import type { SkillTier } from "~/lib/skill-tier";
+import { nodeState, topoOrder, type Edge, type NodeState } from "~/lib/skill-tree-math";
 
 export interface TreeNode {
   skillId: string;
   name: string;
-  layer: number;
-  orderInLayer: number;
+  tier: SkillTier;
   variationCount: number;
   currentVariationId: string | null;
   currentExerciseId: string | null;
@@ -35,7 +28,7 @@ async function loadGraph(
   db: Db,
   trainerId: string,
 ): Promise<{
-  skills: Array<{ id: string; name: string; variationCount: number }>;
+  skills: Array<{ id: string; name: string; tier: SkillTier; variationCount: number }>;
   edges: Edge[];
 }> {
   // Reuse: listSkillsForTrainer daje aktywne umiejętności + variationCount (patrz skills.ts).
@@ -53,42 +46,28 @@ async function loadGraph(
   const edges = edgeRows.filter((e) => activeIds.has(e.from) && activeIds.has(e.requires));
 
   return {
-    skills: skills.map((s) => ({ id: s.id, name: s.name, variationCount: s.variationCount })),
+    skills: skills.map((s) => ({
+      id: s.id,
+      name: s.name,
+      tier: s.tier,
+      variationCount: s.variationCount,
+    })),
     edges,
   };
 }
 
-function layoutNodes(
-  skills: Array<{ id: string; name: string; variationCount: number }>,
-  edges: Edge[],
-): Map<string, { layer: number; orderInLayer: number }> {
-  const ids = skills.map((s) => s.id);
-  const layers = assignLayers(ids, edges);
-  const nameById = new Map(skills.map((s) => [s.id, s.name]));
-  const byLayer = new Map<number, string[]>();
-  for (const id of ids) {
-    const l = layers.get(id) ?? 0;
-    const arr = byLayer.get(l) ?? [];
-    arr.push(id);
-    byLayer.set(l, arr);
-  }
-  const pos = new Map<string, { layer: number; orderInLayer: number }>();
-  for (const [l, group] of byLayer) {
-    const ordered = orderWithinLayer(group, nameById);
-    ordered.forEach((id, i) => pos.set(id, { layer: l, orderInLayer: i }));
-  }
-  return pos;
-}
-
-/** Drzewo dla autora (trener) — sam szkielet, bez stanów per-podopieczny. */
+/**
+ * Drzewo dla autora (trener) — sam szkielet, bez stanów per-podopieczny.
+ * Nie wołane przez żadną trasę (widok trenera chodzi po `getSkillTreeForTrainee`),
+ * ale pokrywa je `tests/skill-tree.itest.ts`: autoring krawędzi, tenant-scope,
+ * archiwizacja.
+ */
 export async function getSkillTreeForTrainer(db: Db, trainerId: string): Promise<SkillTree> {
   const { skills, edges } = await loadGraph(db, trainerId);
-  const pos = layoutNodes(skills, edges);
   const nodes: TreeNode[] = skills.map((s) => ({
     skillId: s.id,
     name: s.name,
-    layer: pos.get(s.id)?.layer ?? 0,
-    orderInLayer: pos.get(s.id)?.orderInLayer ?? 0,
+    tier: s.tier,
     variationCount: s.variationCount,
     currentVariationId: null,
     currentExerciseId: null,
@@ -104,7 +83,6 @@ export async function getSkillTreeForTrainee(
   traineeId: string,
 ): Promise<SkillTree> {
   const { skills, edges } = await loadGraph(db, trainerId);
-  const pos = layoutNodes(skills, edges);
 
   // Bieżący wariant + czy są zdarzenia + max ordinal → z mapy umiejętności (kierunek A).
   const map = await getSkillMapForTrainee(db, trainerId, traineeId, { withSuggestions: false });
@@ -119,7 +97,10 @@ export async function getSkillTreeForTrainee(
   }
   const state = new Map<string, NodeState>();
   const ordById = new Map<string, number | null>();
-  for (const id of topoOrder(skills.map((s) => s.id), edges)) {
+  for (const id of topoOrder(
+    skills.map((s) => s.id),
+    edges,
+  )) {
     const m = mapBySkill.get(id);
     const hasEvents = m?.currentVariationId != null;
     const maxOrd = m ? Math.max(0, ...m.variations.map((v) => v.ordinal)) : 0;
@@ -135,8 +116,7 @@ export async function getSkillTreeForTrainee(
     return {
       skillId: s.id,
       name: s.name,
-      layer: pos.get(s.id)?.layer ?? 0,
-      orderInLayer: pos.get(s.id)?.orderInLayer ?? 0,
+      tier: s.tier,
       variationCount: s.variationCount,
       currentVariationId: m?.currentVariationId ?? null,
       currentExerciseId: m?.currentExerciseId ?? null,

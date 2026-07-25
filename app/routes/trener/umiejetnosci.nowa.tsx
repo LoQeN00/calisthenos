@@ -7,6 +7,7 @@ import {
 } from "react-router";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
+import { SKILL_TIERS, TIER_LABEL } from "~/lib/skill-tier";
 import { SkillError, createSkill } from "~/lib/skills";
 import { SkillFormSchema } from "~/lib/skill-types";
 
@@ -21,12 +22,19 @@ export async function action(args: ActionFunctionArgs) {
   const parsed = SkillFormSchema.safeParse({
     name: String(fd.get("name") ?? ""),
     description: String(fd.get("description") ?? ""),
+    tier: fd.has("tier") ? String(fd.get("tier")) : undefined,
   });
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Niepoprawne dane." };
   }
   try {
-    const skill = await createSkill(db, user.id, parsed.data.name, parsed.data.description);
+    const skill = await createSkill(
+      db,
+      user.id,
+      parsed.data.name,
+      parsed.data.description,
+      parsed.data.tier,
+    );
     throw redirect(`/trener/umiejetnosci/${skill.id}`);
   } catch (e) {
     if (e instanceof Response) throw e;
@@ -61,6 +69,19 @@ export default function NowaUmiejetnosc() {
         <label className="col" style={{ gap: 4 }}>
           <span className="text-sm">Opis (opcjonalny)</span>
           <textarea name="description" className="input" maxLength={2000} rows={3} />
+        </label>
+        <label className="col" style={{ gap: 4 }}>
+          <span className="text-sm">Poziom trudności</span>
+          <select name="tier" className="input" defaultValue="basic">
+            {SKILL_TIERS.map((t) => (
+              <option key={t} value={t}>
+                {TIER_LABEL[t]}
+              </option>
+            ))}
+          </select>
+          <span className="text-xs muted">
+            Decyduje, na którym pasie piramidy stanie ta umiejętność. Zmienisz w każdej chwili.
+          </span>
         </label>
         {actionData != null && "error" in actionData && actionData.error != null && (
           <p role="alert" style={{ color: "var(--danger)", fontSize: 12, margin: 0 }}>

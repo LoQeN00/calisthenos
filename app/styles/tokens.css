@@ -1503,8 +1503,197 @@ dialog.modal::backdrop {
   }
 }
 
+/* ============== PIRAMIDA UMIEJĘTNOŚCI ============== */
+/* Szerokość kolumny steruje min-width planszy — plansza przewija się w poziomie
+   dopiero, gdy najszerszy rząd nie mieści się na ekranie. Wiedza o rozmiarze
+   karty jest tu, nie w JS. */
+:root {
+  --pyramid-col: 132px;
+  --pyramid-card-w: 116px;
+}
+
+.pyramid-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding-bottom: 4px;
+}
+
+/* Plansza dostaje z komponentu min-width (karty nigdy nie chudną) ORAZ
+   max-width (na szerokim monitorze piramida nie rozłazi się w rzadką siatkę).
+   Dopiero z tym sufitem `margin: 0 auto` ma co centrować. */
+.pyramid-board {
+  position: relative;
+  margin: 0 auto;
+}
+
+/* Płyta pasa — well z hairline'em; wcięcie liczy layoutPyramid. */
+.pyramid-band {
+  position: absolute;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+
+.pyramid-band-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 14px 0;
+}
+/* Bez tego długa etykieta tieru na wąskim pasie zawija się, nagłówek rośnie
+   ponad zarezerwowane `bandHeaderH` (JS) i wjeżdża w kartę pod spodem. */
+.pyramid-band-head > * {
+  white-space: nowrap;
+}
+.pyramid-band-head .uppercase-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pyramid-node {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: var(--pyramid-card-w);
+  padding: 10px 8px;
+  text-align: center;
+  --node-op: 1;
+  opacity: var(--node-op);
+}
+
+/* `.card-hover:hover` podmienia CAŁY transform — bez tego nadpisania karta
+   zgubiłaby translate(-50%,-50%) i odskoczyła o pół swojej szerokości i
+   wysokości. Trzy klasy biją dwie, więc podniesienie o 2px zostaje. */
+.pyramid-node.card-hover:hover {
+  transform: translate(-50%, -50%) translateY(-2px);
+}
+
+/* Bez tego globalne `a:hover { opacity: .7 }` rozjaśniałoby zablokowaną kartę
+   (0,6 → 0,7) przy zwykłym hoverze, a zablokowana karta eksperta zostawałaby
+   na 0,8 — dwa różne zachowania dla tego samego stanu. Specyficzność klasy
+   bije selektor typu, więc krycie na hover trzyma się `--node-op`. */
+.pyramid-node:hover {
+  opacity: var(--node-op);
+}
+
+.pyramid-node-sub {
+  color: var(--muted);
+}
+
+/* Rowek postępu — well jak wszędzie w systemie. */
+.pyramid-node-bar {
+  height: 5px;
+  margin-top: 7px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.pyramid-node-bar > div {
+  height: 100%;
+  border-radius: var(--radius-pill);
+}
+
+/* Tier = CIĘŻAR karty, nie kolor. Lime zostaje zarezerwowany dla postępu. */
+.pyramid-node[data-tier="intermediate"] {
+  border-color: var(--line-2);
+}
+.pyramid-node[data-tier="advanced"] {
+  border-color: var(--line-2);
+  border-width: 1.5px;
+}
+.pyramid-node[data-tier="expert"] {
+  background: var(--ink);
+  border-color: transparent;
+  color: var(--bg);
+}
+/* Na atramentowej karcie tekst drugorzędny musi zejść z --muted: dałby 3,9:1 w
+   motywie jasnym i 2,9:1 w ciemnym. --muted-2 odwraca się razem z --ink/--bg,
+   więc czyta się na obu — 7,4:1 (jasny) i 5,4:1 (ciemny). */
+.pyramid-node[data-tier="expert"] .pyramid-node-sub {
+  color: var(--muted-2);
+}
+/* Ten sam well na inwersji zamienia się w jasny pasek, który bije w oczy
+   mocniej niż sam postęp — na szczycie rowek schodzi do samego konturu, żeby
+   krzyczał wyłącznie akcent. */
+.pyramid-node[data-tier="expert"] .pyramid-node-bar {
+  background: transparent;
+  border-color: var(--muted-2);
+}
+
+/* Inwersja odwraca tło karty na niemal białe w motywie ciemnym, a --ok/--accent
+   nie mają tam własnego wariantu: lime dawałby 1,2:1, a zieleń 3,1:1. Ściemniamy
+   je WYŁĄCZNIE wewnątrz karty eksperta — globalne tokeny zostają nietknięte. */
+.theme-dark .pyramid-node[data-tier="expert"] {
+  --ok: #1f6b48;
+  --accent: #4d6b00;
+}
+
+.pyramid-node-locked {
+  --node-op: 0.6;
+}
+/* Wyjątek dla szczytu: 0,6 nie przygasza inwersji, tylko rozmywa ją w szarość —
+   ginie sygnał „to jest szczyt", a tekst drugorzędny spada do ~3:1. Przy 0,8
+   karta zostaje atramentowa, a kontrast trzyma się powyżej 4,5:1 w obu motywach. */
+.pyramid-node-locked[data-tier="expert"] {
+  --node-op: 0.8;
+}
+
+/* Wejście: pasy wynurzają się od dołu do góry. Globalna reguła
+   prefers-reduced-motion w tym pliku neutralizuje to automatycznie. */
+@keyframes pyramid-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes pyramid-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: var(--node-op, 1);
+  }
+}
+
+/* Płyta nie ma własnego transformu, więc może się wynurzyć. */
+.pyramid-band {
+  animation: pyramid-rise 0.22s ease backwards;
+  animation-delay: calc(var(--reveal, 0) * 40ms);
+}
+
+/* Karta ma translate(-50%,-50%), a SVG ma inset:0 — animacja transformu
+   nadpisałaby jedno i drugie i rozjechałaby końce krawędzi względem kart.
+   Dlatego tu animujemy WYŁĄCZNIE krycie. */
+.pyramid-node,
+.pyramid-edges {
+  animation: pyramid-fade 0.22s ease backwards;
+  animation-delay: calc(var(--reveal, 0) * 40ms);
+}
+
+/* Globalna reguła zeruje czas trwania, ale NIE opóźnienie — bez tego piramida
+   wciąż wchodziłaby kaskadą przez ~160 ms. Ta reguła leży niżej w pliku i ma tę
+   samą specyficzność, więc wygrywa bez !important. */
+@media (prefers-reduced-motion: reduce) {
+  .pyramid-band,
+  .pyramid-node,
+  .pyramid-edges {
+    animation-delay: 0ms;
+  }
+}
+
 /* ============== MOBILE ============== */
 @media (max-width: 880px) {
+  :root {
+    --pyramid-col: 104px;
+    --pyramid-card-w: 92px;
+  }
+
   .layout {
     grid-template-columns: 1fr;
   }
