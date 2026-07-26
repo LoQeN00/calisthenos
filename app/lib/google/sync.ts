@@ -6,6 +6,7 @@ import {
   getSyncRow,
   listCancelledGoogleEventIds,
   listGoogleEventIdsForPair,
+  listSyncedForRepair,
   listUnsyncedForSync,
   setGoogleEventId,
   type ConsultationSyncRow,
@@ -157,9 +158,11 @@ export async function syncCancelStaleSchedule(
 }
 
 /**
- * Backfill: wypycha wszystkie nadchodzące, niezsynchronizowane terminy pary.
- * Wołane przy save-schedule i przez intent „sync-google". Best-effort, bounded
- * liczbą terminów w oknie HORIZON. Tenant-scope: trainerId.
+ * Backfill + naprawa: wypycha nadchodzące terminy pary bez zdarzenia Google ORAZ
+ * wyrównuje (`patch`) te, które zdarzenie już mają — dzięki czemu terminy wysłane
+ * przed poprawką stref same wracają na właściwą godzinę. Wołane przy save-schedule
+ * i przez intent „sync-google". Best-effort, bounded liczbą terminów w oknie HORIZON.
+ * Tenant-scope: trainerId.
  */
 export async function syncBackfillPair(
   db: Db,
@@ -170,8 +173,12 @@ export async function syncBackfillPair(
   try {
     const authed = await getAuthedClient(db, args.trainerId);
     if (!authed) return { attempted, synced };
-    const rows = await listUnsyncedForSync(db, args);
-    for (const row of rows) {
+    // Oba zbiory czytamy PRZED zapisami — inaczej terminy właśnie wstawione miałyby
+    // już `google_event_id` i zostałyby od razu niepotrzebnie zpatchowane (dubel maila).
+    const missing = await listUnsyncedForSync(db, args);
+    const present = await listSyncedForRepair(db, args);
+
+    for (const row of missing) {
       attempted += 1;
       try {
         const { eventId, meetUrl } = await insertEvent(
@@ -188,6 +195,17 @@ export async function syncBackfillPair(
         synced += 1;
       } catch (err) {
         logSyncError(`backfill item ${row.id}`, err);
+      }
+    }
+
+    for (const row of present) {
+      if (!row.googleEventId) continue; // niemożliwe wg zapytania — zawężenie typu
+      attempted += 1;
+      try {
+        await patchEvent(authed.client, authed.calendarId, row.googleEventId, toEventInput(row));
+        synced += 1;
+      } catch (err) {
+        logSyncError(`repair item ${row.id}`, err);
       }
     }
   } catch (err) {

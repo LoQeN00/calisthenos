@@ -496,10 +496,14 @@ export async function getSyncRow(
   };
 }
 
-/** Żywe (planned/confirmed/change_requested) nadchodzące terminy pary bez google_event_id — do backfillu. Tenant-scope: trainerId. */
-export async function listUnsyncedForSync(
+/**
+ * Żywe (planned/confirmed/change_requested) nadchodzące terminy pary, filtrowane po tym,
+ * czy mają już zdarzenie w Google. Tenant-scope: trainerId.
+ */
+async function listForSync(
   db: Db,
   args: { trainerId: string; traineeId: string; nowISO: string },
+  googleEvent: "missing" | "present",
 ): Promise<ConsultationSyncRow[]> {
   const rows = await db
     .select({
@@ -522,7 +526,9 @@ export async function listUnsyncedForSync(
         // Żywe statusy (planned/confirmed/change_requested) — spójne z `LIVE_STATUSES`
         // i z guardem `syncUpsertOne` (który pomija tylko cancelled/documented).
         inArray(schema.consultations.status, [...LIVE_STATUSES]),
-        isNull(schema.consultations.googleEventId),
+        googleEvent === "missing"
+          ? isNull(schema.consultations.googleEventId)
+          : isNotNull(schema.consultations.googleEventId),
       ),
     )
     .orderBy(asc(schema.consultations.scheduledAt));
@@ -536,6 +542,25 @@ export async function listUnsyncedForSync(
     googleEventId: r.googleEventId,
     attendeeEmail: r.attendeeEmail,
   }));
+}
+
+/** Nadchodzące terminy pary BEZ zdarzenia Google — do pierwszego wypchnięcia. Tenant-scope: trainerId. */
+export async function listUnsyncedForSync(
+  db: Db,
+  args: { trainerId: string; traineeId: string; nowISO: string },
+): Promise<ConsultationSyncRow[]> {
+  return listForSync(db, args, "missing");
+}
+
+/**
+ * Nadchodzące terminy pary, które MAJĄ już zdarzenie Google — do naprawczego `patch`
+ * (wyrównanie zdarzeń wysłanych przed poprawką stref). Tenant-scope: trainerId.
+ */
+export async function listSyncedForRepair(
+  db: Db,
+  args: { trainerId: string; traineeId: string; nowISO: string },
+): Promise<ConsultationSyncRow[]> {
+  return listForSync(db, args, "present");
 }
 
 /** Zapisuje google_event_id (i opcjonalnie meetingUrl z Meet). Tenant-scope: trainerId. */

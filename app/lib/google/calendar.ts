@@ -1,5 +1,6 @@
 import { calendar, type calendar_v3 } from "@googleapis/calendar";
 import type { OAuth2Client } from "google-auth-library";
+import { APP_TIME_ZONE } from "~/lib/format";
 
 export interface ConsultationEventInput {
   id: string;
@@ -10,15 +11,44 @@ export interface ConsultationEventInput {
   attendeeEmail: string;
 }
 
-/** Czysty mapper konsultacji → ciało zdarzenia Google Calendar (z prośbą o Meet). */
-export function consultationToEvent(input: ConsultationEventInput): calendar_v3.Schema$Event {
+/**
+ * Czas ścienny "YYYY-MM-DDTHH:MM:SS" — RFC3339 BEZ offsetu i bez `Z`.
+ *
+ * `scheduled_at` niesie u nas czas ścienny w komponentach UTC (patrz `APP_TIME_ZONE`),
+ * więc czytamy je przez `getUTC*` i celowo NIE dopisujemy `Z`. Strefę podajemy Google
+ * osobno w polu `timeZone` — dokumentacja Calendar API dopuszcza dokładnie taką parę
+ * („a time zone offset is required unless a time zone is explicitly specified in
+ * timeZone"). Wysyłanie `…Z` oznaczałoby, że 18:30 to 18:30 UTC, i Google pokazałby
+ * termin o 20:30 czasu lokalnego.
+ */
+function wallClock(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}T${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
+}
+
+/** start/end zdarzenia — jedno źródło prawdy dla `insert` i `patch`, żeby nie rozjechały się w czasie. */
+function eventTimes(input: ConsultationEventInput): Pick<calendar_v3.Schema$Event, "start" | "end"> {
   const start = new Date(input.scheduledAtISO);
   const end = new Date(start.getTime() + input.durationMin * 60_000);
   return {
+    start: { dateTime: wallClock(start), timeZone: APP_TIME_ZONE },
+    end: { dateTime: wallClock(end), timeZone: APP_TIME_ZONE },
+  };
+}
+
+/** Czysty mapper konsultacji → ciało `events.patch` (termin + treść, bez uczestników i konferencji). */
+export function consultationToPatch(input: ConsultationEventInput): calendar_v3.Schema$Event {
+  return {
     summary: input.title,
     description: input.summary,
-    start: { dateTime: start.toISOString(), timeZone: "Etc/UTC" },
-    end: { dateTime: end.toISOString(), timeZone: "Etc/UTC" },
+    ...eventTimes(input),
+  };
+}
+
+/** Czysty mapper konsultacji → ciało zdarzenia Google Calendar (z prośbą o Meet). */
+export function consultationToEvent(input: ConsultationEventInput): calendar_v3.Schema$Event {
+  return {
+    ...consultationToPatch(input),
     attendees: [{ email: input.attendeeEmail }],
     conferenceData: {
       createRequest: {
@@ -54,7 +84,7 @@ export async function insertEvent(
   return { eventId, meetUrl };
 }
 
-/** Aktualizuje termin/godzinę/treść istniejącego zdarzenia (po reschedule/edycji). */
+/** Aktualizuje termin/godzinę/treść istniejącego zdarzenia (po reschedule/edycji/naprawie). */
 export async function patchEvent(
   auth: OAuth2Client,
   calendarId: string,
@@ -65,17 +95,7 @@ export async function patchEvent(
     calendarId,
     eventId,
     sendUpdates: "all",
-    requestBody: {
-      summary: input.title,
-      description: input.summary,
-      start: { dateTime: new Date(input.scheduledAtISO).toISOString(), timeZone: "Etc/UTC" },
-      end: {
-        dateTime: new Date(
-          new Date(input.scheduledAtISO).getTime() + input.durationMin * 60_000,
-        ).toISOString(),
-        timeZone: "Etc/UTC",
-      },
-    },
+    requestBody: consultationToPatch(input),
   });
 }
 

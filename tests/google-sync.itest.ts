@@ -63,6 +63,7 @@ import { eq } from "drizzle-orm";
 import * as schema from "~/lib/db/schema";
 import { encryptToken } from "~/lib/google/crypto";
 import {
+  syncBackfillPair,
   syncCancelAllForPair,
   syncCancelStaleSchedule,
   syncUpsertOne,
@@ -279,6 +280,123 @@ describe("syncCancelAllForPair — usuwanie podopiecznego", () => {
     deleteMock.mockRejectedValueOnce(Object.assign(new Error("boom"), { code: 500 }));
     await insertConsultation({ status: "planned", googleEventId: "evt-all-err", daysFromNow: 10 });
     await expect(syncCancelAllForPair(db, { trainerId, traineeId })).resolves.toBeUndefined();
+  });
+});
+
+describe("syncBackfillPair — wypchnięcie brakujących + naprawa istniejących", () => {
+  // Własna para trener-podopieczny: wcześniejsze testy zostawiają terminy na
+  // wspólnej parze, a tu asertujemy dokładne liczby wywołań.
+  let t2 = "";
+  let p2 = "";
+
+  beforeAll(async () => {
+    const [tr] = await db
+      .insert(schema.users)
+      .values({ email: "trainer-backfill@example.com", displayName: "T2", role: "trainer" })
+      .returning({ id: schema.users.id });
+    t2 = tr!.id;
+    const [pu] = await db
+      .insert(schema.users)
+      .values({
+        email: "trainee-backfill@example.com",
+        displayName: "P2",
+        role: "trainee",
+        trainerId: t2,
+      })
+      .returning({ id: schema.users.id });
+    p2 = pu!.id;
+    await db.insert(schema.googleCalendarConnections).values({
+      trainerId: t2,
+      googleEmail: "trainer-backfill@gmail.com",
+      accessTokenEnc: encryptToken("fake-access-token"),
+      refreshTokenEnc: encryptToken("fake-refresh-token"),
+      tokenExpiry: new Date(Date.now() + 3_600_000),
+      scope: "https://www.googleapis.com/auth/calendar.events",
+      calendarId: "primary",
+    });
+  });
+
+  it("wstawia brakujące, naprawia istniejące, pomija przeszłe i odwołane", async () => {
+    insertMock.mockClear();
+    patchMock.mockClear();
+
+    const add = async (args: {
+      status: schema.ConsultationStatus;
+      googleEventId: string | null;
+      at: string;
+    }) => {
+      const [row] = await db
+        .insert(schema.consultations)
+        .values({
+          trainerId: t2,
+          traineeId: p2,
+          scheduledAt: new Date(args.at),
+          durationMin: 45,
+          status: args.status,
+          title: "Konsultacja",
+          summary: "",
+          googleEventId: args.googleEventId,
+        })
+        .returning({ id: schema.consultations.id });
+      return row!.id;
+    };
+
+    await add({ status: "planned", googleEventId: null, at: "2030-06-14T18:30:00.000Z" });
+    await add({ status: "confirmed", googleEventId: "evt-existing", at: "2030-06-21T18:30:00.000Z" });
+    // Pomijane: przeszły oraz odwołany.
+    await add({ status: "planned", googleEventId: null, at: "2020-01-01T18:30:00.000Z" });
+    await add({ status: "cancelled", googleEventId: "evt-cancelled", at: "2030-06-28T18:30:00.000Z" });
+
+    const r = await syncBackfillPair(db, {
+      trainerId: t2,
+      traineeId: p2,
+      nowISO: new Date().toISOString(),
+    });
+
+    expect(r).toEqual({ attempted: 2, synced: 2 });
+    expect(insertMock).toHaveBeenCalledTimes(1);
+    expect(patchMock).toHaveBeenCalledTimes(1);
+
+    // Patch trafia w istniejące zdarzenie — a NIE w to właśnie wstawione
+    // (oba zbiory czytamy przed zapisami, więc świeży termin nie dostaje dubla).
+    type PatchArg = {
+      eventId: string;
+      requestBody: { start: { dateTime: string; timeZone: string } };
+    };
+    const patchArg = (patchMock.mock.calls as unknown as PatchArg[][])[0]![0]!;
+    expect(patchArg.eventId).toBe("evt-existing");
+
+    // Regresja stref: czas ścienny bez „Z" + jawna strefa aplikacji.
+    expect(patchArg.requestBody.start.dateTime).toBe("2030-06-21T18:30:00");
+    expect(patchArg.requestBody.start.timeZone).toBe("Europe/Warsaw");
+  });
+
+  it("no-op dla trenera bez połączenia Google", async () => {
+    insertMock.mockClear();
+    patchMock.mockClear();
+    const [tr] = await db
+      .insert(schema.users)
+      .values({ email: "trainer-nogoogle@example.com", displayName: "T3", role: "trainer" })
+      .returning({ id: schema.users.id });
+    const [pu] = await db
+      .insert(schema.users)
+      .values({
+        email: "trainee-nogoogle@example.com",
+        displayName: "P3",
+        role: "trainee",
+        trainerId: tr!.id,
+      })
+      .returning({ id: schema.users.id });
+
+    const r = await syncBackfillPair(db, {
+      trainerId: tr!.id,
+      traineeId: pu!.id,
+      nowISO: new Date().toISOString(),
+    });
+
+    expect(r).toEqual({ attempted: 0, synced: 0 });
+    expect(insertMock).not.toHaveBeenCalled();
+    expect(patchMock).not.toHaveBeenCalled();
   });
 });
 

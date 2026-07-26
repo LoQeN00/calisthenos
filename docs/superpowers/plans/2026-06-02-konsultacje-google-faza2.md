@@ -28,6 +28,12 @@ Komendy testów (z `package.json`):
 
 **Założenie TZ (v1):** instanty `scheduled_at` są w **UTC** (jedna strefa aplikacji). Zdarzenia Google wysyłamy z czasem UTC (pole `dateTime` z offsetem `Z` + `timeZone: "Etc/UTC"`), spójnie z `fmtDateTime`/generatorem z Fazy 1.
 
+> ⚠️ **Errata (2026-07-26):** to założenie było błędne i wywołało buga „18:30 w aplikacji,
+> 20:30 w Google". `scheduled_at` nie niesie instantu UTC, tylko **czas ścienny zapisany w
+> komponentach UTC** — etykieta `Etc/UTC` kazała Google przesunąć go o offset strefy
+> kalendarza. Obecnie wysyłamy `dateTime` bez `Z` + `timeZone: APP_TIME_ZONE`
+> (`Europe/Warsaw`). Nie kopiuj wzorca z tego planu — patrz `app/lib/google/calendar.ts`.
+
 **Stan wyjściowy (zweryfikowany w repo 2026-06-02):**
 - Kolumna `consultations.google_event_id` (`text NULL`) **już istnieje** (dodana przyszłościowo w Fazie 1) — Task 3 jej nie dotyka.
 - Tabela `google_calendar_connections` — **nie istnieje** (tworzy Task 3).

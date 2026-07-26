@@ -1,3 +1,15 @@
+/**
+ * Strefa czasowa aplikacji (v1 = jedna strefa dla wszystkich).
+ *
+ * Konwencja czasu w kalisthenos: godziny trzymamy jako **czas ścienny zapisany w
+ * komponentach UTC** — formularze doklejają `Z` do wpisanej godziny, a formattery
+ * czytają `getUTC*`. Wewnątrz aplikacji jest to spójne, ale gdy taki czas
+ * przekracza granicę do systemu świadomego stref (Google Calendar), trzeba mu
+ * podać, w jakiej strefie ten czas ścienny obowiązuje — inaczej zostanie
+ * zinterpretowany jako UTC i przesunięty o offset. Patrz `lib/google/calendar.ts`.
+ */
+export const APP_TIME_ZONE = "Europe/Warsaw";
+
 const MONTH_SHORT_PL = [
   "sty",
   "lut",
