@@ -33,6 +33,9 @@ export class TraineeDeleteError extends Error {
  * - `skill_advancements.trainee_id` → ON DELETE CASCADE. The trainee's advancement
  *   history goes with the user. `advanced_by` points to the *trainer* (who stays),
  *   so its RESTRICT does not block this cascade.
+ * - `onboarding_forms.trainee_id` → ON DELETE CASCADE. The starting form goes with
+ *   the trainee, dragging its `onboarding_form_items` along via `form_id` (also
+ *   ON DELETE CASCADE). Nothing here points at a file, so no blob cleanup.
  *
  * What we have to handle manually:
  * - `invites.consumed_by_user` / `invites.replaces_user_id`: no ON DELETE

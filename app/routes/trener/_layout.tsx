@@ -5,6 +5,7 @@ import { UserMenu } from "~/components/user-menu";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
+import { countNewForTrainer } from "~/lib/feature-requests";
 
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainer" });
@@ -21,6 +22,7 @@ export async function loader(args: LoaderFunctionArgs) {
     .select({ c: count() })
     .from(schema.plans)
     .where(eq(schema.plans.trainerId, user.id));
+  const newIdeas = await countNewForTrainer(db, user.id);
 
   return {
     user,
@@ -28,6 +30,7 @@ export async function loader(args: LoaderFunctionArgs) {
       trainees: Number(traineeCountRow?.c ?? 0),
       exercises: Number(exerciseCountRow?.c ?? 0),
       plans: Number(planCountRow?.c ?? 0),
+      ideas: newIdeas,
     },
   };
 }
@@ -68,6 +71,13 @@ const NAV_ITEMS = [
     end: false,
     icon: "Consult" as const,
     tailKey: null,
+  },
+  {
+    to: "/trener/pomysly",
+    label: "Pomysły",
+    end: false,
+    icon: "Sparkle" as const,
+    tailKey: "ideas" as const,
   },
   {
     to: "/trener/integracje/stripe",

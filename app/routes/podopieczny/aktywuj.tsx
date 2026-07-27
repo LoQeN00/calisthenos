@@ -12,15 +12,9 @@ import {
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
-import { stripeApiConfigured } from "~/lib/env";
 import { fmtMoney } from "~/lib/money";
-import { hasAppAccess, paymentRequired } from "~/lib/stripe/access";
-import { getConnectionRow } from "~/lib/stripe/connections";
-import {
-  createCheckoutSession,
-  getSubscriptionForPair,
-  SubscriptionError,
-} from "~/lib/stripe/subscriptions";
+import { hasTraineeAppAccess } from "~/lib/stripe/gate";
+import { createCheckoutSession, SubscriptionError } from "~/lib/stripe/subscriptions";
 
 // ============================================================
 // Loader: ekran aktywacji żyje POZA layoutem podopiecznego (bez sidenav),
@@ -30,24 +24,23 @@ import {
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const user = await requireUser(request, db, { role: "trainee" });
-  const trainerId = user.trainerId!;
 
-  const sub = await getSubscriptionForPair(db, trainerId, user.id);
-  const conn = await getConnectionRow(db, trainerId);
+  // Jedna implementacja bramki dla całej aplikacji (`lib/stripe/gate`) — ta trasa
+  // jest CELEM redirectu z tej bramki, więc własna kopia reguły oznaczałaby przy
+  // pierwszej zmianie pętlę przekierowań. `sub` bierzemy stąd, żeby nie pytać o
+  // subskrypcję drugi raz. Konto bez trenera dostaje `hasAccess: true` — czyli tak
+  // jak dotąd wypada tu redirect na dashboard (`paymentRequired` było wtedy
+  // `false`, bo bez trenera nie ma ani `chargesEnabled`, ani ceny).
+  const { hasAccess, sub } = await hasTraineeAppAccess(db, user);
+  if (hasAccess) throw redirect("/podopieczny");
+
+  // Brak dostępu implikuje przypisanego trenera (patrz wyżej), więc `trainerId`
+  // jest tu na pewno ustawione.
   const trainerRow = await db
     .select({ name: schema.users.displayName })
     .from(schema.users)
-    .where(eq(schema.users.id, trainerId))
+    .where(eq(schema.users.id, user.trainerId!))
     .limit(1);
-
-  const required = paymentRequired({
-    stripeConfigured: stripeApiConfigured(),
-    chargesEnabled: Boolean(conn?.chargesEnabled),
-    hasPrice: Boolean(sub?.stripePriceId),
-  });
-  const access = hasAppAccess({ paymentRequired: required, status: sub?.status ?? null });
-  // Już ma dostęp / płatność niewymagana — nie ma po co tu być.
-  if (access) throw redirect("/podopieczny");
 
   return {
     trainerName: trainerRow[0]?.name ?? null,

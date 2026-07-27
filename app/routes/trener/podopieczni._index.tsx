@@ -1,3 +1,4 @@
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { useEffect, useState } from "react";
 import {
   Form,
@@ -12,13 +13,17 @@ import { CopyButton } from "~/components/copy-button";
 import { Icons } from "~/components/icons";
 import { ListControls } from "~/components/list-controls";
 import { Modal } from "~/components/modal";
+import { OnboardingPicker } from "~/components/onboarding-picker";
 import { Pagination, parsePage } from "~/components/pagination";
 import { createInvite, requireUser } from "~/lib/auth";
+import * as schema from "~/lib/db/schema";
 import { db } from "~/lib/db/client";
 import { getEnv, stripeApiConfigured } from "~/lib/env";
 import { parsePlnToGrosze, MonthlyAmountSchema } from "~/lib/money";
 import { daysAgo, fmtDate, pluralizePl, type PlForms } from "~/lib/format";
 import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
+import { createOnboardingForm, OnboardingFormError } from "~/lib/onboarding-forms";
+import { OnboardingTemplateSchema } from "~/lib/onboarding-form-types";
 import { countClientsForTrainer, listClientsForTrainer, type ClientSort } from "~/lib/workouts";
 
 const OSOBA: PlForms = { one: "osoba", few: "osoby", many: "osób" };
@@ -82,6 +87,19 @@ export async function loader(args: LoaderFunctionArgs) {
     q: controls.q,
     plan,
   });
+
+  // Biblioteka do pickera formularza startowego. Ciągniemy ją w loaderze zamiast
+  // osobnym fetcherem — kilka KB na wejście, a modal działa bez dodatkowej rundy.
+  const exercises = await db
+    .select({
+      id: schema.exercises.id,
+      name: schema.exercises.name,
+      unit: schema.exercises.unit,
+    })
+    .from(schema.exercises)
+    .where(and(eq(schema.exercises.trainerId, user.id), isNull(schema.exercises.archivedAt)))
+    .orderBy(asc(schema.exercises.name));
+
   return {
     clients,
     spec,
@@ -91,6 +109,7 @@ export async function loader(args: LoaderFunctionArgs) {
     total,
     deletedName,
     stripeAvailable: stripeApiConfigured(),
+    exercises,
   };
 }
 
@@ -117,12 +136,44 @@ export async function action(args: ActionFunctionArgs) {
     monthlyAmountGrosze = parsedAmt.data;
   }
 
-  const { token } = await createInvite(db, {
-    trainerId: user.id,
-    displayName: parsed.data.displayName,
-    email: parsed.data.email,
-    monthlyAmountGrosze,
-  });
+  const wantsForm = fd.get("withOnboarding") === "on";
+  let template: { exerciseIds: string[]; note: string | null } | null = null;
+  if (wantsForm) {
+    const parsedTemplate = OnboardingTemplateSchema.safeParse({
+      exerciseIds: fd.getAll("onboardingExercise").map(String),
+      note: String(fd.get("onboardingNote") ?? ""),
+    });
+    if (!parsedTemplate.success) {
+      return { error: parsedTemplate.error.issues[0]?.message ?? "Sprawdź formularz." };
+    }
+    template = parsedTemplate.data;
+  }
+
+  let token: string;
+  try {
+    // Jedna transakcja: albo zaproszenie Z formularzem, albo nic. Inaczej dałoby
+    // się wysłać link do zaproszenia, któremu formularz nie doszedł.
+    token = await db.transaction(async (tx) => {
+      const created = await createInvite(tx, {
+        trainerId: user.id,
+        displayName: parsed.data.displayName,
+        email: parsed.data.email,
+        monthlyAmountGrosze,
+      });
+      if (template) {
+        await createOnboardingForm(tx, {
+          trainerId: user.id,
+          inviteId: created.invite!.id,
+          exerciseIds: template.exerciseIds,
+          note: template.note,
+        });
+      }
+      return created.token;
+    });
+  } catch (e) {
+    if (e instanceof OnboardingFormError) return { error: e.userMessage };
+    throw e;
+  }
 
   const inviteUrl = `${getEnv().BASE_URL}/zaproszenie/${token}`;
   return {
@@ -130,12 +181,13 @@ export async function action(args: ActionFunctionArgs) {
       url: inviteUrl,
       displayName: parsed.data.displayName,
       email: parsed.data.email,
+      withOnboarding: template != null,
     },
   };
 }
 
 export default function TrenerPodopieczniList() {
-  const { clients, spec, controls, page, totalPages, total, deletedName, stripeAvailable } =
+  const { clients, spec, controls, page, totalPages, total, deletedName, stripeAvailable, exercises } =
     useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -239,6 +291,7 @@ export default function TrenerPodopieczniList() {
                 </p>
               </div>
             )}
+            <OnboardingPicker exercises={exercises} />
             {actionData != null && "error" in actionData && actionData.error != null && (
               <p role="alert" style={{ color: "var(--danger)", fontSize: 13, margin: 0 }}>
                 {actionData.error}
@@ -338,7 +391,7 @@ export default function TrenerPodopieczniList() {
 function InviteCreatedCard({
   invite,
 }: {
-  invite: { url: string; displayName: string; email: string | null };
+  invite: { url: string; displayName: string; email: string | null; withOnboarding: boolean };
 }) {
   return (
     <div
@@ -370,6 +423,11 @@ function InviteCreatedCard({
           </span>
         )}
       </div>
+      {invite.withOnboarding && (
+        <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 4 }}>
+          Z formularzem startowym — podopieczny wypełni go po założeniu konta.
+        </div>
+      )}
       <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 12 }}>
         Skopiuj i wyślij podopiecznemu. Po przyjęciu zaproszenia konto pojawi się na liście poniżej.
       </div>

@@ -56,6 +56,14 @@ export const subscriptionStatus = pgEnum("subscription_status", [
   "paused",
 ]);
 export const skillTier = pgEnum("skill_tier", ["basic", "intermediate", "advanced", "expert"]);
+export const featureRequestKind = pgEnum("feature_request_kind", ["idea", "bug", "other"]);
+export const featureRequestStatus = pgEnum("feature_request_status", [
+  "new",
+  "considering",
+  "planned",
+  "done",
+  "rejected",
+]);
 
 // ---------------- Users ----------------
 
@@ -713,6 +721,110 @@ export const processedWebhookEvents = pgTable("processed_webhook_events", {
   processedAt: timestamp("processed_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ---------------- Feature requests (Pomysły) ----------------
+
+// Zgłoszenia podopiecznych: pomysły na usprawnienia i zgłoszenia błędów.
+// Prywatne w parze — czyta je autor i JEGO trener, nikt więcej. `trainer_id`
+// jest zdenormalizowany (jak w `workout_logs`), żeby skrzynka trenera była
+// jednym zapytaniem bez joinowania autora tylko po to, by ustalić tenant.
+export const featureRequests = pgTable(
+  "feature_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    trainerId: uuid("trainer_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    traineeId: uuid("trainee_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: featureRequestKind("kind").notNull().default("idea"),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    status: featureRequestStatus("status").notNull().default("new"),
+    trainerResponse: text("trainer_response"),
+    respondedAt: timestamp("responded_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    traineeCreatedIdx: index("feature_requests_trainee_created_idx").on(t.traineeId, t.createdAt),
+    trainerStatusIdx: index("feature_requests_trainer_status_idx").on(t.trainerId, t.status),
+    trainerCreatedIdx: index("feature_requests_trainer_created_idx").on(t.trainerId, t.createdAt),
+  }),
+);
+
+// ---------------- Onboarding forms (Formularz startowy) ----------------
+
+// Formularz startowy: zestaw ćwiczeń, o które trener pyta podopiecznego zaraz po
+// założeniu konta. Wiersz powstaje RAZEM z zaproszeniem (`invite_id`), a
+// `trainee_id` dostaje dopiero przy jego konsumpcji — jeden byt przez całe
+// życie, bez przepisywania szablonu na osobny wiersz wyników.
+export const onboardingForms = pgTable(
+  "onboarding_forms",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    trainerId: uuid("trainer_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    inviteId: uuid("invite_id")
+      .notNull()
+      .references(() => invites.id, { onDelete: "cascade" }),
+    // NULL do chwili przyjęcia zaproszenia (patrz `consumeInvite`).
+    traineeId: uuid("trainee_id").references(() => users.id, { onDelete: "cascade" }),
+    trainerNote: text("trainer_note"),
+    traineeNote: text("trainee_note"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    inviteUniq: uniqueIndex("onboarding_forms_invite_uniq").on(t.inviteId),
+    // Najwyżej jeden CZEKAJĄCY formularz na podopiecznego. Wiersze sprzed
+    // przyjęcia zaproszenia mają trainee_id NULL, a NULL-e w indeksie unikalnym
+    // są w Postgresie rozróżnialne — więc nie kolidują ze sobą.
+    traineePendingUniq: uniqueIndex("onboarding_forms_trainee_pending_uniq")
+      .on(t.traineeId)
+      .where(sql`${t.completedAt} IS NULL`),
+    trainerIdx: index("onboarding_forms_trainer_idx").on(t.trainerId),
+    traineeIdx: index("onboarding_forms_trainee_idx").on(t.traineeId),
+  }),
+);
+
+// Pozycja formularza = jedno ćwiczenie, o które trener pyta. `unit` jest
+// SNAPSHOTEM z chwili tworzenia: trener może później przełączyć ćwiczenie z REPS
+// na SEC, a wtedy zapisane „35" zmieniłoby znaczenie z powtórzeń na sekundy.
+// Nazwę ćwiczenia czytamy joinem — zmiana nazwy to zwykle korekta literówki.
+export const onboardingFormItems = pgTable(
+  "onboarding_form_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    formId: uuid("form_id")
+      .notNull()
+      .references(() => onboardingForms.id, { onDelete: "cascade" }),
+    exerciseId: uuid("exercise_id")
+      .notNull()
+      .references(() => exercises.id, { onDelete: "cascade" }),
+    ordinal: integer("ordinal").notNull(),
+    unit: exerciseUnit("unit").notNull(),
+    // NULL = jeszcze nieodpowiedziane. 0 to prawidłowa odpowiedź („ani razu").
+    value: integer("value"),
+    comment: text("comment"),
+  },
+  (t) => ({
+    formOrdinalUniq: uniqueIndex("onboarding_form_items_form_ordinal_uniq").on(
+      t.formId,
+      t.ordinal,
+    ),
+    formExerciseUniq: uniqueIndex("onboarding_form_items_form_exercise_uniq").on(
+      t.formId,
+      t.exerciseId,
+    ),
+    valueCheck: check(
+      "onboarding_form_items_value_check",
+      sql`${t.value} IS NULL OR (${t.value} >= 0 AND ${t.value} <= 10000)`,
+    ),
+  }),
+);
+
 // ---------------- Types ----------------
 
 export type User = typeof users.$inferSelect;
@@ -772,3 +884,11 @@ export type SubscriptionPayment = typeof subscriptionPayments.$inferSelect;
 export type NewSubscriptionPayment = typeof subscriptionPayments.$inferInsert;
 export type ProcessedWebhookEvent = typeof processedWebhookEvents.$inferSelect;
 export type NewProcessedWebhookEvent = typeof processedWebhookEvents.$inferInsert;
+export type FeatureRequest = typeof featureRequests.$inferSelect;
+export type NewFeatureRequest = typeof featureRequests.$inferInsert;
+export type FeatureRequestKindDb = (typeof featureRequestKind.enumValues)[number];
+export type FeatureRequestStatusDb = (typeof featureRequestStatus.enumValues)[number];
+export type OnboardingForm = typeof onboardingForms.$inferSelect;
+export type NewOnboardingForm = typeof onboardingForms.$inferInsert;
+export type OnboardingFormItem = typeof onboardingFormItems.$inferSelect;
+export type NewOnboardingFormItem = typeof onboardingFormItems.$inferInsert;

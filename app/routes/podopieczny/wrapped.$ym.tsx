@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useLoaderData, useNavigate, type LoaderFunctionArgs } from "react-router";
+import { Link, redirect, useLoaderData, useNavigate, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import { fmtDate } from "~/lib/format";
+import { hasPendingOnboarding } from "~/lib/onboarding-forms";
 import {
   getMonthlyWrapped,
   isPastMonth,
@@ -19,6 +20,12 @@ import {
 
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainee" });
+
+  // Wrapped żyje poza layoutem, więc bramka formularza musi tu stać osobno.
+  // Bramki płatności celowo NIE dokładamy — dziś jej tu nie ma i ta zmiana nie
+  // jest od zaostrzania dostępu.
+  if (await hasPendingOnboarding(db, user.id)) throw redirect("/podopieczny/formularz");
+
   const ym = args.params.ym ?? "";
   const parsed = parseYM(ym);
   if (!parsed) throw new Response("invalid month", { status: 404 });

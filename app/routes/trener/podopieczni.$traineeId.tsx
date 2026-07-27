@@ -28,6 +28,7 @@ import { db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import { daysAgo, fmtDate, fmtDateTime, pluralizePl, type PlForms } from "~/lib/format";
 import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
+import { getFormStatusForTrainee } from "~/lib/onboarding-forms";
 import { deletePlan, PlanRepoError } from "~/lib/plans";
 import {
   getActivePlanSessionUsage,
@@ -91,6 +92,10 @@ export async function loader(args: LoaderFunctionArgs) {
   const trainee = traineeRows[0];
   if (!trainee) throw new Response("not found", { status: 404 });
 
+  // `null` = trener nie doczepił formularza startowego do zaproszenia — wtedy
+  // plakietka w pasku przycisków w ogóle się nie renderuje.
+  const onboardingStatus = await getFormStatusForTrainee(db, user.id, traineeId);
+
   const plans = await db
     .select()
     .from(schema.plans)
@@ -141,6 +146,7 @@ export async function loader(args: LoaderFunctionArgs) {
 
   return {
     trainee,
+    onboardingStatus,
     activePlan,
     draftPlan,
     logs,
@@ -221,6 +227,7 @@ export async function action(args: ActionFunctionArgs) {
 export default function TrenerPodopiecznyDetail() {
   const {
     trainee,
+    onboardingStatus,
     activePlan,
     draftPlan,
     logs,
@@ -315,6 +322,21 @@ export default function TrenerPodopiecznyDetail() {
           <Link to={`/trener/podopieczni/${trainee.id}/platnosci`} className="btn">
             <Icons.Card /> Płatności
           </Link>
+          {onboardingStatus != null && (
+            <Link to={`/trener/podopieczni/${trainee.id}/formularz`} className="btn">
+              <Icons.Consult /> Formularz startowy
+              {onboardingStatus.completedAtISO == null ? (
+                <span className="badge" style={{ marginLeft: 6 }}>
+                  <span className="badge-dot" />
+                  czeka
+                </span>
+              ) : (
+                <span className="text-xs muted" style={{ marginLeft: 6 }}>
+                  wypełniony {fmtDate(onboardingStatus.completedAtISO)}
+                </span>
+              )}
+            </Link>
+          )}
           {draftPlan == null && (
             <Link to={`/trener/plany/nowy?traineeId=${trainee.id}`} className="btn btn-primary">
               <Icons.Plus /> Nowy plan
