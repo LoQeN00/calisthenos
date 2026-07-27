@@ -31,6 +31,18 @@ describe("consultationToEvent", () => {
     expect(ev.end?.dateTime).toBe("2026-06-12T00:15:00");
   });
 
+  it("paduje jednocyfrowy miesiąc, dzień i godzinę do dwóch cyfr", () => {
+    const ev = consultationToEvent({ ...base, scheduledAtISO: "2026-01-05T09:05:00.000Z" });
+    expect(ev.start?.dateTime).toBe("2026-01-05T09:05:00");
+    expect(ev.end?.dateTime).toBe("2026-01-05T09:50:00");
+  });
+
+  it("przechodzi przez przełom roku", () => {
+    const ev = consultationToEvent({ ...base, scheduledAtISO: "2026-12-31T23:45:00.000Z" });
+    expect(ev.start?.dateTime).toBe("2026-12-31T23:45:00");
+    expect(ev.end?.dateTime).toBe("2027-01-01T00:30:00");
+  });
+
   it("dodaje uczestnika (zaproszenie mailowe)", () => {
     const ev = consultationToEvent(base);
     expect(ev.attendees).toEqual([{ email: "podopieczny@example.com" }]);
@@ -38,7 +50,9 @@ describe("consultationToEvent", () => {
 
   it("żąda konferencji Meet z unikalnym requestId", () => {
     const ev = consultationToEvent(base);
-    expect(ev.conferenceData?.createRequest?.conferenceSolutionKey).toEqual({ type: "hangoutsMeet" });
+    expect(ev.conferenceData?.createRequest?.conferenceSolutionKey).toEqual({
+      type: "hangoutsMeet",
+    });
     expect(ev.conferenceData?.createRequest?.requestId).toBe("kalisthenos-c-1");
   });
 

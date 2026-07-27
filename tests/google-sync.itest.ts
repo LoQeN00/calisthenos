@@ -14,8 +14,7 @@ import { randomBytes } from "node:crypto";
 process.env.GOOGLE_TOKEN_ENC_KEY = randomBytes(32).toString("base64");
 process.env.GOOGLE_CLIENT_ID = "test-client-id";
 process.env.GOOGLE_CLIENT_SECRET = "test-client-secret";
-process.env.GOOGLE_REDIRECT_URI =
-  "http://localhost:3000/trener/integracje/google/callback";
+process.env.GOOGLE_REDIRECT_URI = "http://localhost:3000/trener/integracje/google/callback";
 
 // ---- Mocki SDK (PRZED importami aplikacji) ----
 // vi.mock jest hoistowany przez Vitest; vi.fn() musi być dostępne w fabryce.
@@ -87,11 +86,7 @@ beforeAll(async () => {
   await sql`CREATE EXTENSION IF NOT EXISTS citext`;
   await migrate(db, { migrationsFolder: "app/lib/db/migrations" });
 
-  const mk = async (
-    email: string,
-    role: "trainer" | "trainee",
-    parentTrainerId?: string,
-  ) => {
+  const mk = async (email: string, role: "trainer" | "trainee", parentTrainerId?: string) => {
     const [u] = await db
       .insert(schema.users)
       .values({ email, displayName: email, role, trainerId: parentTrainerId })
@@ -284,117 +279,192 @@ describe("syncCancelAllForPair — usuwanie podopiecznego", () => {
 });
 
 describe("syncBackfillPair — wypchnięcie brakujących + naprawa istniejących", () => {
-  // Własna para trener-podopieczny: wcześniejsze testy zostawiają terminy na
-  // wspólnej parze, a tu asertujemy dokładne liczby wywołań.
-  let t2 = "";
-  let p2 = "";
+  // Każdy przypadek dostaje WŁASNĄ parę trener-podopieczny: `syncBackfillPair` bierze
+  // wszystkie nadchodzące żywe terminy pary, więc współdzielenie pary między testami
+  // rozsypałoby asercje `attempted`/`synced`.
+  let pairSeq = 0;
 
-  beforeAll(async () => {
+  async function makePair(withGoogle: boolean): Promise<{ trainer: string; trainee: string }> {
+    pairSeq += 1;
     const [tr] = await db
       .insert(schema.users)
-      .values({ email: "trainer-backfill@example.com", displayName: "T2", role: "trainer" })
+      .values({
+        email: `trainer-backfill-${pairSeq}@example.com`,
+        displayName: `T-bf-${pairSeq}`,
+        role: "trainer",
+      })
       .returning({ id: schema.users.id });
-    t2 = tr!.id;
     const [pu] = await db
       .insert(schema.users)
       .values({
-        email: "trainee-backfill@example.com",
-        displayName: "P2",
+        email: `trainee-backfill-${pairSeq}@example.com`,
+        displayName: `P-bf-${pairSeq}`,
         role: "trainee",
-        trainerId: t2,
+        trainerId: tr!.id,
       })
       .returning({ id: schema.users.id });
-    p2 = pu!.id;
-    await db.insert(schema.googleCalendarConnections).values({
-      trainerId: t2,
-      googleEmail: "trainer-backfill@gmail.com",
-      accessTokenEnc: encryptToken("fake-access-token"),
-      refreshTokenEnc: encryptToken("fake-refresh-token"),
-      tokenExpiry: new Date(Date.now() + 3_600_000),
-      scope: "https://www.googleapis.com/auth/calendar.events",
-      calendarId: "primary",
-    });
-  });
+    if (withGoogle) {
+      await db.insert(schema.googleCalendarConnections).values({
+        trainerId: tr!.id,
+        googleEmail: `trainer-backfill-${pairSeq}@gmail.com`,
+        accessTokenEnc: encryptToken("fake-access-token"),
+        refreshTokenEnc: encryptToken("fake-refresh-token"),
+        tokenExpiry: new Date(Date.now() + 3_600_000),
+        scope: "https://www.googleapis.com/auth/calendar.events",
+        calendarId: "primary",
+      });
+    }
+    return { trainer: tr!.id, trainee: pu!.id };
+  }
+
+  async function addConsultation(
+    pair: { trainer: string; trainee: string },
+    args: { status: schema.ConsultationStatus; googleEventId: string | null; at: string },
+  ): Promise<string> {
+    const [row] = await db
+      .insert(schema.consultations)
+      .values({
+        trainerId: pair.trainer,
+        traineeId: pair.trainee,
+        scheduledAt: new Date(args.at),
+        durationMin: 45,
+        status: args.status,
+        title: "Konsultacja",
+        summary: "",
+        googleEventId: args.googleEventId,
+      })
+      .returning({ id: schema.consultations.id });
+    return row!.id;
+  }
+
+  type PatchArg = {
+    eventId: string;
+    requestBody: {
+      start: { dateTime: string; timeZone: string };
+      summary?: string;
+      description?: string;
+    };
+  };
+  const patchArgs = () => (patchMock.mock.calls as unknown as PatchArg[][]).map((c) => c[0]!);
 
   it("wstawia brakujące, naprawia istniejące, pomija przeszłe i odwołane", async () => {
     insertMock.mockClear();
     patchMock.mockClear();
+    const pair = await makePair(true);
 
-    const add = async (args: {
-      status: schema.ConsultationStatus;
-      googleEventId: string | null;
-      at: string;
-    }) => {
-      const [row] = await db
-        .insert(schema.consultations)
-        .values({
-          trainerId: t2,
-          traineeId: p2,
-          scheduledAt: new Date(args.at),
-          durationMin: 45,
-          status: args.status,
-          title: "Konsultacja",
-          summary: "",
-          googleEventId: args.googleEventId,
-        })
-        .returning({ id: schema.consultations.id });
-      return row!.id;
-    };
-
-    await add({ status: "planned", googleEventId: null, at: "2030-06-14T18:30:00.000Z" });
-    await add({ status: "confirmed", googleEventId: "evt-existing", at: "2030-06-21T18:30:00.000Z" });
+    await addConsultation(pair, {
+      status: "planned",
+      googleEventId: null,
+      at: "2030-06-14T18:30:00.000Z",
+    });
+    await addConsultation(pair, {
+      status: "confirmed",
+      googleEventId: "evt-existing",
+      at: "2030-06-21T18:30:00.000Z",
+    });
     // Pomijane: przeszły oraz odwołany.
-    await add({ status: "planned", googleEventId: null, at: "2020-01-01T18:30:00.000Z" });
-    await add({ status: "cancelled", googleEventId: "evt-cancelled", at: "2030-06-28T18:30:00.000Z" });
+    await addConsultation(pair, {
+      status: "planned",
+      googleEventId: null,
+      at: "2020-01-01T18:30:00.000Z",
+    });
+    await addConsultation(pair, {
+      status: "cancelled",
+      googleEventId: "evt-cancelled",
+      at: "2030-06-28T18:30:00.000Z",
+    });
 
     const r = await syncBackfillPair(db, {
-      trainerId: t2,
-      traineeId: p2,
+      trainerId: pair.trainer,
+      traineeId: pair.trainee,
       nowISO: new Date().toISOString(),
     });
 
-    expect(r).toEqual({ attempted: 2, synced: 2 });
+    expect(r).toEqual({ connected: true, attempted: 2, synced: 2 });
     expect(insertMock).toHaveBeenCalledTimes(1);
     expect(patchMock).toHaveBeenCalledTimes(1);
 
     // Patch trafia w istniejące zdarzenie — a NIE w to właśnie wstawione
     // (oba zbiory czytamy przed zapisami, więc świeży termin nie dostaje dubla).
-    type PatchArg = {
-      eventId: string;
-      requestBody: { start: { dateTime: string; timeZone: string } };
-    };
-    const patchArg = (patchMock.mock.calls as unknown as PatchArg[][])[0]![0]!;
+    const patchArg = patchArgs()[0]!;
     expect(patchArg.eventId).toBe("evt-existing");
 
     // Regresja stref: czas ścienny bez „Z" + jawna strefa aplikacji.
     expect(patchArg.requestBody.start.dateTime).toBe("2030-06-21T18:30:00");
     expect(patchArg.requestBody.start.timeZone).toBe("Europe/Warsaw");
+
+    // Naprawa jest `timesOnly` — nie kasuje opisu dopisanego po stronie Google.
+    expect(patchArg.requestBody.summary).toBeUndefined();
+    expect(patchArg.requestBody.description).toBeUndefined();
+  });
+
+  it("odtwarza zdarzenie skasowane ręcznie w Google (patch → 404)", async () => {
+    insertMock.mockClear();
+    patchMock.mockClear();
+    patchMock.mockRejectedValueOnce(Object.assign(new Error("gone"), { code: 404 }));
+    const pair = await makePair(true);
+    const id = await addConsultation(pair, {
+      status: "confirmed",
+      googleEventId: "evt-deleted-in-google",
+      at: "2030-07-05T18:30:00.000Z",
+    });
+
+    const r = await syncBackfillPair(db, {
+      trainerId: pair.trainer,
+      traineeId: pair.trainee,
+      nowISO: new Date().toISOString(),
+    });
+
+    // Termin liczy się jako zsynchronizowany, a martwa referencja zostaje zastąpiona nową.
+    expect(r).toEqual({ connected: true, attempted: 1, synced: 1 });
+    expect(insertMock).toHaveBeenCalledTimes(1);
+    const row = await fetchConsultation(id);
+    expect(row!.googleEventId).toBe("evt-123");
+  });
+
+  it("best-effort: błąd patcha nie przerywa reszty przebiegu", async () => {
+    insertMock.mockClear();
+    patchMock.mockClear();
+    patchMock.mockRejectedValueOnce(Object.assign(new Error("boom"), { code: 500 }));
+    const pair = await makePair(true);
+    await addConsultation(pair, {
+      status: "confirmed",
+      googleEventId: "evt-fail",
+      at: "2030-08-02T18:30:00.000Z",
+    });
+    await addConsultation(pair, {
+      status: "confirmed",
+      googleEventId: "evt-ok",
+      at: "2030-08-09T18:30:00.000Z",
+    });
+
+    const r = await syncBackfillPair(db, {
+      trainerId: pair.trainer,
+      traineeId: pair.trainee,
+      nowISO: new Date().toISOString(),
+    });
+
+    // Pierwszy padł, drugi mimo to przeszedł — i nic nie wyleciało na zewnątrz.
+    expect(r).toEqual({ connected: true, attempted: 2, synced: 1 });
+    expect(patchMock).toHaveBeenCalledTimes(2);
+    expect(patchArgs().map((a) => a.eventId)).toEqual(["evt-fail", "evt-ok"]);
+    // Błąd 500 to NIE „zdarzenie zniknęło" — nic nie odtwarzamy.
+    expect(insertMock).not.toHaveBeenCalled();
   });
 
   it("no-op dla trenera bez połączenia Google", async () => {
     insertMock.mockClear();
     patchMock.mockClear();
-    const [tr] = await db
-      .insert(schema.users)
-      .values({ email: "trainer-nogoogle@example.com", displayName: "T3", role: "trainer" })
-      .returning({ id: schema.users.id });
-    const [pu] = await db
-      .insert(schema.users)
-      .values({
-        email: "trainee-nogoogle@example.com",
-        displayName: "P3",
-        role: "trainee",
-        trainerId: tr!.id,
-      })
-      .returning({ id: schema.users.id });
+    const pair = await makePair(false);
 
     const r = await syncBackfillPair(db, {
-      trainerId: tr!.id,
-      traineeId: pu!.id,
+      trainerId: pair.trainer,
+      traineeId: pair.trainee,
       nowISO: new Date().toISOString(),
     });
 
-    expect(r).toEqual({ attempted: 0, synced: 0 });
+    // `connected: false` odróżnia „nie ma czego synchronizować" od „integracja nie działa".
+    expect(r).toEqual({ connected: false, attempted: 0, synced: 0 });
     expect(insertMock).not.toHaveBeenCalled();
     expect(patchMock).not.toHaveBeenCalled();
   });

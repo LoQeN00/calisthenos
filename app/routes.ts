@@ -21,6 +21,8 @@ export default [
       route("umiejetnosci/nowa", "routes/trener/umiejetnosci.nowa.tsx"),
       route("umiejetnosci/:skillId", "routes/trener/umiejetnosci.$skillId.tsx"),
       route("konsultacje", "routes/trener/konsultacje.tsx"),
+      route("pomysly", "routes/trener/pomysly._index.tsx"),
+      route("pomysly/:requestId", "routes/trener/pomysly.$requestId.tsx"),
       route("integracje/google", "routes/trener/integracje.google.tsx"),
       route("integracje/google/callback", "routes/trener/integracje.google.callback.tsx"),
       route("integracje/stripe", "routes/trener/integracje.stripe.tsx"),
@@ -31,6 +33,10 @@ export default [
         "routes/trener/podopieczni.$traineeId.log.$logId.tsx",
       ),
       route("podopieczni/:traineeId/sylwetka", "routes/trener/podopieczni.$traineeId.sylwetka.tsx"),
+      route(
+        "podopieczni/:traineeId/formularz",
+        "routes/trener/podopieczni.$traineeId.formularz.tsx",
+      ),
       route(
         "podopieczni/:traineeId/platnosci",
         "routes/trener/podopieczni.$traineeId.platnosci.tsx",
@@ -108,6 +114,7 @@ export default [
       route("sylwetka", "routes/podopieczny/sylwetka.tsx"),
       route("konsultacje", "routes/podopieczny/konsultacje._index.tsx"),
       route("konsultacje/:konsultacjaId", "routes/podopieczny/konsultacje.$konsultacjaId.tsx"),
+      route("pomysly", "routes/podopieczny/pomysly.tsx"),
       route("platnosci", "routes/podopieczny/platnosci.tsx"),
       route("umiejetnosci", "routes/podopieczny/umiejetnosci.tsx"),
       route("umiejetnosci/:skillId", "routes/podopieczny/umiejetnosci.$skillId.tsx"),
@@ -117,5 +124,9 @@ export default [
     // Aktywacja subskrypcji — OUTSIDE the layout, bo to dokąd gate w _layout.tsx
     // odsyła nieopłaconych podopiecznych (gdyby było w children → pętla redirectów).
     route("aktywuj", "routes/podopieczny/aktywuj.tsx"),
+    // Formularz startowy — OUTSIDE the layout, bo to dokąd bramka w _layout.tsx
+    // odsyła podopiecznych z niewypełnionym formularzem (gdyby było w children
+    // → pętla redirectów).
+    route("formularz", "routes/podopieczny/formularz.tsx"),
   ]),
 ] satisfies RouteConfig;

@@ -1,13 +1,11 @@
 import type { ActionFunctionArgs } from "react-router";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
-import { stripeApiConfigured } from "~/lib/env";
 import { UploadError, uploadFile } from "~/lib/file-uploads";
 import { errorMeta, logger } from "~/lib/logger";
+import { hasPendingOnboarding } from "~/lib/onboarding-forms";
 import { enforceRateLimit, RATE_LIMITS } from "~/lib/rate-limit";
-import { hasAppAccess, paymentRequired } from "~/lib/stripe/access";
-import { getConnectionRow } from "~/lib/stripe/connections";
-import { getSubscriptionForPair } from "~/lib/stripe/subscriptions";
+import { hasTraineeAppAccess } from "~/lib/stripe/gate";
 
 /**
  * Zawsze JAWNY `Response.json`, nigdy goły obiekt ani `data()`.
@@ -49,20 +47,17 @@ export async function action(args: ActionFunctionArgs) {
     return json({ error: "Konto bez przypisanego trenera." }, 400);
   }
 
-  // Bramka płatności MUSI być powtórzona tutaj. Żyje ona w loaderze
-  // `podopieczny/_layout.tsx`, a ta trasa jest zasobowa i leży POZA tym layoutem —
-  // bez tego podopieczny bez aktywnej subskrypcji mógłby wgrywać nagrania, mimo że
-  // nie jest w stanie zapisać treningu. Każdy taki plik byłby z definicji sierotą,
+  // Obie bramki MUSZĄ być powtórzone tutaj, w tej samej kolejności co w loaderze
+  // `podopieczny/_layout.tsx` — ta trasa jest zasobowa i leży POZA tym layoutem.
+  // Bez nich podopieczny, który nie jest w stanie zapisać treningu, mógłby i tak
+  // wysłać do 100 nagrań na 15 minut. Każdy taki plik byłby z definicji sierotą,
   // czyli darmowym kanałem zapełniania wolumenu.
-  const sub = await getSubscriptionForPair(db, user.trainerId, user.id);
-  const conn = await getConnectionRow(db, user.trainerId);
-  const required = paymentRequired({
-    stripeConfigured: stripeApiConfigured(),
-    chargesEnabled: Boolean(conn?.chargesEnabled),
-    hasPrice: Boolean(sub?.stripePriceId),
-  });
-  if (!hasAppAccess({ paymentRequired: required, status: sub?.status ?? null })) {
+  const { hasAccess } = await hasTraineeAppAccess(db, user);
+  if (!hasAccess) {
     return json({ error: "Subskrypcja nieaktywna. Odśwież stronę." }, 402);
+  }
+  if (await hasPendingOnboarding(db, user.id)) {
+    return json({ error: "Najpierw wypełnij formularz startowy. Odśwież stronę." }, 403);
   }
 
   // Limit per użytkownik, nie per IP — endpoint jest uwierzytelniony, a podopieczni

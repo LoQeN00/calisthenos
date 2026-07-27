@@ -48,11 +48,7 @@ export async function listOccurrencesForTrainee(
     .where(
       and(
         eq(schema.consultations.traineeId, traineeId),
-        between(
-          schema.consultations.scheduledAt,
-          new Date(range.fromISO),
-          new Date(range.toISO),
-        ),
+        between(schema.consultations.scheduledAt, new Date(range.fromISO), new Date(range.toISO)),
       ),
     )
     .orderBy(asc(schema.consultations.scheduledAt));
@@ -62,9 +58,7 @@ export async function listOccurrencesForTrainee(
     .map((r) => ({
       id: r.id,
       scheduledAt:
-        typeof r.scheduledAt === "string"
-          ? r.scheduledAt
-          : (r.scheduledAt as Date).toISOString(),
+        typeof r.scheduledAt === "string" ? r.scheduledAt : (r.scheduledAt as Date).toISOString(),
       durationMin: r.durationMin,
       status: r.status,
       title: r.title,
@@ -111,11 +105,7 @@ export async function listTrainerOccurrencesInRange(
       and(
         eq(schema.consultations.trainerId, args.trainerId),
         ne(schema.consultations.status, "cancelled"),
-        between(
-          schema.consultations.scheduledAt,
-          new Date(args.fromISO),
-          new Date(args.toISO),
-        ),
+        between(schema.consultations.scheduledAt, new Date(args.fromISO), new Date(args.toISO)),
       ),
     )
     .orderBy(asc(schema.consultations.scheduledAt));
@@ -202,7 +192,11 @@ export async function getConsultationDetail(
   if (args.trainerId) conds.push(eq(schema.consultations.trainerId, args.trainerId));
   if (args.traineeId) conds.push(eq(schema.consultations.traineeId, args.traineeId));
 
-  const [c] = await db.select().from(schema.consultations).where(and(...conds)).limit(1);
+  const [c] = await db
+    .select()
+    .from(schema.consultations)
+    .where(and(...conds))
+    .limit(1);
   if (!c) return null;
 
   const items = await db

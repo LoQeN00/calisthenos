@@ -33,6 +33,11 @@ Komendy testów (z `package.json`):
 > komponentach UTC** — etykieta `Etc/UTC` kazała Google przesunąć go o offset strefy
 > kalendarza. Obecnie wysyłamy `dateTime` bez `Z` + `timeZone: APP_TIME_ZONE`
 > (`Europe/Warsaw`). Nie kopiuj wzorca z tego planu — patrz `app/lib/google/calendar.ts`.
+>
+> Uwaga na przyszłość: `APP_TIME_ZONE` jest jedną stałą globalną, więc dla trenera
+> spoza Polski da zły wynik. Naturalny następny krok (poza zakresem fixa) to strefa
+> **per trener** — kolumna w `google_calendar_connections` albo odczyt strefy kalendarza
+> przez `calendars.get`. Repo już modeluje lokalizację per trener w `stripe_connections`.
 
 **Stan wyjściowy (zweryfikowany w repo 2026-06-02):**
 - Kolumna `consultations.google_event_id` (`text NULL`) **już istnieje** (dodana przyszłościowo w Fazie 1) — Task 3 jej nie dotyka.

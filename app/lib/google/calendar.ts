@@ -27,7 +27,9 @@ function wallClock(d: Date): string {
 }
 
 /** start/end zdarzenia — jedno źródło prawdy dla `insert` i `patch`, żeby nie rozjechały się w czasie. */
-function eventTimes(input: ConsultationEventInput): Pick<calendar_v3.Schema$Event, "start" | "end"> {
+function eventTimes(
+  input: ConsultationEventInput,
+): Pick<calendar_v3.Schema$Event, "start" | "end"> {
   const start = new Date(input.scheduledAtISO);
   const end = new Date(start.getTime() + input.durationMin * 60_000);
   return {
@@ -84,19 +86,47 @@ export async function insertEvent(
   return { eventId, meetUrl };
 }
 
-/** Aktualizuje termin/godzinę/treść istniejącego zdarzenia (po reschedule/edycji/naprawie). */
+/** 404/410 = zdarzenia już nie ma po stronie Google (skasowane ręcznie albo wyczyszczone). */
+function isGone(err: unknown): boolean {
+  const code =
+    (err as { code?: number; status?: number }).code ?? (err as { status?: number }).status;
+  return code === 404 || code === 410;
+}
+
+export interface PatchOptions {
+  /**
+   * Naprawa: wyrównaj wyłącznie termin. Bez tego patch nadpisuje też tytuł i opis
+   * wersją z aplikacji — pożądane przy reschedule (użytkownik właśnie edytował termin),
+   * ale nie przy hurtowym prostowaniu godzin, gdzie skasowałoby notatki dopisane
+   * przez trenera po stronie Google.
+   */
+  timesOnly?: boolean;
+}
+
+/**
+ * Aktualizuje istniejące zdarzenie (reschedule/edycja/naprawa godziny).
+ * Zwraca `false`, gdy zdarzenia już nie ma w Google (404/410) — wołający decyduje,
+ * czy odtworzyć je insertem. Inne błędy rzuca (łapie je best-effort warstwa `sync.ts`).
+ */
 export async function patchEvent(
   auth: OAuth2Client,
   calendarId: string,
   eventId: string,
   input: ConsultationEventInput,
-): Promise<void> {
-  await api(auth).events.patch({
-    calendarId,
-    eventId,
-    sendUpdates: "all",
-    requestBody: consultationToPatch(input),
-  });
+  opts: PatchOptions = {},
+): Promise<boolean> {
+  try {
+    await api(auth).events.patch({
+      calendarId,
+      eventId,
+      sendUpdates: "all",
+      requestBody: opts.timesOnly ? eventTimes(input) : consultationToPatch(input),
+    });
+    return true;
+  } catch (err: unknown) {
+    if (isGone(err)) return false;
+    throw err;
+  }
 }
 
 /** Usuwa zdarzenie (po cancel/odrzuceniu). Idempotentne wobec 404/410. */
@@ -108,8 +138,7 @@ export async function deleteEvent(
   try {
     await api(auth).events.delete({ calendarId, eventId, sendUpdates: "all" });
   } catch (err: unknown) {
-    const code = (err as { code?: number; status?: number }).code ?? (err as { status?: number }).status;
-    if (code === 404 || code === 410) return; // już usunięte — OK
+    if (isGone(err)) return; // już usunięte — OK
     throw err;
   }
 }

@@ -95,12 +95,33 @@ export async function action(args: ActionFunctionArgs) {
       // Skasuj zdarzenia Google terminów odwołanych przez zmianę harmonogramu,
       // zanim zsynchronizujemy nowe (oba zbiory są rozłączne). Best-effort.
       await syncCancelStaleSchedule(db, { trainerId: user.id, traineeId, fromISO: todayISO() });
-      const r = await syncBackfillPair(db, { trainerId: user.id, traineeId, nowISO: new Date().toISOString() });
-      return { success: `Harmonogram zapisany.${r.attempted ? ` Zsynchronizowano z Google: ${r.synced}/${r.attempted}.` : ""}` };
+      const r = await syncBackfillPair(db, {
+        trainerId: user.id,
+        traineeId,
+        nowISO: new Date().toISOString(),
+      });
+      return {
+        success: `Harmonogram zapisany.${r.attempted ? ` Zsynchronizowano z Google: ${r.synced}/${r.attempted}.` : ""}`,
+      };
     }
     if (intent === "sync-google") {
-      const r = await syncBackfillPair(db, { trainerId: user.id, traineeId, nowISO: new Date().toISOString() });
-      return { success: r.attempted ? `Zsynchronizowano: ${r.synced}/${r.attempted}.` : "Brak terminów do synchronizacji." };
+      const r = await syncBackfillPair(db, {
+        trainerId: user.id,
+        traineeId,
+        nowISO: new Date().toISOString(),
+      });
+      // Bez tego „0/0" wyglądałoby jak sukces także wtedy, gdy połączenie jest martwe
+      // (np. cofnięta zgoda w Google) — a wtedy nic się nie synchronizuje po cichu.
+      if (!r.connected) {
+        return {
+          error: "Nie udało się połączyć z kontem Google. Sprawdź integrację w ustawieniach.",
+        };
+      }
+      return {
+        success: r.attempted
+          ? `Zsynchronizowano: ${r.synced}/${r.attempted}.`
+          : "Brak terminów do synchronizacji.",
+      };
     }
     return null;
   } catch (e) {
@@ -202,9 +223,17 @@ export default function TrenerKonsultacjeIndex() {
             {googleActive && (
               <Form method="post">
                 <input type="hidden" name="intent" value="sync-google" />
-                <button type="submit" className="btn btn-sm btn-ghost">
+                <ConfirmSubmitButton
+                  className="btn btn-sm btn-ghost"
+                  confirmOptions={{
+                    title: "Zsynchronizować z Google?",
+                    message:
+                      "Nadchodzące terminy trafią do kalendarza, a te już wysłane zostaną wyrównane do godzin z aplikacji. Google powiadomi podopiecznego mailem o zaproszeniach i zmianach godziny.",
+                    confirmText: "Synchronizuj",
+                  }}
+                >
                   Synchronizuj z Google
-                </button>
+                </ConfirmSubmitButton>
               </Form>
             )}
             {schedule && (

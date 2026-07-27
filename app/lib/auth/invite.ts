@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { and, eq, isNull, gt } from "drizzle-orm";
 import type { Db } from "../db/client";
 import * as schema from "../db/schema";
+import { attachFormToTrainee } from "../onboarding-forms";
 
 const TOKEN_BYTES = 32;
 const INVITE_DURATION_DAYS = 14;
@@ -113,6 +114,12 @@ export async function consumeInvite(
         .returning();
       user = created[0]!;
     }
+
+    // Formularz startowy (jeśli trener go doczepił) dostaje właściciela w tej
+    // samej transakcji co konto — inaczej awaria po utworzeniu użytkownika
+    // zostawiłaby formularz-sierotę bez podopiecznego. Przekazujemy cały wiersz
+    // zaproszenia, żeby jego `trainer_id` trafił do `WHERE` bez dopytywania bazy.
+    await attachFormToTrainee(tx, invite, user.id);
 
     const consumed = await tx
       .update(schema.invites)
