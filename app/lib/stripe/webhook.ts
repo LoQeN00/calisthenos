@@ -1,5 +1,7 @@
+import { eq } from "drizzle-orm";
 import type Stripe from "stripe";
 import type { Db } from "~/lib/db/client";
+import * as schema from "~/lib/db/schema";
 import { getEnv } from "~/lib/env";
 import { logger } from "~/lib/logger";
 import { recordInvoice } from "~/lib/payments";
@@ -207,4 +209,24 @@ export async function applyChange(db: Db, change: Change): Promise<void> {
       });
       return;
   }
+}
+
+/**
+ * Zajmuje identyfikator zdarzenia (dedup). `true` → to pierwsze wystąpienie i wolno
+ * je przetworzyć; `false` → duplikat, trasa odpowiada 200 bez efektów ubocznych.
+ */
+export async function claimWebhookEvent(db: Db, eventId: string, type: string): Promise<boolean> {
+  const inserted = await db
+    .insert(schema.processedWebhookEvents)
+    .values({ eventId, type })
+    .onConflictDoNothing()
+    .returning({ eventId: schema.processedWebhookEvents.eventId });
+  return inserted.length > 0;
+}
+
+/** Zwalnia identyfikator po błędzie handlera, żeby ponowienie Stripe'a miało co przetworzyć. */
+export async function releaseWebhookEvent(db: Db, eventId: string): Promise<void> {
+  await db
+    .delete(schema.processedWebhookEvents)
+    .where(eq(schema.processedWebhookEvents.eventId, eventId));
 }

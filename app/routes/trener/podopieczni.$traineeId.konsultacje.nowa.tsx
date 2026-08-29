@@ -1,4 +1,3 @@
-import { and, eq } from "drizzle-orm";
 import {
   Form,
   Link,
@@ -15,23 +14,13 @@ import { ConsultationDocFormSchema } from "~/lib/consultation-types";
 import { ConsultationError, createAdhocConsultation } from "~/lib/consultations";
 import { syncUpsertOne } from "~/lib/google/sync";
 import { db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
 import { todayISO } from "~/lib/format";
+import { findTraineeOfTrainer } from "~/lib/trainees";
 
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
-  const [trainee] = await db
-    .select({ id: schema.users.id, displayName: schema.users.displayName })
-    .from(schema.users)
-    .where(
-      and(
-        eq(schema.users.id, traineeId),
-        eq(schema.users.trainerId, user.id),
-        eq(schema.users.role, "trainee"),
-      ),
-    )
-    .limit(1);
+  const trainee = await findTraineeOfTrainer(db, user.id, traineeId);
   if (!trainee) throw new Response("not found", { status: 404 });
   return { trainee, defaultScheduledAt: `${todayISO()}T18:00` };
 }

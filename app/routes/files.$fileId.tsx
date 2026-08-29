@@ -1,10 +1,9 @@
 import { Readable } from "node:stream";
-import { eq } from "drizzle-orm";
 import type { LoaderFunctionArgs } from "react-router";
 import { requireUser } from "~/lib/auth";
 import { ownsTrainerScope } from "~/lib/authz";
 import { db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
+import { findFileById } from "~/lib/file-uploads";
 import { verifyFileUrl } from "~/lib/files";
 import { getStorage } from "~/lib/storage";
 
@@ -35,8 +34,7 @@ export async function loader(args: LoaderFunctionArgs) {
     throw new Response("forbidden", { status: 403 });
   }
 
-  const rows = await db.select().from(schema.files).where(eq(schema.files.id, fileId)).limit(1);
-  const file = rows[0];
+  const file = await findFileById(db, fileId);
   // 404 (not 403) on cross-tenant access to avoid leaking existence.
   if (!file || !ownsTrainerScope(user, file.trainerId)) {
     throw new Response("not found", { status: 404 });

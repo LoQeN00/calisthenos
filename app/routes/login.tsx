@@ -6,12 +6,11 @@ import {
   type LoaderFunctionArgs,
 } from "react-router";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
 import { db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
 import {
   buildSetCookie,
   createSession,
+  findUserByEmail,
   getDummyPasswordHash,
   parseSessionId,
   readSession,
@@ -54,8 +53,7 @@ export async function action(args: ActionFunctionArgs) {
   }
 
   const { email, password } = parsed.data;
-  const rows = await db.select().from(schema.users).where(eq(schema.users.email, email)).limit(1);
-  const user = rows[0];
+  const user = await findUserByEmail(db, email);
 
   // Constant-time path: when the user doesn't exist or has no password, verify
   // against a dummy hash so total request latency doesn't reveal email existence.

@@ -292,3 +292,9 @@ export async function deleteFile(db: Db, fileId: string): Promise<void> {
   const storagePath = await deleteFileRow(db, fileId);
   if (storagePath) await deleteFileBlob(storagePath);
 }
+
+/** Wiersz pliku po identyfikatorze. Autoryzację (podpis + scope trenera) robi trasa. */
+export async function findFileById(db: Db, fileId: string): Promise<schema.File | null> {
+  const rows = await db.select().from(schema.files).where(eq(schema.files.id, fileId)).limit(1);
+  return rows[0] ?? null;
+}

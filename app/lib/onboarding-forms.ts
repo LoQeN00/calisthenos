@@ -68,7 +68,10 @@ async function loadItems(db: Db, formId: string): Promise<OnboardingItemView[]> 
 /**
  * Tworzy formularz doczepiony do zaproszenia. Wołane WEWNĄTRZ tej samej
  * transakcji co `createInvite` — inaczej dałoby się wygenerować i wysłać link do
- * zaproszenia, któremu formularz nie doszedł.
+ * zaproszenia, któremu formularz nie doszedł. Transakcję otwiera
+ * `createInviteWithOnboarding` w `~/lib/auth/invite`: mieszka tam, a nie tutaj, bo
+ * `auth/invite` już importuje ten moduł (`attachFormToTrainee`) i import w drugą
+ * stronę zamknąłby cykl.
  *
  * Kolejność pozycji = kolejność `exerciseIds`. Jednostka jest snapshotowana z
  * biblioteki, bo trener może ją później przełączyć.

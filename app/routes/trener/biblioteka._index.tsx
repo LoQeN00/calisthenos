@@ -1,4 +1,3 @@
-import { and, arrayContains, asc, count, desc, eq, ilike, isNull } from "drizzle-orm";
 import {
   type ActionFunctionArgs,
   Form,
@@ -19,7 +18,12 @@ import {
   listCategoriesForTrainer,
 } from "~/lib/categories";
 import { db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
+import {
+  type ExerciseFilter,
+  type ExerciseSort,
+  countExercisesForTrainer,
+  listExercisesForTrainer,
+} from "~/lib/exercises";
 import { signFileUrl } from "~/lib/files";
 import { type PlForms, pluralizePl } from "~/lib/format";
 import { type ListControlsSpec, parseListControls } from "~/lib/list-params";
@@ -71,44 +75,23 @@ export async function loader(args: LoaderFunctionArgs) {
 
   const filterTag = controls.filters.tag ?? "all";
   const filterUnit = controls.filters.unit ?? "all";
+  // Nieznana kategoria z URL-a jest ignorowana — tak samo jak dotychczas.
+  const filter: ExerciseFilter = {
+    q: controls.q.length > 0 ? controls.q : undefined,
+    tag: filterTag !== "all" && categoryNames.has(filterTag) ? filterTag : undefined,
+    unit: filterUnit === "REPS" || filterUnit === "SEC" ? filterUnit : undefined,
+  };
 
-  const conditions = [eq(schema.exercises.trainerId, user.id), isNull(schema.exercises.archivedAt)];
-  if (controls.q.length > 0) {
-    conditions.push(ilike(schema.exercises.name, `%${controls.q}%`));
-  }
-  if (filterTag !== "all" && categoryNames.has(filterTag)) {
-    conditions.push(arrayContains(schema.exercises.tags, [filterTag]));
-  }
-  if (filterUnit === "REPS" || filterUnit === "SEC") {
-    conditions.push(eq(schema.exercises.unit, filterUnit));
-  }
-
-  const orderBy =
-    controls.sort === "name_desc"
-      ? [desc(schema.exercises.name)]
-      : controls.sort === "newest"
-        ? [desc(schema.exercises.createdAt)]
-        : controls.sort === "oldest"
-          ? [asc(schema.exercises.createdAt)]
-          : [asc(schema.exercises.name)];
-
-  const [totalRow] = await db
-    .select({ c: count() })
-    .from(schema.exercises)
-    .where(and(...conditions));
-  const total = Number(totalRow?.c ?? 0);
+  const total = await countExercisesForTrainer(db, user.id, filter);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
-  const offset = (safePage - 1) * PAGE_SIZE;
 
-  const rows = await db
-    .select({ exercise: schema.exercises, demoFile: schema.files })
-    .from(schema.exercises)
-    .leftJoin(schema.files, eq(schema.files.id, schema.exercises.demoFileId))
-    .where(and(...conditions))
-    .orderBy(...orderBy)
-    .limit(PAGE_SIZE)
-    .offset(offset);
+  const rows = await listExercisesForTrainer(db, user.id, {
+    ...filter,
+    sort: controls.sort as ExerciseSort,
+    limit: PAGE_SIZE,
+    offset: (safePage - 1) * PAGE_SIZE,
+  });
 
   const items = rows.map((r) => ({
     id: r.exercise.id,

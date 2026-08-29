@@ -5,6 +5,7 @@ import {
   desc,
   eq,
   exists,
+  gte,
   ilike,
   inArray,
   not,
@@ -713,6 +714,47 @@ export async function listClientsForTrainer(
     activePlanName: planByTrainee.get(c.id)?.name ?? null,
     activePlanId: planByTrainee.get(c.id)?.planId ?? null,
   }));
+}
+
+export interface RecentLogRow {
+  log: schema.WorkoutLog;
+  trainee: { id: string; displayName: string };
+}
+
+/** Ostatnie treningi wszystkich podopiecznych trenera — pulpit. */
+export async function listRecentLogsForTrainer(
+  db: Db,
+  trainerId: string,
+  limit: number,
+): Promise<RecentLogRow[]> {
+  return await db
+    .select({
+      log: schema.workoutLogs,
+      trainee: { id: schema.users.id, displayName: schema.users.displayName },
+    })
+    .from(schema.workoutLogs)
+    .innerJoin(schema.users, eq(schema.users.id, schema.workoutLogs.traineeId))
+    .where(eq(schema.workoutLogs.trainerId, trainerId))
+    .orderBy(desc(schema.workoutLogs.performedOn), desc(schema.workoutLogs.createdAt))
+    .limit(limit);
+}
+
+/** Liczba treningów trenera od podanej daty włącznie (`performedOn >= sinceIso`). */
+export async function countLogsForTrainerSince(
+  db: Db,
+  trainerId: string,
+  sinceIso: string,
+): Promise<number> {
+  const [row] = await db
+    .select({ c: count() })
+    .from(schema.workoutLogs)
+    .where(
+      and(
+        eq(schema.workoutLogs.trainerId, trainerId),
+        gte(schema.workoutLogs.performedOn, sinceIso),
+      ),
+    );
+  return Number(row?.c ?? 0);
 }
 
 // ============================================================

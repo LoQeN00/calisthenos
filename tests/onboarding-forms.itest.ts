@@ -2,10 +2,10 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { type PostgresJsDatabase, drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { consumeInvite, createInvite } from "~/lib/auth/invite";
+import { consumeInvite, createInvite, createInviteWithOnboarding } from "~/lib/auth/invite";
 import * as schema from "~/lib/db/schema";
 import {
   OnboardingFormError,
@@ -64,23 +64,17 @@ afterAll(async () => {
   await container?.stop();
 });
 
-/** Zaproszenie + (opcjonalnie) formularz w jednej transakcji, jak robi to trasa. */
+/**
+ * Zaproszenie + (opcjonalnie) formularz w jednej transakcji — dokładnie tym wejściem,
+ * którego używa trasa `/trener/podopieczni`.
+ */
 async function inviteWithForm(email: string, exerciseIds: string[] | null) {
-  return await db.transaction(async (tx) => {
-    const created = await createInvite(tx, {
-      trainerId: trainerA,
-      displayName: "Nowy Podopieczny",
-      email,
-    });
-    if (exerciseIds) {
-      await createOnboardingForm(tx, {
-        trainerId: trainerA,
-        inviteId: created.invite!.id,
-        exerciseIds,
-        note: "Wykonaj na świeżo.",
-      });
-    }
-    return created;
+  return await createInviteWithOnboarding(db, {
+    trainerId: trainerA,
+    displayName: "Nowy Podopieczny",
+    email,
+    monthlyAmountGrosze: null,
+    template: exerciseIds ? { exerciseIds, note: "Wykonaj na świeżo." } : null,
   });
 }
 
@@ -194,6 +188,33 @@ describe("formularz startowy — tenant-scope", () => {
         });
       }),
     ).rejects.toBeInstanceOf(OnboardingFormError);
+  });
+
+  it("createInviteWithOnboarding jest atomowe — złe ćwiczenie cofa całe zaproszenie", async () => {
+    // Sedno tej transakcji: nigdy nie może powstać link do zaproszenia, do którego
+    // formularz nie doszedł. `trainerA` ma już zaproszenia z wcześniejszych przypadków,
+    // więc niezmiennika pilnujemy po unikalnej nazwie, a nie po pustej liście zaproszeń.
+    const [foreign] = await db
+      .insert(schema.exercises)
+      .values({ trainerId: trainerB, name: "Pistol squat", unit: "REPS" })
+      .returning({ id: schema.exercises.id });
+
+    const marker = "Atomowy Nieudany";
+    await expect(
+      createInviteWithOnboarding(db, {
+        trainerId: trainerA,
+        displayName: marker,
+        email: null,
+        monthlyAmountGrosze: null,
+        template: { exerciseIds: [foreign!.id], note: null },
+      }),
+    ).rejects.toBeInstanceOf(OnboardingFormError);
+
+    const invites = await db
+      .select({ id: schema.invites.id })
+      .from(schema.invites)
+      .where(and(eq(schema.invites.trainerId, trainerA), eq(schema.invites.displayName, marker)));
+    expect(invites).toHaveLength(0);
   });
 
   it("nie tworzy formularza z ćwiczenia zarchiwizowanego", async () => {

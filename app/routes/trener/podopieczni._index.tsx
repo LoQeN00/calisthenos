@@ -1,4 +1,3 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
 import { useEffect, useState } from "react";
 import {
   Form,
@@ -15,14 +14,14 @@ import { ListControls } from "~/components/list-controls";
 import { Modal } from "~/components/modal";
 import { OnboardingPicker } from "~/components/onboarding-picker";
 import { Pagination, parsePage } from "~/components/pagination";
-import { createInvite, requireUser } from "~/lib/auth";
-import * as schema from "~/lib/db/schema";
+import { createInviteWithOnboarding, requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import { getEnv, stripeApiConfigured } from "~/lib/env";
+import { listActiveExercisesForTrainer } from "~/lib/exercises";
 import { parsePlnToGrosze, MonthlyAmountSchema } from "~/lib/money";
 import { daysAgo, fmtDate, pluralizePl, type PlForms } from "~/lib/format";
 import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
-import { createOnboardingForm, OnboardingFormError } from "~/lib/onboarding-forms";
+import { OnboardingFormError } from "~/lib/onboarding-forms";
 import { OnboardingTemplateSchema } from "~/lib/onboarding-form-types";
 import { countClientsForTrainer, listClientsForTrainer, type ClientSort } from "~/lib/workouts";
 
@@ -90,15 +89,7 @@ export async function loader(args: LoaderFunctionArgs) {
 
   // Biblioteka do pickera formularza startowego. Ciągniemy ją w loaderze zamiast
   // osobnym fetcherem — kilka KB na wejście, a modal działa bez dodatkowej rundy.
-  const exercises = await db
-    .select({
-      id: schema.exercises.id,
-      name: schema.exercises.name,
-      unit: schema.exercises.unit,
-    })
-    .from(schema.exercises)
-    .where(and(eq(schema.exercises.trainerId, user.id), isNull(schema.exercises.archivedAt)))
-    .orderBy(asc(schema.exercises.name));
+  const exercises = await listActiveExercisesForTrainer(db, user.id);
 
   return {
     clients,
@@ -151,25 +142,14 @@ export async function action(args: ActionFunctionArgs) {
 
   let token: string;
   try {
-    // Jedna transakcja: albo zaproszenie Z formularzem, albo nic. Inaczej dałoby
-    // się wysłać link do zaproszenia, któremu formularz nie doszedł.
-    token = await db.transaction(async (tx) => {
-      const created = await createInvite(tx, {
-        trainerId: user.id,
-        displayName: parsed.data.displayName,
-        email: parsed.data.email,
-        monthlyAmountGrosze,
-      });
-      if (template) {
-        await createOnboardingForm(tx, {
-          trainerId: user.id,
-          inviteId: created.invite!.id,
-          exerciseIds: template.exerciseIds,
-          note: template.note,
-        });
-      }
-      return created.token;
-    });
+    // Zaproszenie Z formularzem albo nic — transakcja siedzi w `createInviteWithOnboarding`.
+    ({ token } = await createInviteWithOnboarding(db, {
+      trainerId: user.id,
+      displayName: parsed.data.displayName,
+      email: parsed.data.email,
+      monthlyAmountGrosze,
+      template,
+    }));
   } catch (e) {
     if (e instanceof OnboardingFormError) return { error: e.userMessage };
     throw e;
@@ -187,8 +167,17 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function TrenerPodopieczniList() {
-  const { clients, spec, controls, page, totalPages, total, deletedName, stripeAvailable, exercises } =
-    useLoaderData<typeof loader>();
+  const {
+    clients,
+    spec,
+    controls,
+    page,
+    totalPages,
+    total,
+    deletedName,
+    stripeAvailable,
+    exercises,
+  } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [showInviteModal, setShowInviteModal] = useState(false);
 

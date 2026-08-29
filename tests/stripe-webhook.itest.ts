@@ -28,7 +28,13 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as schema from "~/lib/db/schema";
-import { applyChange, mapEvent, type Change } from "~/lib/stripe/webhook";
+import {
+  applyChange,
+  claimWebhookEvent,
+  mapEvent,
+  releaseWebhookEvent,
+  type Change,
+} from "~/lib/stripe/webhook";
 
 // ---- Bootstrapping (identyczny wzorzec z stripe-subscriptions.itest.ts) ----
 
@@ -258,5 +264,16 @@ describe("webhook — dedup po event.id (processed_webhook_events)", () => {
       .onConflictDoNothing()
       .returning({ eventId: schema.processedWebhookEvents.eventId });
     expect(retry).toHaveLength(1); // ponowna próba przechodzi
+  });
+
+  it("claimWebhookEvent zwraca true raz, potem false dla tego samego id", async () => {
+    expect(await claimWebhookEvent(db, "evt_1", "invoice.paid")).toBe(true);
+    expect(await claimWebhookEvent(db, "evt_1", "invoice.paid")).toBe(false);
+  });
+
+  it("releaseWebhookEvent pozwala ponowić zdarzenie po błędzie handlera", async () => {
+    await claimWebhookEvent(db, "evt_2", "invoice.paid");
+    await releaseWebhookEvent(db, "evt_2");
+    expect(await claimWebhookEvent(db, "evt_2", "invoice.paid")).toBe(true);
   });
 });

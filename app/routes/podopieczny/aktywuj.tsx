@@ -1,4 +1,3 @@
-import { eq } from "drizzle-orm";
 import {
   Form,
   Link,
@@ -9,9 +8,8 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
-import { requireUser } from "~/lib/auth";
+import { findDisplayName, requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
 import { fmtMoney } from "~/lib/money";
 import { hasTraineeAppAccess } from "~/lib/stripe/gate";
 import { createCheckoutSession, SubscriptionError } from "~/lib/stripe/subscriptions";
@@ -36,14 +34,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   // Brak dostępu implikuje przypisanego trenera (patrz wyżej), więc `trainerId`
   // jest tu na pewno ustawione.
-  const trainerRow = await db
-    .select({ name: schema.users.displayName })
-    .from(schema.users)
-    .where(eq(schema.users.id, user.trainerId!))
-    .limit(1);
+  const trainerName = await findDisplayName(db, user.trainerId!);
 
   return {
-    trainerName: trainerRow[0]?.name ?? null,
+    trainerName,
     amountGrosze: sub?.amountGrosze ?? null,
   };
 }

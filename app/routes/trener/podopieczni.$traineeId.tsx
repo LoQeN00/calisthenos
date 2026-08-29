@@ -1,4 +1,3 @@
-import { and, desc, eq } from "drizzle-orm";
 import {
   Form,
   Link,
@@ -25,11 +24,10 @@ import { countPendingForTrainee, nextUpcomingForTrainee } from "~/lib/consultati
 import { syncCancelAllForPair } from "~/lib/google/sync";
 import { cleanupSubscriptionForTrainee } from "~/lib/stripe/subscriptions";
 import { db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
 import { daysAgo, fmtDate, fmtDateTime, pluralizePl, type PlForms } from "~/lib/format";
 import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
 import { getFormStatusForTrainee } from "~/lib/onboarding-forms";
-import { deletePlan, PlanRepoError } from "~/lib/plans";
+import { deletePlan, listPlansForTrainee, PlanRepoError } from "~/lib/plans";
 import {
   getActivePlanSessionUsage,
   getActivityHeatmap,
@@ -40,7 +38,12 @@ import {
   getTagDistribution,
   getVideoCoverage,
 } from "~/lib/stats";
-import { deleteTraineeFully, TraineeDeleteError } from "~/lib/trainees";
+import {
+  deleteTraineeFully,
+  findTraineeOfTrainer,
+  getTraineeOfTrainer,
+  TraineeDeleteError,
+} from "~/lib/trainees";
 import { countLogsForTrainee, listLogsForTrainee, type LogSort } from "~/lib/workouts";
 
 const SESJA: PlForms = { one: "sesja", few: "sesje", many: "sesji" };
@@ -78,29 +81,14 @@ export async function loader(args: LoaderFunctionArgs) {
   const logsPage = parsePage(url.searchParams);
   const controls = parseListControls(url.searchParams, spec);
 
-  const traineeRows = await db
-    .select()
-    .from(schema.users)
-    .where(
-      and(
-        eq(schema.users.id, traineeId),
-        eq(schema.users.trainerId, user.id),
-        eq(schema.users.role, "trainee"),
-      ),
-    )
-    .limit(1);
-  const trainee = traineeRows[0];
+  const trainee = await getTraineeOfTrainer(db, user.id, traineeId);
   if (!trainee) throw new Response("not found", { status: 404 });
 
   // `null` = trener nie doczepił formularza startowego do zaproszenia — wtedy
   // plakietka w pasku przycisków w ogóle się nie renderuje.
   const onboardingStatus = await getFormStatusForTrainee(db, user.id, traineeId);
 
-  const plans = await db
-    .select()
-    .from(schema.plans)
-    .where(and(eq(schema.plans.trainerId, user.id), eq(schema.plans.traineeId, traineeId)))
-    .orderBy(desc(schema.plans.createdAt));
+  const plans = await listPlansForTrainee(db, user.id, traineeId);
 
   const activePlan = plans.find((p) => p.status === "active") ?? null;
   const draftPlan = plans.find((p) => p.status === "draft") ?? null;
@@ -173,18 +161,8 @@ export async function action(args: ActionFunctionArgs) {
   const traineeId = args.params.traineeId ?? "";
 
   // Re-verify trainee ownership before any mutation.
-  const traineeRows = await db
-    .select({ id: schema.users.id })
-    .from(schema.users)
-    .where(
-      and(
-        eq(schema.users.id, traineeId),
-        eq(schema.users.trainerId, user.id),
-        eq(schema.users.role, "trainee"),
-      ),
-    )
-    .limit(1);
-  if (traineeRows.length === 0) {
+  const trainee = await findTraineeOfTrainer(db, user.id, traineeId);
+  if (trainee == null) {
     throw new Response("not found", { status: 404 });
   }
 

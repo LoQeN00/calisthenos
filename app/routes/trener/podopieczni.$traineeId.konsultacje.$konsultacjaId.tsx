@@ -1,4 +1,3 @@
-import { and, eq } from "drizzle-orm";
 import {
   Form,
   Link,
@@ -29,8 +28,8 @@ import {
 } from "~/lib/consultations";
 import { syncCancelOne, syncUpsertOne } from "~/lib/google/sync";
 import { db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
 import { fmtDate, fmtDateTime } from "~/lib/format";
+import { findTraineeOfTrainer } from "~/lib/trainees";
 
 /** ISO (UTC) → wartość dla <input type="datetime-local"> ("YYYY-MM-DDTHH:MM"). */
 function toLocalInput(iso: string): string {
@@ -40,17 +39,7 @@ function toLocalInput(iso: string): string {
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
-  const [trainee] = await db
-    .select({ id: schema.users.id, displayName: schema.users.displayName })
-    .from(schema.users)
-    .where(
-      and(
-        eq(schema.users.id, traineeId),
-        eq(schema.users.trainerId, user.id),
-        eq(schema.users.role, "trainee"),
-      ),
-    )
-    .limit(1);
+  const trainee = await findTraineeOfTrainer(db, user.id, traineeId);
   if (!trainee) throw new Response("not found", { status: 404 });
   // Scope by BOTH trainerId and traineeId, so a mislinked URL (another of the
   // trainer's trainees) yields 404 rather than rendering under the wrong trainee.

@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, max } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, max, ne, or, sql } from "drizzle-orm";
 import type { Db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import type { PlanForm } from "~/lib/plan-types";
@@ -89,18 +89,152 @@ export async function loadPlanForTrainer(
   };
 }
 
-/** List all plans for one trainer, newest first, with trainee + session count. */
-export async function listPlansForTrainer(db: Db, trainerId: string) {
+export type PlanSort = "newest" | "oldest" | "name_asc" | "published";
+export type PlanStatusFilter = "all" | "active" | "draft";
+
+export interface PlanListRow {
+  plan: schema.Plan;
+  trainee: { id: string; displayName: string };
+  sessionCount: number;
+}
+
+/** Liczniki zakładek — zawsze bez zarchiwizowanych, niezależnie od filtra listy. */
+export async function countPlansByStatusForTrainer(
+  db: Db,
+  trainerId: string,
+): Promise<{ all: number; active: number; draft: number }> {
   const rows = await db
+    .select({ status: schema.plans.status, c: count() })
+    .from(schema.plans)
+    .where(and(eq(schema.plans.trainerId, trainerId), ne(schema.plans.status, "archived")))
+    .groupBy(schema.plans.status);
+
+  const counts = { all: 0, active: 0, draft: 0 };
+  for (const r of rows) {
+    if (r.status === "active" || r.status === "draft") {
+      counts[r.status] = Number(r.c);
+      counts.all += Number(r.c);
+    }
+  }
+  return counts;
+}
+
+function planConditions(trainerId: string, filter: { status: PlanStatusFilter; q?: string }) {
+  // Zarchiwizowane są ukryte w UI trenera — powstają automatycznie przy publikacji
+  // i nie niosą akcji.
+  const conditions = [eq(schema.plans.trainerId, trainerId), ne(schema.plans.status, "archived")];
+  if (filter.status !== "all") {
+    conditions.push(eq(schema.plans.status, filter.status));
+  }
+  if (filter.q != null && filter.q.length > 0) {
+    conditions.push(
+      or(
+        ilike(schema.plans.name, `%${filter.q}%`),
+        ilike(schema.users.displayName, `%${filter.q}%`),
+      )!,
+    );
+  }
+  return conditions;
+}
+
+export async function countPlansForTrainer(
+  db: Db,
+  trainerId: string,
+  filter: { status: PlanStatusFilter; q?: string },
+): Promise<number> {
+  const [row] = await db
+    .select({ c: count() })
+    .from(schema.plans)
+    .innerJoin(schema.users, eq(schema.users.id, schema.plans.traineeId))
+    .where(and(...planConditions(trainerId, filter)));
+  return Number(row?.c ?? 0);
+}
+
+/** List plans for one trainer with trainee + session count, filtered/sorted/paginated. */
+export async function listPlansForTrainer(
+  db: Db,
+  trainerId: string,
+  opts: { status: PlanStatusFilter; q?: string; sort: PlanSort; limit: number; offset: number },
+): Promise<PlanListRow[]> {
+  const orderBy =
+    opts.sort === "oldest"
+      ? [asc(schema.plans.createdAt)]
+      : opts.sort === "name_asc"
+        ? [asc(schema.plans.name)]
+        : opts.sort === "published"
+          ? [sql`${schema.plans.publishedAt} DESC NULLS LAST`]
+          : [desc(schema.plans.createdAt)];
+
+  const sessionCountSub = db.$with("session_counts").as(
+    db
+      .select({ planId: schema.planSessions.planId, c: count().as("c") })
+      .from(schema.planSessions)
+      .groupBy(schema.planSessions.planId),
+  );
+
+  return await db
+    .with(sessionCountSub)
     .select({
       plan: schema.plans,
       trainee: { id: schema.users.id, displayName: schema.users.displayName },
+      sessionCount: sql<number>`COALESCE(${sessionCountSub.c}, 0)::int`,
     })
     .from(schema.plans)
     .innerJoin(schema.users, eq(schema.users.id, schema.plans.traineeId))
-    .where(eq(schema.plans.trainerId, trainerId))
+    .leftJoin(sessionCountSub, eq(sessionCountSub.planId, schema.plans.id))
+    .where(and(...planConditions(trainerId, opts)))
+    .orderBy(...orderBy)
+    .limit(opts.limit)
+    .offset(opts.offset);
+}
+
+/** Wszystkie plany pary (łącznie z zarchiwizowanymi) — widok klienta. */
+export async function listPlansForTrainee(
+  db: Db,
+  trainerId: string,
+  traineeId: string,
+): Promise<schema.Plan[]> {
+  return await db
+    .select()
+    .from(schema.plans)
+    .where(and(eq(schema.plans.trainerId, trainerId), eq(schema.plans.traineeId, traineeId)))
     .orderBy(desc(schema.plans.createdAt));
-  return rows;
+}
+
+export async function findPlanStatusForTrainer(
+  db: Db,
+  planId: string,
+  trainerId: string,
+): Promise<{ status: schema.Plan["status"]; traineeId: string } | null> {
+  const rows = await db
+    .select({ status: schema.plans.status, traineeId: schema.plans.traineeId })
+    .from(schema.plans)
+    .where(and(eq(schema.plans.id, planId), eq(schema.plans.trainerId, trainerId)))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/** `status: null` liczy WSZYSTKIE plany trenera, także zarchiwizowane (licznik nawigacji). */
+export async function countPlansForTrainerByStatus(
+  db: Db,
+  trainerId: string,
+  status: "active" | "draft" | null,
+): Promise<number> {
+  const conditions = [eq(schema.plans.trainerId, trainerId)];
+  if (status != null) conditions.push(eq(schema.plans.status, status));
+  const [row] = await db
+    .select({ c: count() })
+    .from(schema.plans)
+    .where(and(...conditions));
+  return Number(row?.c ?? 0);
+}
+
+export async function countSessionsInPlan(db: Db, planId: string): Promise<number> {
+  const [row] = await db
+    .select({ c: count() })
+    .from(schema.planSessions)
+    .where(eq(schema.planSessions.planId, planId));
+  return Number(row?.c ?? 0);
 }
 
 /** Return the existing draft for a given (trainee, basedOnVersion), if any. */

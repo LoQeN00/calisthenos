@@ -74,6 +74,7 @@ Każdy wpis linkuje do `README.md` danego katalogu — tam jest opis plików.
   - [`design-system/fonts/`](design-system/fonts/README.md) — źródłowe woff2
   - [`design-system/preview/`](design-system/preview/README.md) — statyczne karty podglądu
 - [`docs/`](docs/README.md) — dokumentacja, plany, logi
+  - [`docs/backend/`](docs/backend/README.md) — materiały do budowy BE jako osobnej usługi (domena i kontrakt, bez technologii)
   - [`docs/superpowers/`](docs/superpowers/README.md) — spec, plany, logi build/deploy
     - [`docs/superpowers/plans/`](docs/superpowers/plans/README.md)
     - [`docs/superpowers/specs/`](docs/superpowers/specs/README.md)
@@ -126,6 +127,13 @@ w `.gitignore`), `design-system/_src/` (rozpakowany prototyp, read-only).
   `app/lib/list-params.ts` (`parseListControls`, `buildControlHref`) i komponentu
   `app/components/list-controls.tsx` (`<ListControls>`). Przy dodawaniu nowej listy
   z sort/filter/szukajką — reużyj tych dwóch modułów, nie twórz własnych mechanizmów.
+- **Trasy nie sięgają do bazy bezpośrednio.** W loaderze/akcji wolno przekazać `db` do
+  funkcji z `app/lib/*`, ale nie wolno budować zapytań (`db.select/insert/update/delete/$with`)
+  ani otwierać transakcji (`db.transaction`) — to zadanie modułu w `app/lib/`. Zabroniony jest
+  też import WARTOŚCI z `~/lib/db/schema` (np. `db`, enumów, stałych) — `import type` jest
+  dozwolony, bo znika przy kompilacji i nie dotyka bazy. Pilnuje tego
+  `app/routes/no-direct-db.test.ts`. Powód: to szew, na którym warstwa danych zostanie
+  przełożona na wywołania API — patrz spec rozbicia FE/BE.
 - **Git i Docker prowadzi właściciel.** Nie uruchamiaj operacji git ani
   `docker compose up/down/build`; konfigurację możesz edytować.
 - **Dozwolone komendy powłoki — TYLKO z poniższej listy i TYLKO pojedynczo.**

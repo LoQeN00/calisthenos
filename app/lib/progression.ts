@@ -1,6 +1,7 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
+import { findTraineeOfTrainer } from "~/lib/trainees";
 import {
   computePeriodChangePct,
   markPrs,
@@ -147,28 +148,8 @@ export async function listProgressionExercises(
   return rows;
 }
 
-/** Returns the trainee {id, displayName} iff it belongs to this trainer; otherwise null (caller → 404). */
-export async function findTraineeOfTrainer(
-  db: Db,
-  trainerId: string,
-  traineeId: string,
-): Promise<{ id: string; displayName: string } | null> {
-  const rows = await db
-    .select({ id: schema.users.id, displayName: schema.users.displayName })
-    .from(schema.users)
-    .where(
-      and(
-        eq(schema.users.id, traineeId),
-        eq(schema.users.trainerId, trainerId),
-        eq(schema.users.role, "trainee"),
-      ),
-    )
-    .limit(1);
-  return rows[0] ?? null;
-}
-
 // Re-export for routes/sibling tasks that only need the loader-facing pieces.
-export { loadProgressionSessions, markPrs };
+export { loadProgressionSessions, markPrs, findTraineeOfTrainer };
 
 export interface ProgressionKpis {
   pr: number;
@@ -280,7 +261,11 @@ export async function getProgressionComparison(
     const inRange = start ? chrono.filter((p) => p.performedOn >= start) : chrono;
     const pct = normalizeToPctFromStart(inRange.map((p) => p.best));
     if (pct === null) {
-      skipped.push({ exerciseId: id, name: group[0]!.name, reason: "za mało danych do porównania" });
+      skipped.push({
+        exerciseId: id,
+        name: group[0]!.name,
+        reason: "za mało danych do porównania",
+      });
       continue;
     }
     series.push({

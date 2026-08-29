@@ -1,13 +1,11 @@
-import { eq } from "drizzle-orm";
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
 import { fmtDateTime } from "~/lib/format";
 import { answerLabel } from "~/lib/onboarding-form-types";
 import { getFormForTrainer } from "~/lib/onboarding-forms";
-import { assertTraineeOwnedBy } from "~/lib/trainees";
+import { assertTraineeOwnedBy, findTraineeOfTrainer } from "~/lib/trainees";
 
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainer" });
@@ -21,11 +19,7 @@ export async function loader(args: LoaderFunctionArgs) {
   // Nazwa podopiecznego w nagłówku — trener otwierający tę stronę wprost (zakładka,
   // przycisk „wstecz") musi wiedzieć, czyj to formularz. Tak samo robią sąsiednie
   // widoki `sylwetka` i `platnosci`.
-  const [trainee] = await db
-    .select({ displayName: schema.users.displayName })
-    .from(schema.users)
-    .where(eq(schema.users.id, traineeId))
-    .limit(1);
+  const trainee = await findTraineeOfTrainer(db, user.id, traineeId);
 
   return { form, traineeId, traineeName: trainee?.displayName ?? null };
 }

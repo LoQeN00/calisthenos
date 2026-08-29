@@ -1,4 +1,3 @@
-import { and, eq } from "drizzle-orm";
 import {
   Form,
   Link,
@@ -15,15 +14,13 @@ import { Icons } from "~/components/icons";
 import { requireUser } from "~/lib/auth";
 import { filterToKnownCategoryNames, listCategoriesForTrainer } from "~/lib/categories";
 import { db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
 import {
-  deleteFileBlob,
-  deleteFileRow,
-  maxUploadBytesFor,
-  UploadCleanupQueue,
-  UploadError,
-  uploadFile,
-} from "~/lib/file-uploads";
+  getExerciseForTrainer,
+  getExerciseWithDemoForTrainer,
+  setExerciseArchived,
+  updateExerciseWithDemo,
+} from "~/lib/exercises";
+import { maxUploadBytesFor, UploadError } from "~/lib/file-uploads";
 import { signFileUrl } from "~/lib/files";
 import { findSkillForExercise } from "~/lib/skills";
 import { CategoryPicker } from "~/components/exercise-fields";
@@ -40,15 +37,8 @@ export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainer" });
   const exerciseId = args.params.exerciseId ?? "";
 
-  const rows = await db
-    .select({ exercise: schema.exercises, demoFile: schema.files })
-    .from(schema.exercises)
-    .leftJoin(schema.files, eq(schema.files.id, schema.exercises.demoFileId))
-    .where(and(eq(schema.exercises.id, exerciseId), eq(schema.exercises.trainerId, user.id)))
-    .limit(1);
-
-  const row = rows[0];
-  if (!row) {
+  const row = await getExerciseWithDemoForTrainer(db, user.id, exerciseId);
+  if (row == null) {
     throw new Response("not found", { status: 404 });
   }
 
@@ -73,15 +63,11 @@ export async function action(args: ActionFunctionArgs) {
   const intent = fd.get("intent");
 
   // Verify tenant ownership before any mutation.
-  const existing = await db
-    .select()
-    .from(schema.exercises)
-    .where(and(eq(schema.exercises.id, exerciseId), eq(schema.exercises.trainerId, user.id)))
-    .limit(1);
-  if (existing.length === 0) {
+  const existing = await getExerciseForTrainer(db, user.id, exerciseId);
+  if (existing == null) {
     throw new Response("not found", { status: 404 });
   }
-  const exercise = existing[0]!;
+  const exercise = existing;
 
   if (intent === "archive") {
     // Inwariant: wariant aktywnej umiejętności nigdy nie wskazuje zarchiwizowanego
@@ -93,18 +79,12 @@ export async function action(args: ActionFunctionArgs) {
         error: `To ćwiczenie jest wariantem umiejętności „${skill.skillName}". Usuń je z wariantów tej umiejętności, zanim je zarchiwizujesz.`,
       };
     }
-    await db
-      .update(schema.exercises)
-      .set({ archivedAt: new Date() })
-      .where(eq(schema.exercises.id, exerciseId));
+    await setExerciseArchived(db, user.id, exerciseId, true);
     throw redirect("/trener/biblioteka");
   }
 
   if (intent === "unarchive") {
-    await db
-      .update(schema.exercises)
-      .set({ archivedAt: null })
-      .where(eq(schema.exercises.id, exerciseId));
+    await setExerciseArchived(db, user.id, exerciseId, false);
     throw redirect(`/trener/biblioteka/${exerciseId}`);
   }
 
@@ -123,62 +103,22 @@ export async function action(args: ActionFunctionArgs) {
   const tags = filterToKnownCategoryNames(categories, selected);
 
   const demoBlob = fd.get("demo");
-  const hasNewDemo = demoBlob instanceof File && demoBlob.size > 0;
+  const demo = demoBlob instanceof File && demoBlob.size > 0 ? demoBlob : null;
 
-  const cleanup = new UploadCleanupQueue(db);
-  // Path of the previous demo file. Set inside the tx if a replacement landed
-  // successfully; deleted from disk only AFTER the tx commits, so a rollback
-  // doesn't leave the file gone while the DB row is restored.
-  let oldDemoStoragePathToDelete: string | null = null;
   try {
-    await db.transaction(async (tx) => {
-      let demoFileId: string | null = exercise.demoFileId;
-      const oldDemoFileId = exercise.demoFileId;
-
-      if (hasNewDemo) {
-        const uploaded = await uploadFile(
-          tx,
-          {
-            file: demoBlob as File,
-            kind: "exercise_demo",
-            trainerId: user.id,
-            uploadedBy: user.id,
-          },
-          cleanup,
-        );
-        demoFileId = uploaded.id;
-      }
-
-      await tx
-        .update(schema.exercises)
-        .set({
-          name: parsed.data.name,
-          unit: parsed.data.unit,
-          description: parsed.data.description,
-          tracksRpe: parsed.data.tracksRpe,
-          tags,
-          demoFileId,
-        })
-        .where(eq(schema.exercises.id, exerciseId));
-
-      if (hasNewDemo && oldDemoFileId) {
-        // Drop the previous demo's DB row inside the tx. Blob removal happens
-        // post-commit (below) so a rollback doesn't leave the file gone.
-        oldDemoStoragePathToDelete = await deleteFileRow(tx, oldDemoFileId);
-      }
+    await updateExerciseWithDemo(db, {
+      trainerId: user.id,
+      exerciseId,
+      // Z wiersza wczytanego wyżej przy sprawdzeniu własności — bez drugiego SELECT-a.
+      currentDemoFileId: exercise.demoFileId,
+      name: parsed.data.name,
+      unit: parsed.data.unit,
+      description: parsed.data.description,
+      tags,
+      tracksRpe: parsed.data.tracksRpe,
+      demo,
     });
-    cleanup.commit();
-    if (oldDemoStoragePathToDelete) {
-      // Best-effort post-commit (jak w deleteBodyPhoto / trainees): podmiana demo
-      // jest już zatwierdzona w DB; błąd usunięcia starego blobu nie może dać 500.
-      try {
-        await deleteFileBlob(oldDemoStoragePathToDelete);
-      } catch {
-        // Swallow — osierocony blob zamiast wywrócenia udanej operacji.
-      }
-    }
   } catch (e) {
-    await cleanup.cleanup();
     if (e instanceof UploadError) return { error: e.userMessage };
     throw e;
   }

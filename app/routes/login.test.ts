@@ -1,18 +1,17 @@
 import { vi } from "vitest";
 
-// Mock DB: select().from().where().limit() → [] (użytkownik nie istnieje → ścieżka generic error).
+// Mock DB: nieużywany bezpośrednio przez trasę (findUserByEmail jest zamockowana
+// niżej), ale login.tsx importuje `db` jako uchwyt przekazywany dalej.
 vi.mock("~/lib/db/client", () => ({
-  db: {
-    select: () => ({
-      from: () => ({ where: () => ({ limit: async () => [] }) }),
-    }),
-  },
+  db: {},
 }));
 
-// Mock auth: verify zawsze false; reszta nieistotna dla ścieżki blokady.
+// Mock auth: findUserByEmail zawsze null (użytkownik nie istnieje → ścieżka generic
+// error) i verify zawsze false; reszta nieistotna dla ścieżki blokady.
 vi.mock("~/lib/auth", () => ({
   buildSetCookie: () => "cookie",
   createSession: async () => ({ id: "s", expiresAt: new Date() }),
+  findUserByEmail: async () => null,
   getDummyPasswordHash: async () => "$dummy$",
   parseSessionId: () => null,
   readSession: async () => null,

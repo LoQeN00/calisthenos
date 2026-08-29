@@ -6,11 +6,16 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
-import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
-import { buildSetCookie, consumeInvite, createSession, hashPassword, hashToken } from "~/lib/auth";
+import type * as schema from "~/lib/db/schema";
+import {
+  buildSetCookie,
+  consumeInvite,
+  createSession,
+  findInviteByToken,
+  hashPassword,
+} from "~/lib/auth";
 import { enforceRateLimit, RATE_LIMITS, rateLimited, resetRateLimit } from "~/lib/rate-limit";
 import { stripeApiConfigured } from "~/lib/env";
 import { errorMeta, logger } from "~/lib/logger";
@@ -23,13 +28,7 @@ const AcceptSchema = z.object({
 
 export async function loader(args: LoaderFunctionArgs) {
   const token = args.params.token ?? "";
-  const hash = hashToken(token);
-  const rows = await db
-    .select()
-    .from(schema.invites)
-    .where(eq(schema.invites.tokenHash, hash))
-    .limit(1);
-  const invite = rows[0];
+  const invite = await findInviteByToken(db, token);
   // Treat unknown / consumed / expired invites identically as 404 so a probe can't
   // distinguish "wrong token" from "right token but used/expired".
   if (!invite || invite.consumedAt || invite.expiresAt.getTime() < Date.now()) {
@@ -54,12 +53,7 @@ export async function action(args: ActionFunctionArgs) {
 
   // Email is authoritative from the invite — the trainer sets it, the trainee
   // accepts it. Don't trust anything the form posted under that name.
-  const inviteRows = await db
-    .select()
-    .from(schema.invites)
-    .where(eq(schema.invites.tokenHash, hashToken(token)))
-    .limit(1);
-  const invite = inviteRows[0];
+  const invite = await findInviteByToken(db, token);
   if (!invite || invite.consumedAt || invite.expiresAt.getTime() < Date.now()) {
     return { error: "Zaproszenie nieprawidłowe." };
   }
