@@ -109,10 +109,25 @@ Required env vars on Railway:
 
 Set the volume mount inside the service config — uploads live at `DATA_DIR`.
 
+> **Healthcheck:** `healthcheckPath` points at `/healthz` — a resource route
+> that returns a bare `200`. Do **not** point it back at `/`: the index route
+> always redirects, and Railway treats any non-200 (302 included) as
+> `failed with service unavailable`, so the deploy never goes live even though
+> the container is serving fine. Guarded by `app/routes/healthz.test.ts`.
+
+> **Migrations are NOT applied by the deploy.** Railway's `startCommand` in
+> `railway.toml` *replaces* the Dockerfile `CMD`, so the image's
+> `db:migrate && db:seed` chain never runs in production — only `npm run start`
+> does. Apply pending migrations yourself against the Railway database
+> (`DATABASE_URL=<railway url> npm run db:migrate`) **before** deploying code
+> that depends on them, otherwise the new build boots against an old schema and
+> the affected routes return 500. Same for `npm run db:seed` — it is a one-off
+> trainer bootstrap, and the only thing the `SEED_TRAINER_*` vars above are for.
+
 > **Managed Postgres note:** the first migration runs
 > `CREATE EXTENSION IF NOT EXISTS citext;`, which requires superuser-equivalent
 > privileges. Railway grants the bound role enough rights — verify by checking
-> migration logs on first deploy.
+> the output of that manual run.
 
 ---
 

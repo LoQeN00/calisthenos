@@ -8,6 +8,9 @@ export default [
   route("files/:fileId", "routes/files.$fileId.tsx"),
   route("upload/wideo", "routes/upload.wideo.tsx"),
   route("webhooks/stripe", "routes/webhooks.stripe.tsx"),
+  // Sonda dla healthchecka platformy — MUSI zwracać 200. NIE podmieniaj na "/":
+  // trasa indeksowa zawsze przekierowuje, a Railway 3xx traktuje jako awarię.
+  route("healthz", "routes/healthz.tsx"),
   ...prefix("trener", [
     layout("routes/trener/_layout.tsx", [
       index("routes/trener/_index.tsx"),

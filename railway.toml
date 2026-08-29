@@ -1,8 +1,11 @@
 # Railway deploy config. Combined with docker-compose.yml for local dev;
 # Railway picks up the Dockerfile automatically for production builds.
 #
-# Note: Railway's `startCommand` (below) takes precedence over the Dockerfile's
-# CMD. They're intentionally kept in sync — if you change one, change the other.
+# Note: Railway's `startCommand` (below) REPLACES the Dockerfile's CMD — it does
+# not extend it. The Dockerfile CMD (`db:migrate && db:seed && start`) therefore
+# NEVER runs on Railway; only `npm run start` does. To jest świadome: migracje
+# i seed odpala właściciel ręcznie na bazie Railway (patrz README, „Production
+# deploy"). Nie zakładaj, że deploy sam zaktualizuje schemat.
 
 [build]
 builder = "DOCKERFILE"
@@ -11,10 +14,14 @@ dockerfilePath = "Dockerfile"
 [deploy]
 startCommand = "npm run start"
 # `react-router-serve` listens on $PORT (Railway injects this).
-healthcheckPath = "/"
-# Cold start = migrate + seed + react-router-serve boot. Pierwszy migrate może
-# dodatkowo dostać ECONNREFUSED jeśli Postgres jeszcze się nie podniósł i
-# kontener musi się raz zrestartować — 30s nie wystarczy.
+# Healthcheck MUSI dostać 200 — Railway KAŻDĄ inną odpowiedź (w tym 302)
+# raportuje jako „failed with service unavailable". Trasa "/" przekierowuje
+# zawsze (app/routes/_index.tsx), więc sondą jest dedykowana trasa zasobowa.
+# Pilnuje tego `app/routes/healthz.test.ts`.
+healthcheckPath = "/healthz"
+# Zapas na zimny start: pobranie obrazu + boot `react-router-serve`. Sonda jest
+# płytka (nie dotyka bazy), więc nie czeka na Postgresa — ale kontener po
+# restarcie i tak potrzebuje więcej niż domyślne 30 s.
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5
@@ -31,4 +38,4 @@ restartPolicyMaxRetries = 5
 #   The first migration runs `CREATE EXTENSION IF NOT EXISTS citext;` which
 #   requires the Postgres role to have superuser privileges. Railway's managed
 #   Postgres grants the bound role enough privilege to install citext — verify
-#   by running the migration once and checking logs for an error.
+#   by running the migration once and checking its output for an error.
