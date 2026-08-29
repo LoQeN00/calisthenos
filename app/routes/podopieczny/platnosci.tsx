@@ -8,10 +8,8 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
-import { eq } from "drizzle-orm";
-import { requireUser } from "~/lib/auth";
+import { findDisplayName, requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
 import { fmtDate, fmtDateTime } from "~/lib/format";
 import { fmtMoney } from "~/lib/money";
 import { listPaymentsForTrainee } from "~/lib/payments";
@@ -29,16 +27,11 @@ export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainee" });
   const trainerId = user.trainerId!;
 
-  const [sub, payments, trainerRow] = await Promise.all([
+  const [sub, payments, trainerName] = await Promise.all([
     getSubscriptionForPair(db, trainerId, user.id),
     listPaymentsForTrainee(db, user.id),
-    db
-      .select({ name: schema.users.displayName })
-      .from(schema.users)
-      .where(eq(schema.users.id, trainerId))
-      .limit(1),
+    findDisplayName(db, trainerId),
   ]);
-  const trainerName = trainerRow[0]?.name ?? null;
 
   const presentation = subscriptionPresentation(sub?.status ?? "none");
 

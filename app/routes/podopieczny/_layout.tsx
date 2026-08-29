@@ -1,14 +1,15 @@
-import { and, count, eq } from "drizzle-orm";
 import { NavLink, Outlet, redirect, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { UserMenu } from "~/components/user-menu";
+import { countBodyPhotosForTrainee } from "~/lib/body-photos";
 import { requireUser } from "~/lib/auth";
 import { countPendingForTrainee } from "~/lib/consultations";
 import { db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
 import { countForTrainee } from "~/lib/feature-requests";
 import { hasPendingOnboarding } from "~/lib/onboarding-forms";
+import { countSessionsInPlan } from "~/lib/plans";
 import { hasTraineeAppAccess } from "~/lib/stripe/gate";
+import { countLogsForTrainee, findActivePlanForTrainee } from "~/lib/workouts";
 
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainee" });
@@ -20,29 +21,10 @@ export async function loader(args: LoaderFunctionArgs) {
   if (!hasAccess) throw redirect("/podopieczny/aktywuj");
   if (await hasPendingOnboarding(db, user.id)) throw redirect("/podopieczny/formularz");
 
-  const [logCountRow] = await db
-    .select({ c: count() })
-    .from(schema.workoutLogs)
-    .where(eq(schema.workoutLogs.traineeId, user.id));
-  const [photoCountRow] = await db
-    .select({ c: count() })
-    .from(schema.bodyPhotos)
-    .where(eq(schema.bodyPhotos.traineeId, user.id));
-
-  // Sessions count = sessions in the trainee's active plan (if any).
-  const activePlan = await db
-    .select({ id: schema.plans.id })
-    .from(schema.plans)
-    .where(and(eq(schema.plans.traineeId, user.id), eq(schema.plans.status, "active")))
-    .limit(1);
-  let sessionsCount = 0;
-  if (activePlan[0]) {
-    const [row] = await db
-      .select({ c: count() })
-      .from(schema.planSessions)
-      .where(eq(schema.planSessions.planId, activePlan[0].id));
-    sessionsCount = Number(row?.c ?? 0);
-  }
+  const logCount = await countLogsForTrainee(db, user.id, {});
+  const photoCount = await countBodyPhotosForTrainee(db, user.id);
+  const activePlan = await findActivePlanForTrainee(db, user.id);
+  const sessionsCount = activePlan != null ? await countSessionsInPlan(db, activePlan.id) : 0;
 
   const pending = await countPendingForTrainee(db, user.id);
   const ideas = await countForTrainee(db, user.id);
@@ -58,8 +40,8 @@ export async function loader(args: LoaderFunctionArgs) {
     user,
     tails: {
       sessions: sessionsCount,
-      history: Number(logCountRow?.c ?? 0),
-      photos: Number(photoCountRow?.c ?? 0),
+      history: logCount,
+      photos: photoCount,
       consultations: pending,
       ideas,
       payments: needsAttention ? 1 : 0,

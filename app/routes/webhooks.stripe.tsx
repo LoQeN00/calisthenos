@@ -1,10 +1,14 @@
-import { eq } from "drizzle-orm";
 import type { ActionFunctionArgs } from "react-router";
 import { db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
 import { getEnv } from "~/lib/env";
 import { errorMeta, logger } from "~/lib/logger";
-import { applyChange, mapEvent, verifyAndParse } from "~/lib/stripe/webhook";
+import {
+  applyChange,
+  claimWebhookEvent,
+  mapEvent,
+  releaseWebhookEvent,
+  verifyAndParse,
+} from "~/lib/stripe/webhook";
 
 /**
  * Endpoint webhooka Stripe (bez sesji/auth — autoryzacja przez podpis HMAC).
@@ -32,12 +36,8 @@ export async function action({ request }: ActionFunctionArgs) {
 
   // Dedup: zarejestruj event.id zanim go przetworzymy. Gdy już istnieje (Stripe
   // dostarczył ten sam event ponownie) — pomijamy i zwracamy 200.
-  const inserted = await db
-    .insert(schema.processedWebhookEvents)
-    .values({ eventId: event.id, type: event.type })
-    .onConflictDoNothing()
-    .returning({ eventId: schema.processedWebhookEvents.eventId });
-  if (inserted.length === 0) {
+  const first = await claimWebhookEvent(db, event.id, event.type);
+  if (!first) {
     return new Response(null, { status: 200 });
   }
 
@@ -49,9 +49,7 @@ export async function action({ request }: ActionFunctionArgs) {
       // Cofnij marker, by Stripe ponowił dostarczenie i event mógł zostać
       // przetworzony od nowa (bez markera blokującego retry).
       try {
-        await db
-          .delete(schema.processedWebhookEvents)
-          .where(eq(schema.processedWebhookEvents.eventId, event.id));
+        await releaseWebhookEvent(db, event.id);
       } catch (cleanupErr) {
         logger.error("stripe_webhook.marker_rollback_failed", {
           eventId: event.id,

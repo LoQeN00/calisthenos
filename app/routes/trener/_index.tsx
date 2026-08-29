@@ -1,17 +1,20 @@
-import { and, count, desc, eq, gte } from "drizzle-orm";
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
 import { daysAgo, fmtDate, pluralizePl, type PlForms } from "~/lib/format";
+import { countPlansForTrainerByStatus } from "~/lib/plans";
 
 const OSOBA_AKTYWNA: PlForms = {
   one: "osoba aktywna",
   few: "osoby aktywne",
   many: "osób aktywnych",
 };
-import { listClientsForTrainer } from "~/lib/workouts";
+import {
+  countLogsForTrainerSince,
+  listClientsForTrainer,
+  listRecentLogsForTrainer,
+} from "~/lib/workouts";
 
 function isoDaysAgo(n: number): string {
   return new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -22,36 +25,13 @@ export async function loader(args: LoaderFunctionArgs) {
 
   const clients = await listClientsForTrainer(db, user.id);
 
-  const recentLogs = await db
-    .select({
-      log: schema.workoutLogs,
-      trainee: { id: schema.users.id, displayName: schema.users.displayName },
-    })
-    .from(schema.workoutLogs)
-    .innerJoin(schema.users, eq(schema.users.id, schema.workoutLogs.traineeId))
-    .where(eq(schema.workoutLogs.trainerId, user.id))
-    .orderBy(desc(schema.workoutLogs.performedOn), desc(schema.workoutLogs.createdAt))
-    .limit(6);
+  const recentLogs = await listRecentLogsForTrainer(db, user.id, 6);
 
   const sevenDaysAgo = isoDaysAgo(7);
 
-  const [activePlansRow] = await db
-    .select({ c: count() })
-    .from(schema.plans)
-    .where(and(eq(schema.plans.trainerId, user.id), eq(schema.plans.status, "active")));
-  const [draftsRow] = await db
-    .select({ c: count() })
-    .from(schema.plans)
-    .where(and(eq(schema.plans.trainerId, user.id), eq(schema.plans.status, "draft")));
-  const [weekSessionsRow] = await db
-    .select({ c: count() })
-    .from(schema.workoutLogs)
-    .where(
-      and(
-        eq(schema.workoutLogs.trainerId, user.id),
-        gte(schema.workoutLogs.performedOn, sevenDaysAgo),
-      ),
-    );
+  const activePlans = await countPlansForTrainerByStatus(db, user.id, "active");
+  const drafts = await countPlansForTrainerByStatus(db, user.id, "draft");
+  const weekSessions = await countLogsForTrainerSince(db, user.id, sevenDaysAgo);
 
   return {
     user,
@@ -64,9 +44,9 @@ export async function loader(args: LoaderFunctionArgs) {
       traineeName: r.trainee.displayName,
     })),
     stats: {
-      activePlans: Number(activePlansRow?.c ?? 0),
-      drafts: Number(draftsRow?.c ?? 0),
-      weekSessions: Number(weekSessionsRow?.c ?? 0),
+      activePlans,
+      drafts,
+      weekSessions,
     },
   };
 }

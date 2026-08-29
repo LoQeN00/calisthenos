@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, count, eq, isNull } from "drizzle-orm";
 import type { Db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import { deleteFileBlob } from "~/lib/file-uploads";
@@ -151,4 +151,71 @@ export async function assertTraineeOwnedBy(
   if (rows.length === 0) {
     throw new Response("not found", { status: 404 });
   }
+}
+
+/** Returns the trainee {id, displayName} iff it belongs to this trainer; otherwise null (caller → 404). */
+export async function findTraineeOfTrainer(
+  db: Db,
+  trainerId: string,
+  traineeId: string,
+): Promise<{ id: string; displayName: string } | null> {
+  const rows = await db
+    .select({ id: schema.users.id, displayName: schema.users.displayName })
+    .from(schema.users)
+    .where(
+      and(
+        eq(schema.users.id, traineeId),
+        eq(schema.users.trainerId, trainerId),
+        eq(schema.users.role, "trainee"),
+      ),
+    )
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/** Pełny wiersz podopiecznego, tylko w obrębie tenanta trenera; null → 404 po stronie trasy. */
+export async function getTraineeOfTrainer(
+  db: Db,
+  trainerId: string,
+  traineeId: string,
+): Promise<schema.User | null> {
+  const rows = await db
+    .select()
+    .from(schema.users)
+    .where(
+      and(
+        eq(schema.users.id, traineeId),
+        eq(schema.users.trainerId, trainerId),
+        eq(schema.users.role, "trainee"),
+      ),
+    )
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/** Aktywni podopieczni trenera (bez zarchiwizowanych) — do pickerów. */
+export async function listTraineesOfTrainer(
+  db: Db,
+  trainerId: string,
+): Promise<Array<{ id: string; displayName: string }>> {
+  return await db
+    .select({ id: schema.users.id, displayName: schema.users.displayName })
+    .from(schema.users)
+    .where(
+      and(
+        eq(schema.users.trainerId, trainerId),
+        eq(schema.users.role, "trainee"),
+        isNull(schema.users.archivedAt),
+      ),
+    )
+    .orderBy(schema.users.displayName);
+}
+
+/** Licznik do nawigacji — celowo LICZY zarchiwizowanych, jak dotychczas w layoucie. */
+export async function countTraineesOfTrainer(db: Db, trainerId: string): Promise<number> {
+  const [row] = await db
+    .select({ c: count() })
+    .from(schema.users)
+    .where(and(eq(schema.users.trainerId, trainerId), eq(schema.users.role, "trainee")));
+  return Number(row?.c ?? 0);
 }

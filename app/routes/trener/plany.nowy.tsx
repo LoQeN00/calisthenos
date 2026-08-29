@@ -1,4 +1,3 @@
-import { and, eq, isNull } from "drizzle-orm";
 import {
   Form,
   Link,
@@ -11,8 +10,8 @@ import {
 import { z } from "zod";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
 import { createBlankPlan, findAnyDraftFor } from "~/lib/plans";
+import { findTraineeOfTrainer, listTraineesOfTrainer } from "~/lib/trainees";
 
 const NewPlanSchema = z.object({
   traineeId: z.string().uuid(),
@@ -24,17 +23,7 @@ export async function loader(args: LoaderFunctionArgs) {
   const url = new URL(args.request.url);
   const preselectId = url.searchParams.get("traineeId");
 
-  const trainees = await db
-    .select({ id: schema.users.id, displayName: schema.users.displayName })
-    .from(schema.users)
-    .where(
-      and(
-        eq(schema.users.trainerId, user.id),
-        eq(schema.users.role, "trainee"),
-        isNull(schema.users.archivedAt),
-      ),
-    )
-    .orderBy(schema.users.displayName);
+  const trainees = await listTraineesOfTrainer(db, user.id);
 
   // Preselect the trainee from the query string when it points at one of ours.
   const preselected =
@@ -64,18 +53,8 @@ export async function action(args: ActionFunctionArgs) {
   }
 
   // Confirm the trainee belongs to this trainer.
-  const traineeRows = await db
-    .select({ id: schema.users.id })
-    .from(schema.users)
-    .where(
-      and(
-        eq(schema.users.id, parsed.data.traineeId),
-        eq(schema.users.trainerId, user.id),
-        eq(schema.users.role, "trainee"),
-      ),
-    )
-    .limit(1);
-  if (traineeRows.length === 0) {
+  const trainee = await findTraineeOfTrainer(db, user.id, parsed.data.traineeId);
+  if (trainee == null) {
     return { error: "Podopieczny nie istnieje albo nie należy do Ciebie." };
   }
 

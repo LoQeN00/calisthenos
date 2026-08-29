@@ -14,8 +14,8 @@ import { FileDropzone } from "~/components/file-dropzone";
 import { requireUser } from "~/lib/auth";
 import { filterToKnownCategoryNames, listCategoriesForTrainer } from "~/lib/categories";
 import { db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
-import { maxUploadBytesFor, UploadCleanupQueue, UploadError, uploadFile } from "~/lib/file-uploads";
+import { createExerciseWithDemo } from "~/lib/exercises";
+import { maxUploadBytesFor, UploadError } from "~/lib/file-uploads";
 
 const ExerciseSchema = z.object({
   name: z.string().trim().min(1, "Nazwa jest wymagana.").max(120),
@@ -53,38 +53,19 @@ export async function action(args: ActionFunctionArgs) {
   const tags = filterToKnownCategoryNames(categories, selected);
 
   const demoBlob = fd.get("demo");
-  const hasDemo = demoBlob instanceof File && demoBlob.size > 0;
+  const demo = demoBlob instanceof File && demoBlob.size > 0 ? demoBlob : null;
 
-  const cleanup = new UploadCleanupQueue(db);
   try {
-    await db.transaction(async (tx) => {
-      let demoFileId: string | null = null;
-      if (hasDemo) {
-        const uploaded = await uploadFile(
-          tx,
-          {
-            file: demoBlob as File,
-            kind: "exercise_demo",
-            trainerId: user.id,
-            uploadedBy: user.id,
-          },
-          cleanup,
-        );
-        demoFileId = uploaded.id;
-      }
-      await tx.insert(schema.exercises).values({
-        trainerId: user.id,
-        name: parsed.data.name,
-        unit: parsed.data.unit,
-        description: parsed.data.description,
-        tracksRpe: parsed.data.tracksRpe,
-        tags,
-        demoFileId,
-      });
+    await createExerciseWithDemo(db, {
+      trainerId: user.id,
+      name: parsed.data.name,
+      unit: parsed.data.unit,
+      description: parsed.data.description,
+      tags,
+      tracksRpe: parsed.data.tracksRpe,
+      demo,
     });
-    cleanup.commit();
   } catch (e) {
-    await cleanup.cleanup();
     if (e instanceof UploadError) return { error: e.userMessage };
     throw e;
   }

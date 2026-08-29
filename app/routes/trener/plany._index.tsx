@@ -1,4 +1,3 @@
-import { and, asc, count, desc, eq, ilike, ne, or, sql } from "drizzle-orm";
 import {
   type ActionFunctionArgs,
   Form,
@@ -13,10 +12,17 @@ import { ListControls } from "~/components/list-controls";
 import { Pagination, parsePage } from "~/components/pagination";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
 import { type PlForms, fmtDate, pluralizePl } from "~/lib/format";
 import { type ListControlsSpec, parseListControls } from "~/lib/list-params";
-import { PlanRepoError, deletePlan } from "~/lib/plans";
+import {
+  countPlansByStatusForTrainer,
+  countPlansForTrainer,
+  deletePlan,
+  listPlansForTrainer,
+  PlanRepoError,
+  type PlanSort,
+  type PlanStatusFilter,
+} from "~/lib/plans";
 
 const PAGE_SIZE = 20;
 const PLAN: PlForms = { one: "plan", few: "plany", many: "planów" };
@@ -27,20 +33,7 @@ export async function loader(args: LoaderFunctionArgs) {
   const page = parsePage(url.searchParams);
 
   // Tab badge counts (active + draft only) — computed before applying search query.
-  const statusCounts = await db
-    .select({ status: schema.plans.status, c: count() })
-    .from(schema.plans)
-    .where(and(eq(schema.plans.trainerId, user.id), ne(schema.plans.status, "archived")))
-    .groupBy(schema.plans.status);
-
-  type StatusKey = "all" | "active" | "draft";
-  const counts = { all: 0, active: 0, draft: 0 } as Record<StatusKey, number>;
-  for (const r of statusCounts) {
-    if (r.status === "active" || r.status === "draft") {
-      counts[r.status] = Number(r.c);
-      counts.all += Number(r.c);
-    }
-  }
+  const counts = await countPlansByStatusForTrainer(db, user.id);
 
   const spec: ListControlsSpec = {
     sortOptions: [
@@ -66,65 +59,20 @@ export async function loader(args: LoaderFunctionArgs) {
   };
 
   const controls = parseListControls(url.searchParams, spec);
-  const status = controls.filters.status ?? "all";
 
-  // Archived plans are hidden from the trainer UI — they're created automatically
-  // on publish to preserve history but offer no actionable value here.
-  const conditions = [eq(schema.plans.trainerId, user.id), ne(schema.plans.status, "archived")];
-  if (status !== "all") {
-    conditions.push(eq(schema.plans.status, status as "active" | "draft"));
-  }
-  if (controls.q.length > 0) {
-    conditions.push(
-      or(
-        ilike(schema.plans.name, `%${controls.q}%`),
-        ilike(schema.users.displayName, `%${controls.q}%`),
-      )!,
-    );
-  }
-
-  const orderBy =
-    controls.sort === "oldest"
-      ? [asc(schema.plans.createdAt)]
-      : controls.sort === "name_asc"
-        ? [asc(schema.plans.name)]
-        : controls.sort === "published"
-          ? [sql`${schema.plans.publishedAt} DESC NULLS LAST`]
-          : [desc(schema.plans.createdAt)];
-
-  // Total must reflect the search/status filter (not just the status count).
-  const [totalRow] = await db
-    .select({ c: count() })
-    .from(schema.plans)
-    .innerJoin(schema.users, eq(schema.users.id, schema.plans.traineeId))
-    .where(and(...conditions));
-  const total = Number(totalRow?.c ?? 0);
-
+  const filter: { status: PlanStatusFilter; q?: string } = {
+    status: (controls.filters.status ?? "all") as PlanStatusFilter,
+    q: controls.q.length > 0 ? controls.q : undefined,
+  };
+  const total = await countPlansForTrainer(db, user.id, filter);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
-  const offset = (safePage - 1) * PAGE_SIZE;
-
-  const sessionCountSub = db.$with("session_counts").as(
-    db
-      .select({ planId: schema.planSessions.planId, c: count().as("c") })
-      .from(schema.planSessions)
-      .groupBy(schema.planSessions.planId),
-  );
-
-  const rows = await db
-    .with(sessionCountSub)
-    .select({
-      plan: schema.plans,
-      trainee: { id: schema.users.id, displayName: schema.users.displayName },
-      sessionCount: sql<number>`COALESCE(${sessionCountSub.c}, 0)::int`,
-    })
-    .from(schema.plans)
-    .innerJoin(schema.users, eq(schema.users.id, schema.plans.traineeId))
-    .leftJoin(sessionCountSub, eq(sessionCountSub.planId, schema.plans.id))
-    .where(and(...conditions))
-    .orderBy(...orderBy)
-    .limit(PAGE_SIZE)
-    .offset(offset);
+  const rows = await listPlansForTrainer(db, user.id, {
+    ...filter,
+    sort: controls.sort as PlanSort,
+    limit: PAGE_SIZE,
+    offset: (safePage - 1) * PAGE_SIZE,
+  });
 
   const items = rows.map((r) => ({
     id: r.plan.id,

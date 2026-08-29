@@ -6,11 +6,11 @@ import postgres from "postgres";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import * as schema from "~/lib/db/schema";
 import {
-  findTraineeOfTrainer,
   getExerciseProgression,
   getProgressionComparison,
   listProgressionExercises,
 } from "~/lib/progression";
+import { findTraineeOfTrainer } from "~/lib/trainees";
 
 let container: StartedPostgreSqlContainer;
 let sql: ReturnType<typeof postgres>;
@@ -102,12 +102,22 @@ beforeAll(async () => {
   trainerA = tA!.id;
   const [pA] = await db
     .insert(schema.users)
-    .values({ email: "podoa@example.com", displayName: "Podo A", role: "trainee", trainerId: trainerA })
+    .values({
+      email: "podoa@example.com",
+      displayName: "Podo A",
+      role: "trainee",
+      trainerId: trainerA,
+    })
     .returning({ id: schema.users.id });
   traineePA = pA!.id;
   const [pA2] = await db
     .insert(schema.users)
-    .values({ email: "podoa2@example.com", displayName: "Podo A2", role: "trainee", trainerId: trainerA })
+    .values({
+      email: "podoa2@example.com",
+      displayName: "Podo A2",
+      role: "trainee",
+      trainerId: trainerA,
+    })
     .returning({ id: schema.users.id });
   traineePA2 = pA2!.id;
   const [tB] = await db
@@ -117,7 +127,12 @@ beforeAll(async () => {
   trainerB = tB!.id;
   const [pB] = await db
     .insert(schema.users)
-    .values({ email: "podob@example.com", displayName: "Podo B", role: "trainee", trainerId: trainerB })
+    .values({
+      email: "podob@example.com",
+      displayName: "Podo B",
+      role: "trainee",
+      trainerId: trainerB,
+    })
     .returning({ id: schema.users.id });
   traineePB = pB!.id;
 

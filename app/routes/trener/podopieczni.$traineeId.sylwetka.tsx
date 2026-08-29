@@ -1,4 +1,3 @@
-import { and, eq } from "drizzle-orm";
 import { useMemo, useState } from "react";
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { SideBySideSection, type ResolvedPair } from "~/components/body-photo-compare";
@@ -7,27 +6,16 @@ import { PhotoLightbox, type LightboxPhoto } from "~/components/photo-lightbox";
 import { requireUser } from "~/lib/auth";
 import { listBodyPhotosForTrainee } from "~/lib/body-photos";
 import { db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
 import type { BodyPhotoView } from "~/lib/db/schema";
 import { signFileUrl } from "~/lib/files";
 import { getSideBySidePhotoPairs } from "~/lib/stats";
+import { findTraineeOfTrainer } from "~/lib/trainees";
 
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
 
-  const traineeRows = await db
-    .select({ id: schema.users.id, displayName: schema.users.displayName })
-    .from(schema.users)
-    .where(
-      and(
-        eq(schema.users.id, traineeId),
-        eq(schema.users.trainerId, user.id),
-        eq(schema.users.role, "trainee"),
-      ),
-    )
-    .limit(1);
-  const trainee = traineeRows[0];
+  const trainee = await findTraineeOfTrainer(db, user.id, traineeId);
   if (!trainee) throw new Response("not found", { status: 404 });
 
   const [photos, pairs] = await Promise.all([

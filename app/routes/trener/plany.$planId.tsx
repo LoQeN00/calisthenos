@@ -1,4 +1,3 @@
-import { and, eq, isNull } from "drizzle-orm";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Form,
@@ -15,7 +14,7 @@ import { Icons } from "~/components/icons";
 import { useToast } from "~/components/toast-provider";
 import { requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
+import { listActiveExercisesForTrainer } from "~/lib/exercises";
 import { fmtDate, pluralizePl, type PlForms } from "~/lib/format";
 
 const BLOK: PlForms = { one: "blok", few: "bloki", many: "bloków" };
@@ -30,6 +29,7 @@ import {
   createDraftFromActive,
   deletePlan,
   findAnyDraftFor,
+  findPlanStatusForTrainer,
   loadPlanForTrainer,
   PlanRepoError,
   publishPlan,
@@ -77,15 +77,7 @@ export async function loader(args: LoaderFunctionArgs) {
 
   // Exercise library — loaded always; views use it for display names, the
   // editor uses it for the picker.
-  const exercises = await db
-    .select({
-      id: schema.exercises.id,
-      name: schema.exercises.name,
-      unit: schema.exercises.unit,
-    })
-    .from(schema.exercises)
-    .where(and(eq(schema.exercises.trainerId, user.id), isNull(schema.exercises.archivedAt)))
-    .orderBy(schema.exercises.name);
+  const exercises = await listActiveExercisesForTrainer(db, user.id);
 
   // Map the DB tree into the editor's `PlanForm` shape.
   const initial: PlanForm = {
@@ -160,16 +152,8 @@ export async function action(args: ActionFunctionArgs) {
     // (lazy-draft flow), promote to a draft now — either reuse an existing one
     // for this trainee or clone from active. This is the only place where a
     // draft is created automatically; just loading a plan no longer does it.
-    const planRows = await db
-      .select({
-        status: schema.plans.status,
-        traineeId: schema.plans.traineeId,
-      })
-      .from(schema.plans)
-      .where(and(eq(schema.plans.id, planId), eq(schema.plans.trainerId, user.id)))
-      .limit(1);
-    const plan = planRows[0];
-    if (!plan) throw new Response("not found", { status: 404 });
+    const plan = await findPlanStatusForTrainer(db, planId, user.id);
+    if (plan == null) throw new Response("not found", { status: 404 });
 
     let targetPlanId = planId;
     let wasPromoted = false;

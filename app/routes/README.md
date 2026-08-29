@@ -18,6 +18,13 @@ oba**: plik trasy i `routes.ts`. Większość plików eksportuje część z:
 | `files.$fileId.tsx` | `/files/:fileId` | loader | auth | Streaming pliku z magazynu po weryfikacji podpisu HMAC (`exp`/`sig`) i scope'u trenera; obsługa Range (206). `Cache-Control: private, max-age=3600` — świadomie NIE spięte z kubełkiem `exp` (6 h) i bez `immutable`: zysk z cache bierze się ze stabilności adresu (`fileUrlExp`), a dłuższe okno tylko wydłużyłoby czas, w którym po wylogowaniu da się odtworzyć pliki z dysku przeglądarki. |
 | `webhooks.stripe.tsx` | `/webhooks/stripe` | action | public (podpis) | Endpoint webhooka Stripe (bez sesji): weryfikuje podpis na SUROWYM body (`request.text()`), `mapEvent`→`applyChange`; 400 przy braku/złym podpisie, 500 przy błędzie handlera (Stripe ponawia), 200 w pozostałych. |
 
+## Strażnik szwu app/lib
+
+Trasy nie sięgają do bazy bezpośrednio: wolno przekazać `db` do funkcji z
+`app/lib/*`, ale nie wolno budować zapytań (`db.select/insert/update/delete/$with`)
+ani otwierać transakcji (`db.transaction`), ani importować `~/lib/db/schema` (poza
+`import type`). Pilnuje tego `no-direct-db.test.ts` w tym katalogu.
+
 ## Podkatalogi
 
 | Katalog | Prefiks | Zawartość |

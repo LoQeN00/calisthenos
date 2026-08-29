@@ -69,9 +69,12 @@ export {
 } from "./password";
 export {
   createInvite,
+  createInviteWithOnboarding,
   consumeInvite,
+  findInviteByToken,
   hashToken,
   type CreateInviteInput,
   type ConsumeInviteInput,
   type ConsumeInviteResult,
 } from "./invite";
+export { findUserByEmail, findDisplayName } from "./users";

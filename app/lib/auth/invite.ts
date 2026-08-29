@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { and, eq, isNull, gt } from "drizzle-orm";
 import type { Db } from "../db/client";
 import * as schema from "../db/schema";
-import { attachFormToTrainee } from "../onboarding-forms";
+import { attachFormToTrainee, createOnboardingForm } from "../onboarding-forms";
 
 const TOKEN_BYTES = 32;
 const INVITE_DURATION_DAYS = 14;
@@ -43,6 +43,57 @@ export async function createInvite(db: Db, input: CreateInviteInput) {
     })
     .returning();
   return { token, invite };
+}
+
+/**
+ * Zaproszenie + opcjonalny formularz startowy w JEDNEJ transakcji: albo jedno i drugie,
+ * albo nic. Inaczej dałoby się wysłać link do zaproszenia, któremu formularz nie doszedł.
+ * `inviteId` bierze się WYŁĄCZNIE z wiersza utworzonego w tej transakcji — nigdy z requestu.
+ *
+ * Mieszka tutaj, a nie w `onboarding-forms.ts`, bo ten moduł już importuje formularze
+ * (`attachFormToTrainee` w `consumeInvite`) — odwrotny import zamknąłby cykl. Zaproszenie
+ * jest korzeniem tego agregatu, formularz mu towarzyszy.
+ *
+ * `OnboardingFormError` przechodzi na zewnątrz — mapuje go trasa.
+ */
+export async function createInviteWithOnboarding(
+  db: Db,
+  input: {
+    trainerId: string;
+    displayName: string;
+    email: string | null;
+    monthlyAmountGrosze: number | null;
+    template: { exerciseIds: string[]; note: string | null } | null;
+  },
+): Promise<{ token: string }> {
+  const token = await db.transaction(async (tx) => {
+    const created = await createInvite(tx, {
+      trainerId: input.trainerId,
+      displayName: input.displayName,
+      email: input.email,
+      monthlyAmountGrosze: input.monthlyAmountGrosze,
+    });
+    if (input.template) {
+      await createOnboardingForm(tx, {
+        trainerId: input.trainerId,
+        inviteId: created.invite!.id,
+        exerciseIds: input.template.exerciseIds,
+        note: input.template.note,
+      });
+    }
+    return created.token;
+  });
+  return { token };
+}
+
+/** Zaproszenie po SUROWYM tokenie z URL-a — haszowanie siedzi tutaj, nie w trasie. */
+export async function findInviteByToken(db: Db, token: string): Promise<schema.Invite | null> {
+  const rows = await db
+    .select()
+    .from(schema.invites)
+    .where(eq(schema.invites.tokenHash, hashToken(token)))
+    .limit(1);
+  return rows[0] ?? null;
 }
 
 export interface ConsumeInviteInput {

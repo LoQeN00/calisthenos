@@ -1,4 +1,3 @@
-import { eq } from "drizzle-orm";
 import {
   Form,
   Link,
@@ -9,9 +8,8 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
-import { requireUser } from "~/lib/auth";
+import { findDisplayName, requireUser } from "~/lib/auth";
 import { db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
 import {
   MAX_ONBOARDING_COMMENT,
   MAX_ONBOARDING_NOTE,
@@ -43,15 +41,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const form = await getPendingFormForTrainee(db, user.id);
   if (!form) throw redirect("/podopieczny");
 
-  const trainerRows = user.trainerId
-    ? await db
-        .select({ name: schema.users.displayName })
-        .from(schema.users)
-        .where(eq(schema.users.id, user.trainerId))
-        .limit(1)
-    : [];
+  const trainerName =
+    user.trainerId != null ? await findDisplayName(db, user.trainerId) : null;
 
-  return { form, trainerName: trainerRows[0]?.name ?? null };
+  return { form, trainerName };
 }
 
 export async function action({ request }: ActionFunctionArgs) {

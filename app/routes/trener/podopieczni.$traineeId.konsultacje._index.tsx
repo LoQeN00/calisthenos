@@ -1,4 +1,3 @@
-import { and, eq } from "drizzle-orm";
 import {
   type ActionFunctionArgs,
   Form,
@@ -26,8 +25,9 @@ import { consultationPresentation } from "~/lib/consultation-status";
 import { ScheduleFormSchema } from "~/lib/consultation-types";
 import { listOccurrencesForTrainer } from "~/lib/consultations";
 import { db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
+import type * as schema from "~/lib/db/schema";
 import { fmtDateTime, todayISO } from "~/lib/format";
+import { findTraineeOfTrainer } from "~/lib/trainees";
 
 const CADENCE_LABEL: Record<schema.ConsultationCadence, string> = {
   weekly: "co tydzień",
@@ -35,25 +35,10 @@ const CADENCE_LABEL: Record<schema.ConsultationCadence, string> = {
   monthly: "co miesiąc",
 };
 
-async function loadTrainee(traineeId: string, trainerId: string) {
-  const [t] = await db
-    .select({ id: schema.users.id, displayName: schema.users.displayName })
-    .from(schema.users)
-    .where(
-      and(
-        eq(schema.users.id, traineeId),
-        eq(schema.users.trainerId, trainerId),
-        eq(schema.users.role, "trainee"),
-      ),
-    )
-    .limit(1);
-  return t ?? null;
-}
-
 export async function loader(args: LoaderFunctionArgs) {
   const user = await requireUser(args.request, db, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
-  const trainee = await loadTrainee(traineeId, user.id);
+  const trainee = await findTraineeOfTrainer(db, user.id, traineeId);
   if (!trainee) throw new Response("not found", { status: 404 });
 
   const schedule = await getActiveSchedule(db, { trainerId: user.id, traineeId });
