@@ -447,7 +447,7 @@ git commit -m "feat(api): fabryka klienta z mapowaniem bledow na ApiError"
 - Consumes: `ApiSession`, `ApiTokens`, `sessionFromTokens` z `./session`; `ApiError` z `./errors`.
 - Produces:
   - `refreshOnce(refreshToken: string, deps: RefreshDeps): Promise<ApiSession>`
-  - `interface RefreshDeps { wymien: (refreshToken: string) => Promise<ApiTokens>; now: () => Date }`
+  - `interface RefreshDeps { exchange: (refreshToken: string) => Promise<ApiTokens>; now: () => Date }`
   - `resetRefreshState(): void` — wyłącznie dla testów, zeruje obie mapy.
 
 To jest serce planu. `refreshOnce` jest **jedyną** drogą do `POST /v1/auth/refresh`; woła ją i middleware, i interceptor `401`.
@@ -459,7 +459,7 @@ Plik `app/lib/api/refresh.test.ts`:
 ```ts
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ApiTokens } from "./session";
-import { refreshOnce, resetRefreshState, rozmiarOknaLaski } from "./refresh";
+import { refreshOnce, resetRefreshState, graceWindowSize } from "./refresh";
 
 const TERAZ = new Date("2026-08-31T10:00:00Z");
 
@@ -477,7 +477,7 @@ function wolnaWymiana() {
       return wywolan;
     },
     odblokuj,
-    async wymien(): Promise<ApiTokens> {
+    async exchange(): Promise<ApiTokens> {
       wywolan += 1;
       await gotowa;
       return tokeny(2);
@@ -494,8 +494,8 @@ describe("refreshOnce — jedność odświeżania", () => {
     // wywołanie nie jest więc marnotrawstwem, tylko wylogowaniem ze wszystkiego.
     const w = wolnaWymiana();
 
-    const a = refreshOnce("R1", { wymien: w.wymien, now: () => TERAZ });
-    const b = refreshOnce("R1", { wymien: w.wymien, now: () => TERAZ });
+    const a = refreshOnce("R1", { exchange: w.exchange, now: () => TERAZ });
+    const b = refreshOnce("R1", { exchange: w.exchange, now: () => TERAZ });
     w.odblokuj();
 
     const [sa, sb] = await Promise.all([a, b]);
@@ -511,7 +511,7 @@ describe("refreshOnce — jedność odświeżania", () => {
     // rozwiązała — bez okna łaski to jest zgaszenie łańcucha.
     let wywolan = 0;
     const deps = {
-      wymien: async () => {
+      exchange: async () => {
         wywolan += 1;
         return tokeny(2);
       },
@@ -529,7 +529,7 @@ describe("refreshOnce — jedność odświeżania", () => {
     let wywolan = 0;
     let zegar = TERAZ;
     const deps = {
-      wymien: async () => {
+      exchange: async () => {
         wywolan += 1;
         return tokeny(wywolan + 1);
       },
@@ -548,7 +548,7 @@ describe("refreshOnce — jedność odświeżania", () => {
     // niedostępności aplikacji dla zalogowanego użytkownika.
     let wywolan = 0;
     const deps = {
-      wymien: async () => {
+      exchange: async () => {
         wywolan += 1;
         throw new Error("sieć");
       },
@@ -564,7 +564,7 @@ describe("refreshOnce — jedność odświeżania", () => {
   it("różne tokeny nie dzielą wpisu", async () => {
     let wywolan = 0;
     const deps = {
-      wymien: async () => {
+      exchange: async () => {
         wywolan += 1;
         return tokeny(wywolan + 1);
       },
@@ -580,11 +580,11 @@ describe("refreshOnce — jedność odświeżania", () => {
   it("pamięć nie rośnie w nieskończoność", async () => {
     // Klucze pochodzą z ciastek, czyli z zewnątrz. Bez limitu wystarczy
     // strumień żądań z losowymi ciastkami, żeby wyczerpać pamięć procesu.
-    const deps = { wymien: async () => tokeny(2), now: () => TERAZ };
+    const deps = { exchange: async () => tokeny(2), now: () => TERAZ };
 
     for (let i = 0; i < 1200; i += 1) await refreshOnce(`R-${i}`, deps);
 
-    expect(rozmiarOknaLaski()).toBeLessThanOrEqual(1000);
+    expect(graceWindowSize()).toBe(1000);
   });
 });
 ```
@@ -625,7 +625,7 @@ const oknoLaski = new Map<string, WpisLaski>();
 
 export interface RefreshDeps {
   /** Woła `POST /v1/auth/refresh`. Wstrzykiwane, żeby test nie potrzebował sieci. */
-  wymien: (refreshToken: string) => Promise<ApiTokens>;
+  exchange: (refreshToken: string) => Promise<ApiTokens>;
   now: () => Date;
 }
 
@@ -640,7 +640,7 @@ export interface RefreshDeps {
  */
 export async function refreshOnce(
   refreshToken: string,
-  { wymien, now }: RefreshDeps,
+  { exchange, now }: RefreshDeps,
 ): Promise<ApiSession> {
   const klucz = hash(refreshToken);
   const teraz = now();
@@ -651,7 +651,7 @@ export async function refreshOnce(
   const biezaca = wLocie.get(klucz);
   if (biezaca) return biezaca;
 
-  const obietnica = wymien(refreshToken)
+  const obietnica = exchange(refreshToken)
     .then((tokens) => {
       const session = sessionFromTokens(tokens, teraz);
       zapiszLaske(klucz, session, teraz.getTime());
@@ -706,7 +706,7 @@ export function resetRefreshState(): void {
 }
 
 /** Wyłącznie dla testów: dowód, że limit wpisów działa. */
-export function rozmiarOknaLaski(): number {
+export function graceWindowSize(): number {
   return oknoLaski.size;
 }
 ```
@@ -738,6 +738,7 @@ git commit -m "feat(api): jednosc odswiezania tokenu - okno laski i mapa w locie
 
 **Interfaces:**
 - Consumes: `createApiClient`, `Api` (zadanie 2); `refreshOnce` (zadanie 3); `readSessionCookie`, `buildSessionCookie`, `clearSessionCookie`, `needsRefresh`, `ApiSession` z `./session`.
+- **Kontrakt `exchange`, wymuszony przez zadanie 3:** callback przekazywany do `refreshOnce` **musi się rozstrzygnąć** i musi nieść własny `AbortSignal.timeout(...)`. Mapa odświeżeń w locie usuwa wpis wyłącznie w `.finally()`, więc wywołanie, które nigdy nie wraca, przypina wpis na stałe — a wtedy każde kolejne żądanie tego użytkownika dostaje tę samą wiszącą obietnicę. Bez timeoutu awaria jednego żądania zamienia się w niedostępność całego konta.
 - Produces:
   - `apiContext: RouterContext<ApiBundle>` z `./context`
   - `interface ApiBundle { api: Api; user: AuthUser | null }`
@@ -1004,7 +1005,7 @@ export async function apiMiddleware(
 
   const odswiez = async (): Promise<void> => {
     const swieza = await refreshOnce(uchwyt.session.refreshToken, {
-      wymien: async (refreshToken) => {
+      exchange: async (refreshToken) => {
         const { data } = await authControllerRefresh({
           client: createApiClient({ baseUrl, getToken: () => undefined, fetch: transport }),
           body: { refreshToken },
