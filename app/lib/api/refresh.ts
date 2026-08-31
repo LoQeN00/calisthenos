@@ -5,14 +5,26 @@ import { type ApiSession, type ApiTokens, sessionFromTokens } from "./session";
  * Ile trzymamy odwzorowanie „stary token → nowa para".
  *
  * Pokrywa prefetch po najechaniu na link, fetcher wysłany tuż przed nawigacją
- * i drugą kartę rewalidującą się po powrocie do laptopa. Nie pokrywa niczego,
- * co wyglądałoby na realne użycie skradzionego tokenu z opóźnieniem.
+ * i drugą kartę rewalidującą się po powrocie do laptopa.
+ *
+ * To świadoma koncesja bezpieczeństwa, nie przeoczenie: powtórzenie starego
+ * tokenu WEWNĄTRZ tego okna dostaje sesję z pamięci podręcznej i nigdy nie
+ * dociera do BE — wykrywanie ponownego użycia (`deleteChain` w
+ * `SessionService.rotate`) jest na te 60 sekund efektywnie wyłączone. Okno
+ * jest krótkie właśnie dlatego: dość długie, żeby pokryć wyścig żądań tej
+ * samej przeglądarki, dość krótkie, żeby nie dać realnemu atakującemu
+ * wygodnego czasu na powtórzenie przechwyconego tokenu.
  */
 const OKNO_LASKI_MS = 60_000;
 
 /**
- * Klucze pochodzą z ciastek, czyli z zewnątrz — bez limitu wystarczyłby
- * strumień żądań z losowymi ciastkami, żeby wyczerpać pamięć procesu.
+ * Limit na `oknoLaski`, nie na mapę w locie. Proces żyje tygodniami, a każda
+ * udana rotacja zostawia w tej mapie wpis na 60 sekund — bez górnej granicy
+ * suma takich wpisów rosłaby bez końca wraz z ruchem.
+ *
+ * `wLocie` osobnego limitu nie potrzebuje: wpis w niej znika, gdy rozstrzyga
+ * się jej własna obietnica (`.finally()` niżej), więc jej rozmiar ogranicza
+ * sama liczba jednocześnie trwających żądań, nie historia ruchu.
  */
 const MAX_WPISOW = 1_000;
 
@@ -25,8 +37,18 @@ const wLocie = new Map<string, Promise<ApiSession>>();
 const oknoLaski = new Map<string, WpisLaski>();
 
 export interface RefreshDeps {
-  /** Woła `POST /v1/auth/refresh`. Wstrzykiwane, żeby test nie potrzebował sieci. */
-  wymien: (refreshToken: string) => Promise<ApiTokens>;
+  /**
+   * Woła `POST /v1/auth/refresh`. Wstrzykiwane, żeby test nie potrzebował sieci.
+   *
+   * MUSI się rozstrzygnąć — sukcesem albo odrzuceniem — i to własnym
+   * timeoutem (`AbortSignal.timeout(...)`), nie domyślnym z klienta HTTP.
+   * Mapa w locie trzyma jeden wpis per token: zawieszone wywołanie nie
+   * zawiesza tylko siebie, tylko każde kolejne `refreshOnce` tym samym
+   * tokenem, bo wszystkie dostają tę samą, wiecznie oczekującą obietnicę.
+   * Jedno zawieszone wywołanie zamienia się w niedostępność całego
+   * użytkownika, nie jednego żądania.
+   */
+  exchange: (refreshToken: string) => Promise<ApiTokens>;
   now: () => Date;
 }
 
@@ -41,7 +63,7 @@ export interface RefreshDeps {
  */
 export async function refreshOnce(
   refreshToken: string,
-  { wymien, now }: RefreshDeps,
+  { exchange, now }: RefreshDeps,
 ): Promise<ApiSession> {
   const klucz = hash(refreshToken);
   const teraz = now();
@@ -52,15 +74,18 @@ export async function refreshOnce(
   const biezaca = wLocie.get(klucz);
   if (biezaca) return biezaca;
 
-  const obietnica = wymien(refreshToken)
+  const obietnica = exchange(refreshToken)
     .then((tokens) => {
       const session = sessionFromTokens(tokens, teraz);
+      // Zapis do okna łaski siedzi WYŁĄCZNIE w gałęzi sukcesu: porażka nigdy
+      // tu nie dotrze, więc nigdy nie zostanie zapamiętana jako ważna sesja.
       zapiszLaske(klucz, session, teraz.getTime());
       return session;
     })
     .finally(() => {
-      // Porażka NIE trafia do okna łaski: zapamiętana zamieniłaby jednorazowy
-      // błąd sieci w minutę niedostępności aplikacji dla zalogowanego.
+      // Sprzątanie bezwarunkowe — i sukces, i porażka mają zniknąć z mapy
+      // w locie. Inaczej nieudana próba zostawiałaby zawieszony wpis, który
+      // blokowałby kolejną próbę tym samym tokenem zamiast wpuścić ją do BE.
       wLocie.delete(klucz);
     });
 
@@ -107,6 +132,6 @@ export function resetRefreshState(): void {
 }
 
 /** Wyłącznie dla testów: dowód, że limit wpisów działa. */
-export function rozmiarOknaLaski(): number {
+export function graceWindowSize(): number {
   return oknoLaski.size;
 }

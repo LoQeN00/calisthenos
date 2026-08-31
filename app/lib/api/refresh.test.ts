@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ApiTokens } from "./session";
-import { refreshOnce, resetRefreshState, rozmiarOknaLaski } from "./refresh";
+import { refreshOnce, resetRefreshState, graceWindowSize } from "./refresh";
 
 const TERAZ = new Date("2026-08-31T10:00:00Z");
 
@@ -20,7 +20,7 @@ function wolnaWymiana() {
       return wywolan;
     },
     odblokuj,
-    async wymien(): Promise<ApiTokens> {
+    async exchange(): Promise<ApiTokens> {
       wywolan += 1;
       await gotowa;
       return tokeny(2);
@@ -37,8 +37,8 @@ describe("refreshOnce — jedność odświeżania", () => {
     // wywołanie nie jest więc marnotrawstwem, tylko wylogowaniem ze wszystkiego.
     const w = wolnaWymiana();
 
-    const a = refreshOnce("R1", { wymien: w.wymien, now: () => TERAZ });
-    const b = refreshOnce("R1", { wymien: w.wymien, now: () => TERAZ });
+    const a = refreshOnce("R1", { exchange: w.exchange, now: () => TERAZ });
+    const b = refreshOnce("R1", { exchange: w.exchange, now: () => TERAZ });
     w.odblokuj();
 
     const [sa, sb] = await Promise.all([a, b]);
@@ -54,7 +54,7 @@ describe("refreshOnce — jedność odświeżania", () => {
     // rozwiązała — bez okna łaski to jest zgaszenie łańcucha.
     let wywolan = 0;
     const deps = {
-      wymien: async () => {
+      exchange: async () => {
         wywolan += 1;
         return tokeny(2);
       },
@@ -72,7 +72,7 @@ describe("refreshOnce — jedność odświeżania", () => {
     let wywolan = 0;
     let zegar = TERAZ;
     const deps = {
-      wymien: async () => {
+      exchange: async () => {
         wywolan += 1;
         return tokeny(wywolan + 1);
       },
@@ -91,7 +91,7 @@ describe("refreshOnce — jedność odświeżania", () => {
     // niedostępności aplikacji dla zalogowanego użytkownika.
     let wywolan = 0;
     const deps = {
-      wymien: async () => {
+      exchange: async () => {
         wywolan += 1;
         throw new Error("sieć");
       },
@@ -107,7 +107,7 @@ describe("refreshOnce — jedność odświeżania", () => {
   it("różne tokeny nie dzielą wpisu", async () => {
     let wywolan = 0;
     const deps = {
-      wymien: async () => {
+      exchange: async () => {
         wywolan += 1;
         return tokeny(wywolan + 1);
       },
@@ -121,12 +121,13 @@ describe("refreshOnce — jedność odświeżania", () => {
   });
 
   it("pamięć nie rośnie w nieskończoność", async () => {
-    // Klucze pochodzą z ciastek, czyli z zewnątrz. Bez limitu wystarczy
-    // strumień żądań z losowymi ciastkami, żeby wyczerpać pamięć procesu.
-    const deps = { wymien: async () => tokeny(2), now: () => TERAZ };
+    // Proces żyje tygodniami, a każda udana rotacja zostawia wpis w oknie
+    // łaski na 60 sekund. Bez górnej granicy suma takich wpisów rosłaby bez
+    // końca wraz z ruchem — limit musi trzymać rozmiar mapy w stałym pułapie.
+    const deps = { exchange: async () => tokeny(2), now: () => TERAZ };
 
     for (let i = 0; i < 1200; i += 1) await refreshOnce(`R-${i}`, deps);
 
-    expect(rozmiarOknaLaski()).toBeLessThanOrEqual(1000);
+    expect(graceWindowSize()).toBe(1000);
   });
 });
