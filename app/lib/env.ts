@@ -11,8 +11,19 @@ const BaseEnvSchema = z.object({
    * Adres BE trafiający do HTML-a: `src` obrazków i wideo spod podpisanego
    * `GET /v1/files/{id}`. Domyślnie równy wewnętrznemu — w developmencie
    * i w testach jeden adres wystarcza.
+   *
+   * `z.preprocess` zamienia `""` na `undefined` PRZED walidacją `.url()`.
+   * Konieczne, bo `react-router dev` czyta `.env` przez Vite `loadEnv` z
+   * pustym prefiksem — kopiuje CAŁY plik do `process.env`, więc pusta linia
+   * `API_PUBLIC_URL=` w `.env.example`/`.env` trafia tu jako `""`, nie jako
+   * nieobecny klucz. `.optional()` reaguje wyłącznie na `undefined` — bez
+   * tego przepisania pusty string wysypywałby `.url()`, a razem z nim całe
+   * `getEnv()` na starcie aplikacji.
    */
-  API_PUBLIC_URL: z.string().url().optional(),
+  API_PUBLIC_URL: z.preprocess(
+    (v) => (v === "" ? undefined : v),
+    z.string().url().optional(),
+  ),
   DATA_DIR: z.string().default("./data"),
   MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(250_000_000),
   // Osobny, niższy limit dla wideo (nagrania serii, demo ćwiczeń). Długie nagrania

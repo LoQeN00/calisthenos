@@ -29,6 +29,23 @@ describe("EnvSchema — adresy BE", () => {
     expect(env.API_PUBLIC_URL).toBe("http://api.internal:3000");
   });
 
+  it("pusty string w API_PUBLIC_URL traktuje jak brak zmiennej", async () => {
+    // Nie hipoteza: `react-router dev` czyta `.env` przez Vite `loadEnv` z
+    // pustym prefiksem, który kopiuje CAŁY plik do `process.env` — pusta
+    // linia `API_PUBLIC_URL=` w `.env.example` trafia tu jako `""`, nie jako
+    // nieobecny klucz. `.optional()` reaguje tylko na `undefined`, więc bez
+    // tego przypadku `.url()` odrzuca pusty string i wysypuje `getEnv()` na
+    // starcie (woła go `app/lib/db/client.ts` na poziomie modułu — padają
+    // wszystkie trasy).
+    const { EnvSchema } = await import("./env");
+    const env = EnvSchema.parse({
+      ...BAZA,
+      API_URL: "http://api.internal:3000",
+      API_PUBLIC_URL: "",
+    });
+    expect(env.API_PUBLIC_URL).toBe("http://api.internal:3000");
+  });
+
   it("gdy oba są ustawione, zachowuje je rozdzielnie", async () => {
     const { EnvSchema } = await import("./env");
     const env = EnvSchema.parse({
