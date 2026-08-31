@@ -103,6 +103,9 @@ Required env vars on Railway:
 | `BASE_URL` | `https://<your-railway-domain>` |
 | `DATA_DIR` | `/data` (mount a Railway volume) |
 | `NODE_ENV` | `production` |
+| `API_URL` | backend URL (Railway private network, if available) |
+| `API_PUBLIC_URL` | public backend URL, for `<img>`/`<video>` `src`; defaults to `API_URL` |
+| `GITHUB_TOKEN` | build-time only — `read:packages` (private `@kalisthenos/api-client`) |
 | `SEED_TRAINER_EMAIL` | bootstrap trainer email |
 | `SEED_TRAINER_PASSWORD` | strong password (≥8 chars; change after first login) |
 | `SEED_TRAINER_NAME` | trainer's display name |
