@@ -9,7 +9,8 @@ FROM node:22-alpine AS build
 WORKDIR /app
 
 # Deps layer (cached when only source changes).
-COPY package.json package-lock.json ./
+ARG GITHUB_TOKEN
+COPY package.json package-lock.json .npmrc ./
 RUN npm ci
 
 # Source.
@@ -36,7 +37,8 @@ WORKDIR /app
 # at boot, and tsx (dev dep) runs `db:seed`. Image is a bit larger but the
 # runtime contract stays simple. Phase 7+ could split into a one-shot
 # migration container.
-COPY package.json package-lock.json ./
+ARG GITHUB_TOKEN
+COPY package.json package-lock.json .npmrc ./
 RUN npm ci
 
 # Build output + sources needed at runtime by drizzle-kit (db:migrate reads

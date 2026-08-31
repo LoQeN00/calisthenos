@@ -1,10 +1,18 @@
 import { z } from "zod";
 
-const EnvSchema = z.object({
+const BaseEnvSchema = z.object({
   DATABASE_URL: z.string().url(),
   SESSION_SECRET: z.string().min(32),
   FILE_SIGNING_SECRET: z.string().min(32),
   BASE_URL: z.string().url(),
+  /** Adres BE z serwera FE, server-do-serwera. Na Railway może być siecią prywatną. */
+  API_URL: z.string().url(),
+  /**
+   * Adres BE trafiający do HTML-a: `src` obrazków i wideo spod podpisanego
+   * `GET /v1/files/{id}`. Domyślnie równy wewnętrznemu — w developmencie
+   * i w testach jeden adres wystarcza.
+   */
+  API_PUBLIC_URL: z.string().url().optional(),
   DATA_DIR: z.string().default("./data"),
   MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(250_000_000),
   // Osobny, niższy limit dla wideo (nagrania serii, demo ćwiczeń). Długie nagrania
@@ -28,6 +36,11 @@ const EnvSchema = z.object({
   // Osobny destination w Stripe = osobny sekret; verifyAndParse próbuje oba.
   STRIPE_CONNECT_WEBHOOK_SECRET: z.string().optional(),
 });
+
+export const EnvSchema = BaseEnvSchema.transform((env) => ({
+  ...env,
+  API_PUBLIC_URL: env.API_PUBLIC_URL ?? env.API_URL,
+}));
 
 export type Env = z.infer<typeof EnvSchema>;
 

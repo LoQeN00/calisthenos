@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@googleapis/calendar": "^9.7.0",
+    "@kalisthenos/api-client": "0.2.0",
     "@node-rs/argon2": "^2.0.0",
     "@react-router/node": "^7.1.0",
     "@react-router/serve": "^7.1.0",

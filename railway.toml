@@ -33,6 +33,9 @@ restartPolicyMaxRetries = 5
 #   BASE_URL              → https://<your-domain>
 #   DATA_DIR              → /data (mount a volume here)
 #   NODE_ENV              → production
+#   API_URL               → adres BE (sieć prywatna Railway, jeśli dostępna)
+#   API_PUBLIC_URL        → publiczny adres BE (dla <img>/<video>); domyślnie = API_URL
+#   GITHUB_TOKEN          → build-time, read:packages (prywatny @kalisthenos/api-client)
 #
 # Note on `citext` extension:
 #   The first migration runs `CREATE EXTENSION IF NOT EXISTS citext;` which
