@@ -107,6 +107,31 @@ describe("createApiClient", () => {
     expect((blad as ApiError).code).toBe("TOKEN_EXPIRED");
     expect((blad as ApiError).message).toBe("Token wygasł.");
   });
+
+  it("Response rzucony z interceptora odpowiedzi wychodzi z wywołania SDK jako ten sam Response", async () => {
+    // `middleware.ts` rzuca `Response` (przekierowanie na logowanie) z
+    // WEWNĄTRZ interceptora odpowiedzi — to jedyny sposób, żeby stamtąd
+    // w ogóle wyjść. Bez gałęzi `error instanceof Response` w interceptorze
+    // błędu ten rzut wpadłby do `parseApiError`, który nie widzi na
+    // obiekcie `Response` koperty `{error}` i przemielił go na generyczny
+    // `401/UNKNOWN` — tracąc status i nagłówki przekierowania, zanim
+    // dotrze do miejsca, które umie je odczytać jako `Response`.
+    const rzucona = new Response(null, { status: 302, headers: { Location: "/login" } });
+    const api = createApiClient({
+      baseUrl: "http://be.test",
+      getToken: () => "T",
+      fetch: async () => odpowiedz(200, []),
+    });
+    api.interceptors.response.use(() => {
+      throw rzucona;
+    });
+
+    const blad = await exerciseCategoriesControllerList({ client: api }).catch((e: unknown) => e);
+
+    expect(blad).toBe(rzucona);
+    expect((blad as Response).status).toBe(302);
+    expect((blad as Response).headers.get("Location")).toBe("/login");
+  });
 });
 
 describe("orNull — reguła D3", () => {

@@ -36,6 +36,15 @@ export function createApiClient({ baseUrl, getToken, fetch: transport }: ApiClie
   );
 
   api.interceptors.error.use((error, response) => {
+    // `Response` rzucony z interceptora odpowiedzi (middleware kończący
+    // martwą sesję przekierowaniem) jest SYGNAŁEM STEROWANIA, nie błędem
+    // danych z BE — przepuszczany nietknięty, przed sprawdzeniem `ApiError`,
+    // bo to inna kategoria niż to, co niżej rozpoznaje. Bez tej gałęzi
+    // `parseApiError` nie znalazłby na obiekcie `Response` koperty `{error}`
+    // i przemielił przekierowanie na generyczny `401/UNKNOWN` — tracąc jego
+    // treść, zanim dotrze do miejsca, które umie je odczytać jako `Response`.
+    if (error instanceof Response) return error;
+
     // Już zamieniony — ścieżka ponowienia po odświeżeniu przechodzi tędy drugi raz.
     if (error instanceof ApiError) return error;
 

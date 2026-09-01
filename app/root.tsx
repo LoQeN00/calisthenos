@@ -1,10 +1,17 @@
 import "~/styles/tokens.css";
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import type { MiddlewareFunction } from "react-router";
 import { ConfirmProvider } from "~/components/confirm-provider";
 import { ToastProvider } from "~/components/toast-provider";
+import { apiMiddleware } from "~/lib/api/middleware";
 import { maybePruneExpiredSessions } from "~/lib/auth/session";
 import { db } from "~/lib/db/client";
 import { maybeSweepOrphanSetVideos } from "~/lib/orphan-files";
+
+// Typ jawny: jedyne miejsce, które sprawdza `apiMiddleware` wobec kontraktu
+// React Routera (`MiddlewareFunction<Response>`) — bez niego niezgodność
+// sygnatury ujawniłaby się dopiero w runtime routera, nie na `tsc`.
+export const middleware: MiddlewareFunction<Response>[] = [apiMiddleware];
 
 export async function loader() {
   // Lazy background prune: at most once an hour per process, fire-and-forget.
