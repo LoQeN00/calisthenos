@@ -6,17 +6,9 @@ import {
   type LoaderFunctionArgs,
 } from "react-router";
 import { z } from "zod";
-import { db } from "~/lib/db/client";
-import {
-  buildSetCookie,
-  createSession,
-  findUserByEmail,
-  getDummyPasswordHash,
-  parseSessionId,
-  readSession,
-  verifyPassword,
-} from "~/lib/auth";
-import { enforceRateLimit, RATE_LIMITS, rateLimited, resetRateLimit } from "~/lib/rate-limit";
+import { optionalUser, sectionFor } from "~/lib/api/auth";
+import { AuthError, startSession } from "~/lib/api/auth-session";
+import { buildSessionCookie } from "~/lib/api/session";
 
 const LoginSchema = z.object({
   email: z.string().email().max(254),
@@ -25,56 +17,41 @@ const LoginSchema = z.object({
 
 const GENERIC_ERROR = "Niepoprawne dane logowania." as const;
 
-export async function loader(args: LoaderFunctionArgs) {
-  const sid = parseSessionId(args.request.headers.get("cookie"));
-  if (sid) {
-    const session = await readSession(db, sid);
-    if (session) {
-      return redirect(session.user.role === "trainer" ? "/trener" : "/podopieczny");
-    }
-  }
+export function loader({ context }: LoaderFunctionArgs) {
+  // Synchronicznie i bez sieci: użytkownika załadował middleware raz na
+  // żądanie. Do integracji ta trasa czytała sesję z bazy przy każdym wejściu.
+  const { user } = optionalUser(context);
+  if (user) throw redirect(sectionFor(user));
   return null;
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const retry = enforceRateLimit(args.request, RATE_LIMITS.login);
-  if (retry !== null) return rateLimited(retry);
-
+  const { api } = optionalUser(args.context);
   const formData = await args.request.formData();
   const parsed = LoginSchema.safeParse({
     email: formData.get("email"),
     password: formData.get("password"),
   });
-  if (!parsed.success) {
-    // Still spend a constant-time verify to avoid leaking validation-rejection
-    // via response latency.
-    await verifyPassword(await getDummyPasswordHash(), "x");
-    return { error: GENERIC_ERROR };
+  // Bez dummy-hash: BE liczy pełny hasz także dla NIEISTNIEJĄCEGO konta
+  // (`libs/iam/src/lib/auth.service.ts`), więc czas odpowiedzi nie zdradza już
+  // istnienia adresu i podtrzymywanie tego po stronie FE nic by nie chroniło.
+  // Bez `enforceRateLimit`: limit prób stoi w BE i jest kluczowany e-mailem
+  // z ciała żądania, nie adresem IP — czyli po koncie, które ktoś atakuje,
+  // a nie po łączu, które podopieczni dzielą przez NAT.
+  if (!parsed.success) return { error: GENERIC_ERROR };
+
+  try {
+    const { session, user } = await startSession(api, parsed.data);
+    return redirect(sectionFor(user), {
+      headers: { "Set-Cookie": buildSessionCookie(session) },
+    });
+  } catch (e) {
+    // Wąsko: `AuthError` to komunikat w formularzu, wszystko inne (awaria BE)
+    // leci do granicy błędu. Pomylenie tych dwóch kazałoby użytkownikowi
+    // sprawdzać hasło w odpowiedzi na cudzą usterkę.
+    if (e instanceof AuthError) return { error: e.userMessage };
+    throw e;
   }
-
-  const { email, password } = parsed.data;
-  const user = await findUserByEmail(db, email);
-
-  // Constant-time path: when the user doesn't exist or has no password, verify
-  // against a dummy hash so total request latency doesn't reveal email existence.
-  if (!user || !user.passwordHash || user.archivedAt) {
-    await verifyPassword(await getDummyPasswordHash(), password);
-    return { error: GENERIC_ERROR };
-  }
-
-  const ok = await verifyPassword(user.passwordHash, password);
-  if (!ok) {
-    return { error: GENERIC_ERROR };
-  }
-
-  const { id, expiresAt } = await createSession(db, {
-    userId: user.id,
-    userAgentHint: args.request.headers.get("user-agent"),
-  });
-  resetRateLimit("login", args.request);
-  return redirect(user.role === "trainer" ? "/trener" : "/podopieczny", {
-    headers: { "Set-Cookie": buildSetCookie(id, expiresAt) },
-  });
 }
 
 export default function Login() {

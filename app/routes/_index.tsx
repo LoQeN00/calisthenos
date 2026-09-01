@@ -1,5 +1,5 @@
 import { redirect, type LoaderFunctionArgs } from "react-router";
-import { hasRole, optionalUser } from "~/lib/api/auth";
+import { optionalUser, sectionFor } from "~/lib/api/auth";
 
 /**
  * Root index — always redirects.
@@ -10,9 +10,9 @@ import { hasRole, optionalUser } from "~/lib/api/auth";
 export function loader({ context }: LoaderFunctionArgs) {
   const { user } = optionalUser(context);
   if (!user) throw redirect("/login");
-  // Rola jest LISTĄ (ADR-0013) — przynależność, nie równość. Trener wygrywa,
-  // gdy ktoś ma obie: to jego panel jest nadrzędny.
-  throw redirect(hasRole(user, "trainer") ? "/trener" : "/podopieczny");
+  // Regułę „rola → sekcja" zna wyłącznie `sectionFor` — rola jest LISTĄ
+  // (ADR-0013), więc to przynależność, nie równość, a trener wygrywa przy obu.
+  throw redirect(sectionFor(user));
 }
 
 export default function Index() {

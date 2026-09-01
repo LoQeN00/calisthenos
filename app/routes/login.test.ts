@@ -1,57 +1,124 @@
-import { vi } from "vitest";
+// @vitest-environment node
+//
+// `node`, nie happy-dom: akcja buduje ciastko `__Host-…`, a konstruktor
+// `Request` w happy-dom usuwa nagłówki zakazane spec Fetch — test cicho
+// badałby wtedy co innego niż deklaruje.
+import { describe, expect, it, vi } from "vitest";
 
-// Mock DB: nieużywany bezpośrednio przez trasę (findUserByEmail jest zamockowana
-// niżej), ale login.tsx importuje `db` jako uchwyt przekazywany dalej.
-vi.mock("~/lib/db/client", () => ({
-  db: {},
+vi.mock("~/lib/env", () => ({
+  getEnv: () => ({ API_URL: "http://be.test" }),
 }));
 
-// Mock auth: findUserByEmail zawsze null (użytkownik nie istnieje → ścieżka generic
-// error) i verify zawsze false; reszta nieistotna dla ścieżki blokady.
-vi.mock("~/lib/auth", () => ({
-  buildSetCookie: () => "cookie",
-  createSession: async () => ({ id: "s", expiresAt: new Date() }),
-  findUserByEmail: async () => null,
-  getDummyPasswordHash: async () => "$dummy$",
-  parseSessionId: () => null,
-  readSession: async () => null,
-  verifyPassword: async () => false,
-}));
+import { RouterContextProvider } from "react-router";
+import { createApiClient } from "~/lib/api/client";
+import { apiContext } from "~/lib/api/context";
+import { action, loader } from "./login";
 
-import { describe, expect, it } from "vitest";
-import { action } from "~/routes/login";
+const PROFIL = {
+  partyId: "p-1",
+  displayName: "Anna",
+  email: "anna@e.pl",
+  roles: ["trainer"],
+  coach: null,
+};
 
-function loginReq(ip: string): Request {
-  const body = new URLSearchParams({ email: "a@b.com", password: "x" });
-  return new Request("http://localhost/login", {
+function kontekst(reguly: (req: Request) => Response) {
+  const context = new RouterContextProvider();
+  context.set(apiContext, {
+    api: createApiClient({
+      baseUrl: "http://be.test",
+      getToken: () => undefined,
+      fetch: (async (req: Request) => reguly(req)) as unknown as typeof fetch,
+    }),
+    user: null,
+  });
+  return context;
+}
+
+function json(status: number, cialo: unknown): Response {
+  return new Response(JSON.stringify(cialo), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+function zadanie(pola: Record<string, string>): Request {
+  return new Request("https://fe.test/login", {
     method: "POST",
-    headers: { "x-forwarded-for": ip, "content-type": "application/x-www-form-urlencoded" },
-    body,
+    body: new URLSearchParams(pola),
   });
 }
 
-async function call(ip: string) {
-  return action({ request: loginReq(ip), params: {}, context: {} } as never);
-}
+describe("login — logowanie przez kontrakt BE", () => {
+  it("udane logowanie wystawia ciastko sesji i odsyła do sekcji", async () => {
+    const context = kontekst(() =>
+      json(200, { accessToken: "A1", refreshToken: "R1", expiresIn: 900, profile: PROFIL }),
+    );
 
-// KONTRAKT: rate-limiter używa wspólnego singletona store'a w procesie (app/lib/rate-limit.ts).
-// Dlatego KAŻDY test poniżej MUSI używać UNIKALNEGO IP — inaczej liczniki przeciekają
-// między testami i kolejność wykonania robi się znacząca (flaky).
-describe("login action — rate limit", () => {
-  it("11. próba z tego samego IP zwraca 429 + Retry-After", async () => {
-    const ip = "203.0.113.50";
-    for (let i = 0; i < 10; i++) {
-      const r = (await call(ip)) as { data?: unknown; init?: ResponseInit };
-      // pierwsze 10: zwykła ścieżka (generic error), bez 429
-      expect((r as { init?: ResponseInit }).init?.status ?? 200).not.toBe(429);
+    const res = (await action({
+      request: zadanie({ email: "anna@e.pl", password: "tajne123" }),
+      params: {},
+      context,
+    } as never)) as Response;
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/trener");
+    expect(res.headers.get("set-cookie")).toContain("__Host-kth_api=");
+  });
+
+  it("odmowa BE wraca jako komunikat formularza, nie wyjątek", async () => {
+    // Trasa ma pokazać tekst pod polem, a nie granicę błędu — inaczej złe
+    // hasło wygląda jak awaria aplikacji.
+    const context = kontekst(() => json(401, {}));
+
+    const wynik = await action({
+      request: zadanie({ email: "anna@e.pl", password: "zle" }),
+      params: {},
+      context,
+    } as never);
+
+    expect(wynik).toEqual({ error: "Niepoprawne dane logowania." });
+  });
+
+  it("awaria BE NIE jest komunikatem formularza", async () => {
+    // Druga strona tej samej granicy: `500` ma wylecieć do granicy błędu,
+    // a nie kazać użytkownikowi poprawiać hasło w odpowiedzi na cudzą usterkę.
+    const context = kontekst(() => json(500, { error: { code: "INTERNAL", message: "Ups." } }));
+
+    await expect(
+      action({
+        request: zadanie({ email: "anna@e.pl", password: "tajne123" }),
+        params: {},
+        context,
+      } as never),
+    ).rejects.toBeTruthy();
+  });
+
+  it("zalogowany nie widzi formularza", () => {
+    // Loader jest teraz SYNCHRONICZNY i nie dotyka sieci — użytkownika
+    // załadował middleware raz na żądanie. Do integracji było to zapytanie
+    // do bazy przy każdym wejściu na `/login`.
+    const context = new RouterContextProvider();
+    context.set(apiContext, {
+      api: createApiClient({ baseUrl: "http://be.test", getToken: () => undefined }),
+      user: {
+        id: "p-1",
+        email: "anna@e.pl",
+        displayName: "Anna",
+        roles: ["trainer"],
+        trainerId: null,
+        trainerName: null,
+      },
+    });
+
+    let rzucone: unknown;
+    try {
+      loader({ request: new Request("https://fe.test/login"), params: {}, context } as never);
+    } catch (e) {
+      rzucone = e;
     }
-    const blocked = (await call(ip)) as { init: ResponseInit };
-    expect(blocked.init.status).toBe(429);
-    expect((blocked.init.headers as Record<string, string>)["Retry-After"]).toBeDefined();
-  });
 
-  it("inne IP nie jest zablokowane", async () => {
-    const r = (await call("198.51.100.99")) as { init?: ResponseInit };
-    expect(r.init?.status ?? 200).not.toBe(429);
+    expect(rzucone).toBeInstanceOf(Response);
+    expect((rzucone as Response).headers.get("location")).toBe("/trener");
   });
 });

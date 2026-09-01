@@ -30,7 +30,7 @@ export function requireUser(
   const { api, user } = context.get(apiContext);
 
   if (!user) throw redirect("/login");
-  if (role && !hasRole(user, role)) throw redirect(sekcjaDla(user));
+  if (role && !hasRole(user, role)) throw redirect(sectionFor(user));
 
   return { api, user };
 }
@@ -52,12 +52,15 @@ export function hasRole(user: AuthUser, role: Role): boolean {
 }
 
 /**
- * Dokąd odesłać kogoś, kto nie ma roli wymaganej przez trasę. Wołane WYŁĄCZNIE
- * wtedy, gdy `hasRole` zwróciło fałsz, więc przy dzisiejszych dwóch rolach
- * rozstrzyga je ta druga, którą użytkownik ma. Kolejność w wyrażeniu ma
- * znaczenie dopiero, gdyby ról przybyło.
+ * Sekcja, do której należy użytkownik. **Jedyne miejsce, które zna tę regułę** —
+ * wołają ją `requireUser` (przy odmowie), `_index.tsx` (po zalogowaniu)
+ * i `login.tsx` (gdy zalogowany trafi na formularz). Trzy kopie tego wyrażenia
+ * rozjechałyby się przy pierwszej zmianie ról.
+ *
+ * Przy dzisiejszych dwóch rolach trener wygrywa, gdy ktoś ma obie. Kolejność
+ * w wyrażeniu zacznie mieć znaczenie dopiero, gdyby ról przybyło.
  */
-function sekcjaDla(user: AuthUser): string {
+export function sectionFor(user: AuthUser): string {
   // Pusta lista jest osiągalna: rola jest faktem z OKRESEM (ADR-0013), więc
   // między okresami nie ma żadnej. Bez tego strażnika taka osoba dostawałaby
   // `/podopieczny`, ta trasa zażądałaby roli `trainee`, której nie ma, i
