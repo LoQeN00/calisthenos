@@ -34,7 +34,7 @@ Setup lokalny, deploy na Railway, lista komend i posture bezpieczeństwa:
 | Framework | **React Router v7** (framework mode, SSR, loadery/akcje na trasach) |
 | Język | **TypeScript** (strict) |
 | ORM / DB | **Drizzle ORM** + **PostgreSQL 16** |
-| Auth | Własna, sesje w cookie (`__Host-`), hasła **Argon2id** (`@node-rs/argon2`) |
+| Auth | **Sesja na tokenach z BE** — para dostępowy/odświeżający w ciastku `__Host-kth_api`, rotacja i `GET /v1/me` w middlewarze ([`app/lib/api/`](app/lib/api/README.md)). Hasła i limit prób logowania są po stronie BE. |
 | Pliki | Wolumen na dysku przez interfejs `FileStorage` (lokalnie / Railway volume), URL-e podpisywane HMAC |
 | Płatności | **Stripe Connect** (Express) — subskrypcje (Checkout/Customer Portal, destination charges na konto trenera) + webhook z weryfikacją podpisu; opcjonalne (działa bez kluczy), brak danych kart u nas |
 | PWA | `vite-plugin-pwa` (cache statyków, instalowalność; brak offline-sync) |

@@ -88,9 +88,17 @@ export class InMemoryRateLimitStore implements RateLimitStore {
   }
 }
 
+/**
+ * Został jeden limit. `login` i `invite` przeszły do BE w kroku 2 Etapu 2 —
+ * i są tam **lepiej kluczowane**: po znormalizowanym adresie e-mail z ciała
+ * żądania, czyli po koncie, które ktoś atakuje, a nie po adresie IP, który
+ * podopieczni dzielą przez NAT, a jeden użytkownik zmienia przełączając wifi
+ * na LTE. Trzymanie kopii po tej stronie znaczyłoby tę samą ochronę w dwóch
+ * miejscach, z dwoma różnymi kluczami i dwoma licznikami nieświadomymi siebie.
+ *
+ * `upload` zostaje do kroku 4, w którym wysyłka plików przechodzi na BE.
+ */
 export const RATE_LIMITS = {
-  login: { bucket: "login", limit: 10, windowMs: 15 * 60_000 },
-  invite: { bucket: "invite", limit: 10, windowMs: 15 * 60_000 },
   // Hojnie: ciężka sesja treningowa to ~20 nagrań, więc 100 nie przeszkodzi nikomu
   // realnemu, a ogranicza zapychanie wolumenu. Kluczowane po użytkowniku (patrz `key`).
   upload: { bucket: "upload", limit: 100, windowMs: 15 * 60_000 },

@@ -116,9 +116,14 @@ describe("rateLimited", () => {
 });
 
 describe("RATE_LIMITS", () => {
-  it("login i invite: 10 prób / 15 min", () => {
-    expect(RATE_LIMITS.login).toMatchObject({ limit: 10, windowMs: 15 * 60_000 });
-    expect(RATE_LIMITS.invite).toMatchObject({ limit: 10, windowMs: 15 * 60_000 });
+  it("został JEDEN bucket — login i invite przeszły do BE", () => {
+    // Limit prób logowania i przyjęcia zaproszenia stoi od kroku 2 Etapu 2
+    // po stronie BE, kluczowany adresem e-mail z ciała żądania zamiast IP.
+    // Ten test pilnuje, żeby kopia nie wróciła tutaj po cichu: dwa liczniki
+    // tej samej ochrony, z dwoma różnymi kluczami, nie sumują się w ochronę
+    // mocniejszą — sumują się w dwa miejsca do zdiagnozowania, gdy zadziała
+    // niewłaściwe.
+    expect(Object.keys(RATE_LIMITS)).toEqual(["upload"]);
   });
 
   it("upload: 100 wysyłek / 15 min (hojnie — ciężka sesja to ~20 nagrań)", () => {
@@ -137,24 +142,28 @@ describe("RATE_LIMITS", () => {
 describe("enforceRateLimit + resetRateLimit (singleton procesu)", () => {
   // KONTRAKT: helpery używają wspólnego singletona store'a w procesie, więc każdy
   // test MUSI używać UNIKALNEGO IP, żeby liczniki się nie przeplatały.
-  function loginReq(ip: string): Request {
-    return new Request("http://localhost/login", {
+  //
+  // Mechanizm badany na jedynym pozostałym buckecie (`upload`) — sam mechanizm
+  // jest wspólny, a `login`/`invite` przeszły do BE w kroku 2 Etapu 2.
+  function uploadReq(ip: string): Request {
+    return new Request("http://localhost/upload/wideo", {
       method: "POST",
       headers: { "x-forwarded-for": ip },
     });
   }
 
-  it("przepuszcza do limitu, blokuje 11. próbę, a reset odblokowuje", () => {
+  it("przepuszcza do limitu, blokuje kolejną próbę, a reset odblokowuje", () => {
     const ip = "192.0.2.77";
-    for (let i = 0; i < 10; i++) {
-      expect(enforceRateLimit(loginReq(ip), RATE_LIMITS.login)).toBeNull();
+    const { limit } = RATE_LIMITS.upload;
+    for (let i = 0; i < limit; i++) {
+      expect(enforceRateLimit(uploadReq(ip), RATE_LIMITS.upload)).toBeNull();
     }
-    const blocked = enforceRateLimit(loginReq(ip), RATE_LIMITS.login);
+    const blocked = enforceRateLimit(uploadReq(ip), RATE_LIMITS.upload);
     expect(blocked).not.toBeNull();
     expect(typeof blocked).toBe("number");
 
-    resetRateLimit("login", loginReq(ip)); // np. po udanym logowaniu
-    expect(enforceRateLimit(loginReq(ip), RATE_LIMITS.login)).toBeNull();
+    resetRateLimit("upload", uploadReq(ip));
+    expect(enforceRateLimit(uploadReq(ip), RATE_LIMITS.upload)).toBeNull();
   });
 });
 

@@ -4,7 +4,6 @@ import type { MiddlewareFunction } from "react-router";
 import { ConfirmProvider } from "~/components/confirm-provider";
 import { ToastProvider } from "~/components/toast-provider";
 import { apiMiddleware } from "~/lib/api/middleware";
-import { maybePruneExpiredSessions } from "~/lib/auth/session";
 import { db } from "~/lib/db/client";
 import { maybeSweepOrphanSetVideos } from "~/lib/orphan-files";
 
@@ -14,9 +13,11 @@ import { maybeSweepOrphanSetVideos } from "~/lib/orphan-files";
 export const middleware: MiddlewareFunction<Response>[] = [apiMiddleware];
 
 export async function loader() {
-  // Lazy background prune: at most once an hour per process, fire-and-forget.
-  maybePruneExpiredSessions(db);
-  // To samo dla nagrań serii wgranych, ale nigdy niepodpiętych do treningu
+  // Sprzątaczka wygasłych sesji zniknęła razem ze starą sesją bazodanową
+  // (krok 2 Etapu 2) — odpalała się przy KAŻDYM żądaniu obsługiwanym przez
+  // router, dla tabeli, z której nic już nie korzysta.
+  //
+  // Leniwe sprzątanie nagrań serii wgranych, ale nigdy niepodpiętych do treningu
   // (porzucona sesja logowania) — inaczej wolumen rósłby o każdy taki plik.
   maybeSweepOrphanSetVideos(db);
   return null;

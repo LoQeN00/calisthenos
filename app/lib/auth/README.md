@@ -1,31 +1,19 @@
-# app/lib/auth/ — uwierzytelnianie i autoryzacja sesji
+# app/lib/auth/ — zaproszenia trenera i odczyty użytkowników
 
-Własna auth: sesje serwerowe (rewokowalne) trzymane w cookie z prefiksem
-`__Host-`, hasła Argon2id, zaproszenia jako jedyna ścieżka zakładania konta
-podopiecznego. Importuj przez `index.ts`.
+**Sesje i hasła stąd wyprowadziły się** do [`../api/`](../api/README.md) w kroku 2 Etapu 2:
+tożsamość niesie ciastko `__Host-kth_api` z tokenami BE, a `session.ts`, `cookie.ts` oraz
+pułapka z dwiema funkcjami `clearSessionCookie` o tej samej nazwie zniknęły razem ze starą
+sesją bazodanową. Pilnuje tego bramka `app/routes/no-stara-sesja.test.ts`.
 
-> **Autoryzacja już tu nie mieszka.** Kto jest zalogowany i czy wolno mu wejść na trasę,
-> rozstrzyga [`../api/`](../api/README.md) na podstawie sesji na tokenach z BE. Ten katalog
-> obsługuje dziś wyłącznie **starą** sesję bazodanową, z której korzysta jeszcze `login.tsx`
-> i `zaproszenie.$token.tsx` — do czasu kroku 2 Etapu 2.
-
-> ⚠️ **Pułapka na krok 2: `clearSessionCookie` istnieje DWA RAZY**, pod tą samą nazwą
-> i w dwóch warstwach — tutaj (`cookie.ts`, kasuje `__Host-kth_session`) oraz
-> w [`../api/session.ts`](../api/README.md) (kasuje `__Host-kth_api`). `routes/wyloguj.tsx`
-> importuje dziś tę **stąd** i ma rację, bo nikt jeszcze nie ma ciastka tokenowego. Gdy
-> logowanie zacznie je wystawiać, `wyloguj` musi kasować **oba** — a przy identycznej nazwie
-> zła podpowiedź importu jest cicha, objawem jest „wylogowanie nie wylogowuje" (middleware
-> wskrzesza użytkownika z tokenu, którego nikt nie skasował), i `wyloguj.tsx` nie ma
-> żadnego testu, który by to złapał.
+Zostało to, czego BE jeszcze nie przejął: zaproszenia wystawiane przez trenera i dwa odczyty
+użytkowników. Jedno i drugie znika w krokach 3 i 6 Etapu 2. Importuj przez `index.ts`.
 
 | Plik | Rola / kluczowe eksporty |
 |---|---|
-| `index.ts` | **Sama fasada re-eksportów** nad ciastkiem sesji, hasłami, zaproszeniami i odczytami użytkowników — bez własnej logiki. Tożsamość wyprowadziła się stąd do [`../api/`](../api/README.md): `requireUser`/`optionalUser` czytają `context` wypełniony przez `apiMiddleware`, a nie bazę (spec rozbicia FE/BE, krok 1 Etapu 2). To, co zostało tutaj, znika w krokach 2 i 6 Etapu 2. |
-| `session.ts` | Cykl życia sesji (30 dni, auto-odświeżenie <7 dni do końca, leniwy prune): `createSession`, `readSession`, `destroySession`, `refreshIfNearExpiry`, `pruneExpiredSessions`, `maybePruneExpiredSessions`. |
-| `cookie.ts` | Budowa/parsowanie cookie sesji: `buildSetCookie`, `clearSessionCookie`, `parseSessionId`, `COOKIE_NAME = "__Host-kth_session"` (HttpOnly, Secure, SameSite=Lax, Path=/). |
-| `password.ts` | Argon2id wg minimów OWASP 2023: `hashPassword`, `verifyPassword`, `getDummyPasswordHash` (stały czas), `ARGON2_OPTS`. |
-| `invite.ts` | Zaproszenia trenera (14 dni, token SHA-256, jednorazowe, opcjonalna podmiana konta): `createInvite`, `consumeInvite` (atomowe `SELECT FOR UPDATE`), `hashToken`, `findInviteByToken` (odczyt po SUROWYM tokenie z URL-a — haszuje sama, wołający nigdy nie dotyka hasza). `createInvite` przyjmuje opcjonalny `monthlyAmountGrosze` (zapisywany w `invites.monthly_amount_grosze`) — kwota miesięcznej subskrypcji ustalona przez trenera, niesiona z zaproszeniem i skonsumowana przy rejestracji do inicjalizacji cennika podopiecznego (płatność w onboardingu). `consumeInvite` w tej samej transakcji stempluje `trainee_id` na formularzu startowym doczepionym do zaproszenia (`attachFormToTrainee` z `~/lib/onboarding-forms`) — konto i przypięcie formularza powstają albo oba, albo żadne. `createInviteWithOnboarding` — zaproszenie + opcjonalny formularz startowy w JEDNEJ transakcji (`createInvite` + `createOnboardingForm`), używane przez `/trener/podopieczni`: nigdy nie powstaje link do zaproszenia, któremu formularz nie doszedł, a `inviteId` bierze się WYŁĄCZNIE z wiersza utworzonego w tej transakcji, nigdy z requestu. Mieszka **tutaj, nie w `onboarding-forms.ts`**, bo ten moduł już importuje formularze (`attachFormToTrainee`) — odwrotny import zamknąłby cykl; zaproszenie jest korzeniem tego agregatu, formularz mu towarzyszy. `OnboardingFormError` przechodzi na zewnątrz, mapuje go trasa. |
-| `users.ts` | Odczyty użytkowników poza sesją: `findUserByEmail` (logowanie — `null` gdy brak konta, trasa i tak liczy dummy-hash), `findDisplayName` (sama nazwa wyświetlana, do framingu trenera na ekranach podopiecznego). |
+| `index.ts` | Fasada re-eksportów nad `invite.ts` i `users.ts` — nic więcej. `password.ts` celowo NIE jest tu wystawiony: nic w `app/` nie ma już powodu dotykać haseł. |
+| `password.ts` | Zostaje **wyłącznie** dla `scripts/seed.ts`, który bierze stąd `ARGON2_OPTS`, żeby zasiane konta miały hasze zgodne z produkcyjnymi. Hasła użytkowników weryfikuje BE. Znika razem z bazą w kroku 6. |
+| `invite.ts` | **Wystawianie** zaproszeń wciąż tutaj, **przyjmowanie** przeszło do BE (krok 2): `consumeInvite` i `findInviteByToken` nie mają już wywołującego w `app/` — trzymają je testy integracyjne pokrywające transakcję, która żyje do kroku 6. Zaproszenia trenera (14 dni, token SHA-256, jednorazowe, opcjonalna podmiana konta): `createInvite`, `consumeInvite` (atomowe `SELECT FOR UPDATE`), `hashToken`, `findInviteByToken` (odczyt po SUROWYM tokenie z URL-a — haszuje sama, wołający nigdy nie dotyka hasza). `createInvite` przyjmuje opcjonalny `monthlyAmountGrosze` (zapisywany w `invites.monthly_amount_grosze`) — kwota miesięcznej subskrypcji ustalona przez trenera, niesiona z zaproszeniem i skonsumowana przy rejestracji do inicjalizacji cennika podopiecznego (płatność w onboardingu). `consumeInvite` w tej samej transakcji stempluje `trainee_id` na formularzu startowym doczepionym do zaproszenia (`attachFormToTrainee` z `~/lib/onboarding-forms`) — konto i przypięcie formularza powstają albo oba, albo żadne. `createInviteWithOnboarding` — zaproszenie + opcjonalny formularz startowy w JEDNEJ transakcji (`createInvite` + `createOnboardingForm`), używane przez `/trener/podopieczni`: nigdy nie powstaje link do zaproszenia, któremu formularz nie doszedł, a `inviteId` bierze się WYŁĄCZNIE z wiersza utworzonego w tej transakcji, nigdy z requestu. Mieszka **tutaj, nie w `onboarding-forms.ts`**, bo ten moduł już importuje formularze (`attachFormToTrainee`) — odwrotny import zamknąłby cykl; zaproszenie jest korzeniem tego agregatu, formularz mu towarzyszy. `OnboardingFormError` przechodzi na zewnątrz, mapuje go trasa. |
+| `users.ts` | `findDisplayName` — sama nazwa wyświetlana, do framingu trenera na ekranach podopiecznego (trzy trasy w `podopieczny/`). `findUserByEmail` **straciło wywołującego**: logowanie przeszło na BE, więc zostaje tylko dla testu integracyjnego, do kroku 6. |
 
 Uwaga: cookie `__Host-` wymaga `Secure` — w dev działa przez wyjątek dla
 `localhost`; testy w LAN po HTTP nie zadziałają (patrz root `README.md`).
