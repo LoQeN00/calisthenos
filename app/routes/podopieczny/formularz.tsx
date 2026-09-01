@@ -8,7 +8,8 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
-import { findDisplayName, requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
+import { findDisplayName } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import {
   MAX_ONBOARDING_COMMENT,
@@ -32,8 +33,8 @@ import { hasTraineeAppAccess } from "~/lib/stripe/gate";
 // ponownie, bo na tę trasę można wejść wprost z adresu.
 // ============================================================
 
-export async function loader({ request }: LoaderFunctionArgs) {
-  const user = await requireUser(request, db, { role: "trainee" });
+export async function loader({ context }: LoaderFunctionArgs) {
+  const { user } = requireUser(context, { role: "trainee" });
 
   const { hasAccess } = await hasTraineeAppAccess(db, user);
   if (!hasAccess) throw redirect("/podopieczny/aktywuj");
@@ -41,14 +42,13 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const form = await getPendingFormForTrainee(db, user.id);
   if (!form) throw redirect("/podopieczny");
 
-  const trainerName =
-    user.trainerId != null ? await findDisplayName(db, user.trainerId) : null;
+  const trainerName = user.trainerId != null ? await findDisplayName(db, user.trainerId) : null;
 
   return { form, trainerName };
 }
 
-export async function action({ request }: ActionFunctionArgs) {
-  const user = await requireUser(request, db, { role: "trainee" });
+export async function action({ request, context }: ActionFunctionArgs) {
+  const { user } = requireUser(context, { role: "trainee" });
 
   // Ta sama kolejność bramek co w loaderze. Bez powtórzenia jej TUTAJ nieopłacony
   // podopieczny zamknąłby formularz POST-em wprost, z pominięciem ekranu

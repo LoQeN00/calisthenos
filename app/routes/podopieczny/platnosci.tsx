@@ -8,7 +8,8 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
-import { findDisplayName, requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
+import { findDisplayName } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import { fmtDate, fmtDateTime } from "~/lib/format";
 import { fmtMoney } from "~/lib/money";
@@ -24,7 +25,7 @@ import {
 } from "~/lib/stripe/subscriptions";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
+  const { user } = requireUser(args.context, { role: "trainee" });
   const trainerId = user.trainerId!;
 
   const [sub, payments, trainerName] = await Promise.all([
@@ -41,7 +42,7 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
+  const { user } = requireUser(args.context, { role: "trainee" });
   const trainerId = user.trainerId!;
 
   const fd = await args.request.formData();

@@ -1,6 +1,6 @@
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { ComparisonChart, ComparisonChartLegend } from "~/components/progression-charts";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { getProgressionComparison } from "~/lib/progression";
 import type { ProgressionRange } from "~/lib/progression-math";
@@ -8,7 +8,7 @@ import type { ProgressionRange } from "~/lib/progression-math";
 const RANGES: ProgressionRange[] = ["4w", "3m", "6m", "all"];
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
+  const { user } = requireUser(args.context, { role: "trainee" });
   const url = new URL(args.request.url);
   const ids = (url.searchParams.get("ex") ?? "")
     .split(",")

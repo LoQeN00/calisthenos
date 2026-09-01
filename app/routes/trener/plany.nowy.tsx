@@ -8,7 +8,7 @@ import {
   type LoaderFunctionArgs,
 } from "react-router";
 import { z } from "zod";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { createBlankPlan, findAnyDraftFor } from "~/lib/plans";
 import { findTraineeOfTrainer, listTraineesOfTrainer } from "~/lib/trainees";
@@ -19,7 +19,7 @@ const NewPlanSchema = z.object({
 });
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const url = new URL(args.request.url);
   const preselectId = url.searchParams.get("traineeId");
 
@@ -42,7 +42,7 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const fd = await args.request.formData();
   const parsed = NewPlanSchema.safeParse({
     traineeId: fd.get("traineeId"),

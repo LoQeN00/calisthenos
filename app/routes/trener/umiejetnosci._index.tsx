@@ -1,14 +1,14 @@
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { ListControls } from "~/components/list-controls";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
 import { SKILL_TIERS, TIER_LABEL, type SkillTier } from "~/lib/skill-tier";
 import { listSkillsForTrainer, type SkillListRow } from "~/lib/skills";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const url = new URL(args.request.url);
   const all = await listSkillsForTrainer(db, user.id);
 

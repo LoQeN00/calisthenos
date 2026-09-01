@@ -12,7 +12,7 @@ import {
 import { ConfirmSubmitButton, useAlert, useConfirm } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
 import { useToast } from "~/components/toast-provider";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { listActiveExercisesForTrainer } from "~/lib/exercises";
 import { fmtDate, pluralizePl, type PlForms } from "~/lib/format";
@@ -47,7 +47,7 @@ import {
 export type PlanRouteMode = "view-active" | "edit-active" | "edit-draft" | "view-archived";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const planId = args.params.planId ?? "";
   const url = new URL(args.request.url);
   const wantsEdit = url.searchParams.get("edit") === "1";
@@ -117,7 +117,7 @@ export async function loader(args: LoaderFunctionArgs) {
 // ============================================================
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const planId = args.params.planId ?? "";
   const fd = await args.request.formData();
   const intent = fd.get("intent");

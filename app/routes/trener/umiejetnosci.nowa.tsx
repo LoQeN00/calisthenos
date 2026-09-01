@@ -5,19 +5,19 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { SKILL_TIERS, TIER_LABEL } from "~/lib/skill-tier";
 import { SkillError, createSkill } from "~/lib/skills";
 import { SkillFormSchema } from "~/lib/skill-types";
 
 export async function loader(args: LoaderFunctionArgs) {
-  await requireUser(args.request, db, { role: "trainer" });
+  requireUser(args.context, { role: "trainer" });
   return null;
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const fd = await args.request.formData();
   const parsed = SkillFormSchema.safeParse({
     name: String(fd.get("name") ?? ""),

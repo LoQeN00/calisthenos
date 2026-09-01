@@ -10,7 +10,7 @@ import { ExerciseProgressionPanel } from "~/components/exercise-progression-pane
 import { Icons } from "~/components/icons";
 import { VariationLadder } from "~/components/skill-tree";
 import { TierBadge } from "~/components/tier-badge";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { fmtDate } from "~/lib/format";
 import { findTraineeOfTrainer, getExerciseProgression, todayIso } from "~/lib/progression";
@@ -26,7 +26,7 @@ import { AdvancementFormSchema } from "~/lib/skill-types";
 const RANGES: ProgressionRange[] = ["4w", "3m", "6m", "all"];
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
   const skillId = args.params.skillId ?? "";
   const trainee = await findTraineeOfTrainer(db, user.id, traineeId);
@@ -49,7 +49,7 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
   const skillId = args.params.skillId ?? "";
   const trainee = await findTraineeOfTrainer(db, user.id, traineeId);

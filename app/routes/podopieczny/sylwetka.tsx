@@ -16,7 +16,7 @@ import { Modal } from "~/components/modal";
 import { Pagination, parsePage } from "~/components/pagination";
 import { PhotoCard } from "~/components/photo-card";
 import { PhotoLightbox, type LightboxPhoto } from "~/components/photo-lightbox";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import {
   addBodyPhoto,
   BodyPhotoError,
@@ -58,7 +58,7 @@ const SYLWETKA_SPEC: ListControlsSpec = {
 };
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
+  const { user } = requireUser(args.context, { role: "trainee" });
   const url = new URL(args.request.url);
   const page = parsePage(url.searchParams);
 
@@ -114,7 +114,7 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
+  const { user } = requireUser(args.context, { role: "trainee" });
   if (!user.trainerId) return { error: "Konto bez przypisanego trenera." };
   const fd = await args.request.formData();
   const intent = fd.get("intent");

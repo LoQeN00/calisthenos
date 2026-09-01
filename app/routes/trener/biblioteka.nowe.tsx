@@ -11,7 +11,7 @@ import {
 import { z } from "zod";
 import { CategoryPicker } from "~/components/exercise-fields";
 import { FileDropzone } from "~/components/file-dropzone";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { filterToKnownCategoryNames, listCategoriesForTrainer } from "~/lib/categories";
 import { db } from "~/lib/db/client";
 import { createExerciseWithDemo } from "~/lib/exercises";
@@ -25,8 +25,8 @@ const ExerciseSchema = z.object({
 });
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
-  const categories = await listCategoriesForTrainer(db, user.id);
+  const { api } = requireUser(args.context, { role: "trainer" });
+  const categories = await listCategoriesForTrainer(api);
   // Limit kliencki MUSI pochodzić z tego samego źródła co serwerowy — inaczej
   // przeglądarka przepuszcza plik, który serwer i tak odrzuci, ale dopiero PO
   // zbuforowaniu całego ciała żądania w pamięci.
@@ -34,7 +34,7 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { api, user } = requireUser(args.context, { role: "trainer" });
   const fd = await args.request.formData();
   const parsed = ExerciseSchema.safeParse({
     name: fd.get("name"),
@@ -48,7 +48,7 @@ export async function action(args: ActionFunctionArgs) {
     };
   }
 
-  const categories = await listCategoriesForTrainer(db, user.id);
+  const categories = await listCategoriesForTrainer(api);
   const selected = fd.getAll("categories").map((v) => v.toString());
   const tags = filterToKnownCategoryNames(categories, selected);
 

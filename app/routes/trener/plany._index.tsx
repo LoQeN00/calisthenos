@@ -10,7 +10,7 @@ import { ConfirmSubmitButton } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
 import { ListControls } from "~/components/list-controls";
 import { Pagination, parsePage } from "~/components/pagination";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { type PlForms, fmtDate, pluralizePl } from "~/lib/format";
 import { type ListControlsSpec, parseListControls } from "~/lib/list-params";
@@ -28,7 +28,7 @@ const PAGE_SIZE = 20;
 const PLAN: PlForms = { one: "plan", few: "plany", many: "planów" };
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const url = new URL(args.request.url);
   const page = parsePage(url.searchParams);
 
@@ -89,7 +89,7 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const fd = await args.request.formData();
   const intent = fd.get("intent");
   if (intent !== "delete") return null;

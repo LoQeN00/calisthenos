@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { Link, useLoaderData, useSearchParams, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { useToast } from "~/components/toast-provider";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { signFileUrl } from "~/lib/files";
 import { daysAgo, fmtDate } from "~/lib/format";
@@ -10,7 +10,7 @@ import { draftKey } from "~/lib/log-draft";
 import { loadLogForViewer } from "~/lib/workouts";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
+  const { user } = requireUser(args.context, { role: "trainee" });
   const logId = args.params.logId ?? "";
 
   const detail = await loadLogForViewer(db, logId, {

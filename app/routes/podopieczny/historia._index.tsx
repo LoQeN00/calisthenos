@@ -2,7 +2,7 @@ import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { ListControls } from "~/components/list-controls";
 import { Icons } from "~/components/icons";
 import { Pagination, parsePage } from "~/components/pagination";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { fmtDate, pluralizePl, type PlForms } from "~/lib/format";
 import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
@@ -36,7 +36,7 @@ const spec: ListControlsSpec = {
 };
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
+  const { user } = requireUser(args.context, { role: "trainee" });
   const url = new URL(args.request.url);
   const page = parsePage(url.searchParams);
   const controls = parseListControls(url.searchParams, spec);

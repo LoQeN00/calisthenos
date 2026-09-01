@@ -19,7 +19,7 @@ import {
   PlanUsageCard,
   TagDistributionCard,
 } from "~/components/trainee-health";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { countPendingForTrainee, nextUpcomingForTrainee } from "~/lib/consultations";
 import { syncCancelAllForPair } from "~/lib/google/sync";
 import { cleanupSubscriptionForTrainee } from "~/lib/stripe/subscriptions";
@@ -75,7 +75,7 @@ const spec: ListControlsSpec = {
 const LOGS_PAGE_SIZE = 20;
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
   const url = new URL(args.request.url);
   const logsPage = parsePage(url.searchParams);
@@ -157,7 +157,7 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
 
   // Re-verify trainee ownership before any mutation.

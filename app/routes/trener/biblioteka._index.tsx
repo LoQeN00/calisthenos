@@ -10,7 +10,7 @@ import { ConfirmSubmitButton } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
 import { ListControls } from "~/components/list-controls";
 import { Pagination, parsePage } from "~/components/pagination";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import {
   CategoryError,
   addCategory,
@@ -32,11 +32,11 @@ const PAGE_SIZE = 24;
 const POZYCJA: PlForms = { one: "pozycja", few: "pozycje", many: "pozycji" };
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { api, user } = requireUser(args.context, { role: "trainer" });
   const url = new URL(args.request.url);
   const page = parsePage(url.searchParams);
 
-  const categories = await listCategoriesForTrainer(db, user.id);
+  const categories = await listCategoriesForTrainer(api);
   const categoryNames = new Set(categories.map((c) => c.name));
 
   const spec: ListControlsSpec = {
@@ -120,14 +120,14 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const fd = await args.request.formData();
   const intent = fd.get("intent");
 
   if (intent === "add-category") {
     const name = (fd.get("name") ?? "").toString();
     try {
-      await addCategory(db, user.id, name);
+      await addCategory(api, name);
     } catch (e) {
       if (e instanceof CategoryError) return { error: e.userMessage };
       throw e;
@@ -138,7 +138,7 @@ export async function action(args: ActionFunctionArgs) {
   if (intent === "delete-category") {
     const categoryId = (fd.get("categoryId") ?? "").toString();
     if (categoryId.length > 0) {
-      await deleteCategory(db, user.id, categoryId);
+      await deleteCategory(api, categoryId);
     }
     return { ok: true };
   }

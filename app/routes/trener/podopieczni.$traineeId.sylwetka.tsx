@@ -3,7 +3,7 @@ import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { SideBySideSection, type ResolvedPair } from "~/components/body-photo-compare";
 import { PhotoCard } from "~/components/photo-card";
 import { PhotoLightbox, type LightboxPhoto } from "~/components/photo-lightbox";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { listBodyPhotosForTrainee } from "~/lib/body-photos";
 import { db } from "~/lib/db/client";
 import type { BodyPhotoView } from "~/lib/db/schema";
@@ -12,7 +12,7 @@ import { getSideBySidePhotoPairs } from "~/lib/stats";
 import { findTraineeOfTrainer } from "~/lib/trainees";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
 
   const trainee = await findTraineeOfTrainer(db, user.id, traineeId);

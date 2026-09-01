@@ -8,7 +8,7 @@ import {
   useNavigation,
 } from "react-router";
 import { FeatureRequestBadge } from "~/components/feature-request-badge";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import {
   FEATURE_REQUEST_STATUSES,
@@ -24,7 +24,7 @@ import {
 import { fmtDate } from "~/lib/format";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const request = await getForTrainer(db, user.id, args.params.requestId ?? "");
   // Cudze zgłoszenie = 404, nie 403 — nie potwierdzamy, że taki wiersz istnieje.
   if (request == null) throw new Response("Not Found", { status: 404 });
@@ -32,7 +32,7 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const fd = await args.request.formData();
   const parsed = FeatureRequestResponseSchema.safeParse({
     status: String(fd.get("status") ?? ""),

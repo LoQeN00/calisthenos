@@ -9,7 +9,7 @@ import { ConsultationAlert } from "~/components/consultation-alert";
 import { StatusBadge } from "~/components/consultation-status-badge";
 import { Icons } from "~/components/icons";
 import { TraineeOccurrenceActions } from "~/components/trainee-occurrence-actions";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { consultationPresentation } from "~/lib/consultation-status";
 import { TraineeActionSchema } from "~/lib/consultation-types";
 import { ConsultationError, getConsultationDetail, respondToOccurrence } from "~/lib/consultations";
@@ -18,7 +18,7 @@ import { db } from "~/lib/db/client";
 import { fmtDate, fmtDateTime } from "~/lib/format";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
+  const { user } = requireUser(args.context, { role: "trainee" });
   const detail = await getConsultationDetail(db, {
     consultationId: args.params.konsultacjaId ?? "",
     traineeId: user.id,
@@ -32,7 +32,7 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
+  const { user } = requireUser(args.context, { role: "trainee" });
   const fd = await args.request.formData();
   const consultationId = String(fd.get("consultationId") ?? "");
   const parsedAction = TraineeActionSchema.safeParse(String(fd.get("action") ?? ""));

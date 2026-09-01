@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { UserMenu } from "~/components/user-menu";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { countActiveExercisesForTrainer } from "~/lib/exercises";
 import { countNewForTrainer } from "~/lib/feature-requests";
@@ -9,7 +9,7 @@ import { countPlansForTrainerByStatus } from "~/lib/plans";
 import { countTraineesOfTrainer } from "~/lib/trainees";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
 
   const traineeCount = await countTraineesOfTrainer(db, user.id);
   const exerciseCount = await countActiveExercisesForTrainer(db, user.id);

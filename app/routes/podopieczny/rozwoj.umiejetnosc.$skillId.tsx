@@ -2,7 +2,7 @@ import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { ExerciseProgressionPanel } from "~/components/exercise-progression-panel";
 import { VariationLadder } from "~/components/skill-tree";
 import { TierBadge } from "~/components/tier-badge";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { fmtDate } from "~/lib/format";
 import { getExerciseProgression } from "~/lib/progression";
@@ -12,7 +12,7 @@ import { getSkillMapForTrainee } from "~/lib/skill-progression";
 const RANGES: ProgressionRange[] = ["4w", "3m", "6m", "all"];
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
+  const { user } = requireUser(args.context, { role: "trainee" });
   if (!user.trainerId) throw new Response("Konto bez przypisanego trenera.", { status: 400 });
   const skillId = args.params.skillId ?? "";
   const map = await getSkillMapForTrainee(db, user.trainerId, user.id, { withSuggestions: false });

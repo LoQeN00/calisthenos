@@ -1,7 +1,7 @@
 import { useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { ProgressionList } from "~/components/progression-list";
 import { SkillTreeView } from "~/components/skill-tree";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
 import { listProgressionExercises } from "~/lib/progression";
@@ -14,7 +14,7 @@ import { getSkillTreeForTrainee } from "~/lib/skill-tree";
 import { listExerciseSkillMap } from "~/lib/skills";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
+  const { user } = requireUser(args.context, { role: "trainee" });
   if (!user.trainerId) throw new Response("Konto bez przypisanego trenera.", { status: 400 });
   const url = new URL(args.request.url);
 

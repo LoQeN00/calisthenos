@@ -10,7 +10,7 @@ import {
 import { ConfirmSubmitButton } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
 import { TierBadge } from "~/components/tier-badge";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { pluralizePl } from "~/lib/format";
 import { SKILL_TIERS, TIER_LABEL } from "~/lib/skill-tier";
@@ -32,7 +32,7 @@ import {
 import { PrerequisiteFormSchema, ReorderFormSchema, SkillFormSchema } from "~/lib/skill-types";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const skillId = args.params.skillId ?? "";
   const skill = await getSkillWithVariations(db, user.id, skillId);
   if (!skill) throw new Response("not found", { status: 404 });
@@ -46,7 +46,7 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const skillId = args.params.skillId ?? "";
   const fd = await args.request.formData();
   const intent = fd.get("intent");

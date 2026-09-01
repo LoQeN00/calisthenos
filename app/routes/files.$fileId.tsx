@@ -1,6 +1,6 @@
 import { Readable } from "node:stream";
 import type { LoaderFunctionArgs } from "react-router";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { ownsTrainerScope } from "~/lib/authz";
 import { db } from "~/lib/db/client";
 import { findFileById } from "~/lib/file-uploads";
@@ -24,7 +24,7 @@ function parseRange(header: string | null, totalBytes: number): ParsedRange | nu
 }
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db);
+  const { user } = requireUser(args.context);
   const fileId = args.params.fileId ?? "";
   const url = new URL(args.request.url);
   const exp = Number(url.searchParams.get("exp") ?? "0");

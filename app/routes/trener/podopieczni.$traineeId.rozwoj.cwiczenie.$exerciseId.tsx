@@ -1,6 +1,6 @@
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { ExerciseProgressionPanel } from "~/components/exercise-progression-panel";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { findTraineeOfTrainer, getExerciseProgression } from "~/lib/progression";
 import type { ProgressionRange } from "~/lib/progression-math";
@@ -8,7 +8,7 @@ import type { ProgressionRange } from "~/lib/progression-math";
 const RANGES: ProgressionRange[] = ["4w", "3m", "6m", "all"];
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
   const exerciseId = args.params.exerciseId ?? "";
   const trainee = await findTraineeOfTrainer(db, user.id, traineeId);

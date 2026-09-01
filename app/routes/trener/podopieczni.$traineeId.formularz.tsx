@@ -1,6 +1,6 @@
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { fmtDateTime } from "~/lib/format";
 import { answerLabel } from "~/lib/onboarding-form-types";
@@ -8,7 +8,7 @@ import { getFormForTrainer } from "~/lib/onboarding-forms";
 import { assertTraineeOwnedBy, findTraineeOfTrainer } from "~/lib/trainees";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
   // Rzuca 404, gdy podopieczny nie jest nasz — zanim w ogóle zapytamy o formularz.
   await assertTraineeOwnedBy(db, user.id, traineeId);

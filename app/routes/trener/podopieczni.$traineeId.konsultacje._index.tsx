@@ -11,7 +11,7 @@ import { ConsultationAlert } from "~/components/consultation-alert";
 import { ConsultationRow } from "~/components/consultation-row";
 import { Icons } from "~/components/icons";
 import { ScheduleForm } from "~/components/schedule-form";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { parseScheduleFormData } from "~/lib/consultation-form.server";
 import { isGoogleSyncActive, syncBackfillPair, syncCancelStaleSchedule } from "~/lib/google/sync";
 import {
@@ -36,7 +36,7 @@ const CADENCE_LABEL: Record<schema.ConsultationCadence, string> = {
 };
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
   const trainee = await findTraineeOfTrainer(db, user.id, traineeId);
   if (!trainee) throw new Response("not found", { status: 404 });
@@ -57,7 +57,7 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
   const fd = await args.request.formData();
   const intent = fd.get("intent");

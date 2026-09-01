@@ -11,7 +11,7 @@ import {
 import { z } from "zod";
 import { ConfirmSubmitButton } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { filterToKnownCategoryNames, listCategoriesForTrainer } from "~/lib/categories";
 import { db } from "~/lib/db/client";
 import {
@@ -34,7 +34,7 @@ const EditSchema = z.object({
 });
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { api, user } = requireUser(args.context, { role: "trainer" });
   const exerciseId = args.params.exerciseId ?? "";
 
   const row = await getExerciseWithDemoForTrainer(db, user.id, exerciseId);
@@ -42,7 +42,7 @@ export async function loader(args: LoaderFunctionArgs) {
     throw new Response("not found", { status: 404 });
   }
 
-  const categories = await listCategoriesForTrainer(db, user.id);
+  const categories = await listCategoriesForTrainer(api);
 
   return {
     exercise: row.exercise,
@@ -57,7 +57,7 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { api, user } = requireUser(args.context, { role: "trainer" });
   const exerciseId = args.params.exerciseId ?? "";
   const fd = await args.request.formData();
   const intent = fd.get("intent");
@@ -98,7 +98,7 @@ export async function action(args: ActionFunctionArgs) {
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Sprawdź pola formularza." };
   }
-  const categories = await listCategoriesForTrainer(db, user.id);
+  const categories = await listCategoriesForTrainer(api);
   const selected = fd.getAll("categories").map((v) => v.toString());
   const tags = filterToKnownCategoryNames(categories, selected);
 

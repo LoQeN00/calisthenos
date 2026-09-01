@@ -4,9 +4,14 @@ Własna auth: sesje serwerowe (rewokowalne) trzymane w cookie z prefiksem
 `__Host-`, hasła Argon2id, zaproszenia jako jedyna ścieżka zakładania konta
 podopiecznego. Importuj przez `index.ts`.
 
+> **Autoryzacja już tu nie mieszka.** Kto jest zalogowany i czy wolno mu wejść na trasę,
+> rozstrzyga [`../api/`](../api/README.md) na podstawie sesji na tokenach z BE. Ten katalog
+> obsługuje dziś wyłącznie **starą** sesję bazodanową, z której korzysta jeszcze `login.tsx`
+> i `zaproszenie.$token.tsx` — do czasu kroku 2 Etapu 2.
+
 | Plik | Rola / kluczowe eksporty |
 |---|---|
-| `index.ts` | Punkt wejścia + guardy: `getOptionalUser`, `requireUser(request, db, { role? })`, typ `AuthUser`, `Role`. Re-eksportuje resztę modułu. |
+| `index.ts` | **Sama fasada re-eksportów** nad ciastkiem sesji, hasłami, zaproszeniami i odczytami użytkowników — bez własnej logiki. Tożsamość wyprowadziła się stąd do [`../api/`](../api/README.md): `requireUser`/`optionalUser` czytają `context` wypełniony przez `apiMiddleware`, a nie bazę (spec rozbicia FE/BE, krok 1 Etapu 2). To, co zostało tutaj, znika w krokach 2 i 6 Etapu 2. |
 | `session.ts` | Cykl życia sesji (30 dni, auto-odświeżenie <7 dni do końca, leniwy prune): `createSession`, `readSession`, `destroySession`, `refreshIfNearExpiry`, `pruneExpiredSessions`, `maybePruneExpiredSessions`. |
 | `cookie.ts` | Budowa/parsowanie cookie sesji: `buildSetCookie`, `clearSessionCookie`, `parseSessionId`, `COOKIE_NAME = "__Host-kth_session"` (HttpOnly, Secure, SameSite=Lax, Path=/). |
 | `password.ts` | Argon2id wg minimów OWASP 2023: `hashPassword`, `verifyPassword`, `getDummyPasswordHash` (stały czas), `ARGON2_OPTS`. |

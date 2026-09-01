@@ -1,6 +1,5 @@
 import { redirect, type LoaderFunctionArgs } from "react-router";
-import { getOptionalUser } from "~/lib/auth";
-import { db } from "~/lib/db/client";
+import { hasRole, optionalUser } from "~/lib/api/auth";
 
 /**
  * Root index — always redirects.
@@ -8,10 +7,12 @@ import { db } from "~/lib/db/client";
  * - Logged in as trainee → /podopieczny
  * - Anonymous → /login
  */
-export async function loader(args: LoaderFunctionArgs) {
-  const user = await getOptionalUser(args.request, db);
+export function loader({ context }: LoaderFunctionArgs) {
+  const { user } = optionalUser(context);
   if (!user) throw redirect("/login");
-  throw redirect(user.role === "trainer" ? "/trener" : "/podopieczny");
+  // Rola jest LISTĄ (ADR-0013) — przynależność, nie równość. Trener wygrywa,
+  // gdy ktoś ma obie: to jego panel jest nadrzędny.
+  throw redirect(hasRole(user, "trainer") ? "/trener" : "/podopieczny");
 }
 
 export default function Index() {

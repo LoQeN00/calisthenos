@@ -14,7 +14,8 @@ import { ListControls } from "~/components/list-controls";
 import { Modal } from "~/components/modal";
 import { OnboardingPicker } from "~/components/onboarding-picker";
 import { Pagination, parsePage } from "~/components/pagination";
-import { createInviteWithOnboarding, requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
+import { createInviteWithOnboarding } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import { getEnv, stripeApiConfigured } from "~/lib/env";
 import { listActiveExercisesForTrainer } from "~/lib/exercises";
@@ -66,7 +67,7 @@ const spec: ListControlsSpec = {
 };
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const url = new URL(args.request.url);
   const page = parsePage(url.searchParams);
   const deletedName = url.searchParams.get("usuniety");
@@ -105,7 +106,7 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const fd = await args.request.formData();
 
   const parsed = InviteSchema.safeParse({

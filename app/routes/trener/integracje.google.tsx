@@ -7,7 +7,7 @@ import {
   useLoaderData,
   useSearchParams,
 } from "react-router";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { getEnv, googleConfigured } from "~/lib/env";
 import { deleteConnection, getConnectionStatus } from "~/lib/google/connections";
@@ -20,13 +20,13 @@ function nonceCookie(nonce: string): string {
 }
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const status = await getConnectionStatus(db, user.id);
   return { configured: googleConfigured(), status };
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const fd = await args.request.formData();
   const intent = fd.get("intent");
 

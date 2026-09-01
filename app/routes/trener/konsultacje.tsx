@@ -2,14 +2,14 @@ import { useState } from "react";
 import { type LoaderFunctionArgs, useLoaderData } from "react-router";
 import { ConsultationRow } from "~/components/consultation-row";
 import { type DaySummary, MonthCalendar } from "~/components/month-calendar";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { consultationPresentation, mostUrgentTone } from "~/lib/consultation-status";
 import { type TrainerCalendarItem, listTrainerOccurrencesInRange } from "~/lib/consultations";
 import { db } from "~/lib/db/client";
 import { fmtTime, monthRangeUTC, shiftMonth, todayISO } from "~/lib/format";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const url = new URL(args.request.url);
   const m = url.searchParams.get("m") ?? todayISO().slice(0, 7);
   const range = monthRangeUTC(m);

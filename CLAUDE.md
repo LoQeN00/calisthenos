@@ -57,6 +57,7 @@ Każdy wpis linkuje do `README.md` danego katalogu — tam jest opis plików.
   - [`app/routes/podopieczny/`](app/routes/podopieczny/README.md) — widoki podopiecznego (`/podopieczny/*`)
 - [`app/components/`](app/components/README.md) — współdzielone komponenty UI
 - [`app/lib/`](app/lib/README.md) — logika domenowa i infrastruktura
+  - [`app/lib/api/`](app/lib/api/README.md) — klient backendu (`calisthenos-be`), sesja na tokenach, middleware rotacji
   - [`app/lib/auth/`](app/lib/auth/README.md) — sesje, hasła, cookie, zaproszenia
   - [`app/lib/db/`](app/lib/db/README.md) — klient Drizzle, schemat, migracje
     - [`app/lib/db/migrations/`](app/lib/db/migrations/README.md) — migracje SQL (generowane)

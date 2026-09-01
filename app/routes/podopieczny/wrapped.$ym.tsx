@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, redirect, useLoaderData, useNavigate, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { fmtDate } from "~/lib/format";
 import { hasPendingOnboarding } from "~/lib/onboarding-forms";
@@ -19,7 +19,7 @@ import {
 // ============================================================
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
+  const { user } = requireUser(args.context, { role: "trainee" });
 
   // Wrapped żyje poza layoutem, więc bramka formularza musi tu stać osobno.
   // Bramki płatności celowo NIE dokładamy — dziś jej tu nie ma i ta zmiana nie

@@ -10,7 +10,7 @@ import {
 import { FeatureRequestBadge } from "~/components/feature-request-badge";
 import { ListControls } from "~/components/list-controls";
 import { Pagination, parsePage } from "~/components/pagination";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import {
   FEATURE_REQUEST_KINDS,
@@ -55,7 +55,7 @@ const spec: ListControlsSpec = {
 };
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
+  const { user } = requireUser(args.context, { role: "trainee" });
   const url = new URL(args.request.url);
   const page = parsePage(url.searchParams);
   const controls = parseListControls(url.searchParams, spec);
@@ -76,7 +76,7 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
+  const { user } = requireUser(args.context, { role: "trainee" });
   // CHECK `users_role_check` gwarantuje trenera przy roli trainee — ale typ jest
   // nullowalny, więc zamiast rzutować, odmawiamy wprost.
   if (user.trainerId == null) throw new Response("Not Found", { status: 404 });

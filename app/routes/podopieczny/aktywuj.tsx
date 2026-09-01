@@ -8,7 +8,8 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
-import { findDisplayName, requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
+import { findDisplayName } from "~/lib/auth";
 import { db } from "~/lib/db/client";
 import { fmtMoney } from "~/lib/money";
 import { hasTraineeAppAccess } from "~/lib/stripe/gate";
@@ -20,8 +21,8 @@ import { createCheckoutSession, SubscriptionError } from "~/lib/stripe/subscript
 // ma już dostęp (lub płatność niewymagana) — odsyłamy do dashboardu.
 // ============================================================
 
-export async function loader({ request }: LoaderFunctionArgs) {
-  const user = await requireUser(request, db, { role: "trainee" });
+export async function loader({ context }: LoaderFunctionArgs) {
+  const { user } = requireUser(context, { role: "trainee" });
 
   // Jedna implementacja bramki dla całej aplikacji (`lib/stripe/gate`) — ta trasa
   // jest CELEM redirectu z tej bramki, więc własna kopia reguły oznaczałaby przy
@@ -46,8 +47,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
 // Action: start Checkout. Tenant-scope do własnej pary trener+podopieczny.
 // ============================================================
 
-export async function action({ request }: ActionFunctionArgs) {
-  const user = await requireUser(request, db, { role: "trainee" });
+export async function action({ request, context }: ActionFunctionArgs) {
+  const { user } = requireUser(context, { role: "trainee" });
   const fd = await request.formData();
   const intent = fd.get("intent");
   if (intent === "subscribe") {

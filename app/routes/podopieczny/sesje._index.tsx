@@ -1,12 +1,12 @@
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { daysAgo, fmtDate } from "~/lib/format";
 import { loadActivePlanFullForTrainee, type PlanSessionView } from "~/lib/workouts";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
+  const { user } = requireUser(args.context, { role: "trainee" });
   const planFull = await loadActivePlanFullForTrainee(db, user.id);
   return { planFull };
 }

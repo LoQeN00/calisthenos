@@ -5,7 +5,7 @@ import {
   useActionData,
   useLoaderData,
 } from "react-router";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { fmtDateTime } from "~/lib/format";
 import { fmtMoney, MonthlyAmountSchema, parsePlnToGrosze } from "~/lib/money";
@@ -22,7 +22,7 @@ import {
 import { assertTraineeOwnedBy, findTraineeOfTrainer } from "~/lib/trainees";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
   await assertTraineeOwnedBy(db, user.id, traineeId);
 
@@ -43,7 +43,7 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
   await assertTraineeOwnedBy(db, user.id, traineeId);
 

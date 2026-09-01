@@ -8,7 +8,7 @@ import {
   useLoaderData,
 } from "react-router";
 import { ConsultationForm } from "~/components/consultation-form";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { parseConsultationDocFormData } from "~/lib/consultation-form.server";
 import { ConsultationDocFormSchema } from "~/lib/consultation-types";
 import { ConsultationError, createAdhocConsultation } from "~/lib/consultations";
@@ -18,7 +18,7 @@ import { todayISO } from "~/lib/format";
 import { findTraineeOfTrainer } from "~/lib/trainees";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
   const trainee = await findTraineeOfTrainer(db, user.id, traineeId);
   if (!trainee) throw new Response("not found", { status: 404 });
@@ -26,7 +26,7 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
   const fd = await args.request.formData();
   const documented = fd.get("intent") === "save-documented";

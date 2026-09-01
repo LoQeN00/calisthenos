@@ -1,13 +1,13 @@
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { VideoButton } from "~/components/video-modal";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { signFileUrl } from "~/lib/files";
 import { loadActivePlanFullForTrainee } from "~/lib/workouts";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
+  const { user } = requireUser(args.context, { role: "trainee" });
   const sessionId = args.params.sessionId ?? "";
   const planFull = await loadActivePlanFullForTrainee(db, user.id);
   if (!planFull) throw new Response("not found", { status: 404 });

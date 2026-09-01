@@ -1,7 +1,7 @@
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { ProgressionList } from "~/components/progression-list";
 import { SkillTreeView } from "~/components/skill-tree";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
 import { findTraineeOfTrainer, listProgressionExercises } from "~/lib/progression";
@@ -14,7 +14,7 @@ import { getSkillTreeForTrainee } from "~/lib/skill-tree";
 import { listExerciseSkillMap } from "~/lib/skills";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
   const trainee = await findTraineeOfTrainer(db, user.id, traineeId);
   if (!trainee) throw new Response("not found", { status: 404 });

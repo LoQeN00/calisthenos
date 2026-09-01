@@ -1,5 +1,5 @@
 import type { ActionFunctionArgs } from "react-router";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { UploadError, uploadFile } from "~/lib/file-uploads";
 import { errorMeta, logger } from "~/lib/logger";
@@ -42,7 +42,7 @@ function json(body: unknown, status: number, headers?: Record<string, string>): 
  *   treningu weryfikuje właściciela (`assertOwnedUnclaimedVideos` w `lib/workouts.ts`).
  */
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
+  const { user } = requireUser(args.context, { role: "trainee" });
   if (!user.trainerId) {
     return json({ error: "Konto bez przypisanego trenera." }, 400);
   }

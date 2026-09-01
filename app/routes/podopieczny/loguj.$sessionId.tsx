@@ -14,7 +14,7 @@ import {
 import { z } from "zod";
 import { Icons } from "~/components/icons";
 import { VideoUploadField, type VideoUploadState } from "~/components/video-upload-field";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { maxUploadBytesFor } from "~/lib/file-uploads";
 import { pluralizePl, todayISO, type PlForms } from "~/lib/format";
@@ -38,7 +38,7 @@ const PerformedOnSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Nieprawidłow
 const NoteSchema = z.string().max(2000).optional();
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
+  const { user } = requireUser(args.context, { role: "trainee" });
   const sessionId = args.params.sessionId ?? "";
 
   const plan = await findActivePlanForTrainee(db, user.id);
@@ -59,7 +59,7 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
+  const { user } = requireUser(args.context, { role: "trainee" });
   if (!user.trainerId) {
     return { error: "Konto bez przypisanego trenera." };
   }

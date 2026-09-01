@@ -2,7 +2,7 @@ import { NavLink, Outlet, redirect, useLoaderData, type LoaderFunctionArgs } fro
 import { Icons } from "~/components/icons";
 import { UserMenu } from "~/components/user-menu";
 import { countBodyPhotosForTrainee } from "~/lib/body-photos";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { countPendingForTrainee } from "~/lib/consultations";
 import { db } from "~/lib/db/client";
 import { countForTrainee } from "~/lib/feature-requests";
@@ -12,7 +12,7 @@ import { hasTraineeAppAccess } from "~/lib/stripe/gate";
 import { countLogsForTrainee, findActivePlanForTrainee } from "~/lib/workouts";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
+  const { user } = requireUser(args.context, { role: "trainee" });
 
   // Bramki idą PRZED licznikami — podopieczny, którego i tak odsyłamy, nie ma po
   // co kosztować sześciu zapytań. Kolejność: najpierw płatność (drzwi do

@@ -1,6 +1,6 @@
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { daysAgo, fmtDate, pluralizePl, type PlForms } from "~/lib/format";
 import { countPlansForTrainerByStatus } from "~/lib/plans";
@@ -21,7 +21,7 @@ function isoDaysAgo(n: number): string {
 }
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
 
   const clients = await listClientsForTrainer(db, user.id);
 

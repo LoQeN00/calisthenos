@@ -3,7 +3,7 @@ import { FeatureRequestBadge } from "~/components/feature-request-badge";
 import { Icons } from "~/components/icons";
 import { ListControls } from "~/components/list-controls";
 import { Pagination, parsePage } from "~/components/pagination";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import {
   FEATURE_REQUEST_KINDS,
@@ -48,7 +48,7 @@ const spec: ListControlsSpec = {
 };
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const url = new URL(args.request.url);
   const page = parsePage(url.searchParams);
   const controls = parseListControls(url.searchParams, spec);

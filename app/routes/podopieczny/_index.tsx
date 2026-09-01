@@ -8,7 +8,7 @@ import {
   ThisWeekCard,
   WrappedListRow,
 } from "~/components/trainee-stats";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { daysAgo, fmtDate, fmtDateShort } from "~/lib/format";
 import { getActivityHeatmap, getEffortBalance, getHeroStats, getThisWeekStats } from "~/lib/stats";
@@ -124,7 +124,7 @@ function WrappedBanner({
 }
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
+  const { user } = requireUser(args.context, { role: "trainee" });
   const [planSummary, recent, hero, thisWeek, heatmap, effort, wrappedMonths, latestWrapped] =
     await Promise.all([
       loadActivePlanSummaryForTrainee(db, user.id),

@@ -7,7 +7,7 @@ import {
   useLoaderData,
   useSearchParams,
 } from "react-router";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { stripeApiConfigured } from "~/lib/env";
 import {
@@ -17,13 +17,13 @@ import {
 } from "~/lib/stripe/connections";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const status = await getConnectionStatus(db, user.id);
   return { configured: stripeApiConfigured(), status };
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const fd = await args.request.formData();
   const intent = fd.get("intent");
 

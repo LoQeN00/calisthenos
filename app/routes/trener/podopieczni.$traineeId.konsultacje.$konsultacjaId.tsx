@@ -13,7 +13,7 @@ import { ConsultationAlert } from "~/components/consultation-alert";
 import { ConsultationForm } from "~/components/consultation-form";
 import { StatusBadge } from "~/components/consultation-status-badge";
 import { Icons } from "~/components/icons";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { consultationPresentation } from "~/lib/consultation-status";
 import { parseConsultationDocFormData } from "~/lib/consultation-form.server";
 import { ConsultationDocFormSchema } from "~/lib/consultation-types";
@@ -37,7 +37,7 @@ function toLocalInput(iso: string): string {
 }
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
   const trainee = await findTraineeOfTrainer(db, user.id, traineeId);
   if (!trainee) throw new Response("not found", { status: 404 });
@@ -62,7 +62,7 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
   const consultationId = args.params.konsultacjaId ?? "";
   const fd = await args.request.formData();

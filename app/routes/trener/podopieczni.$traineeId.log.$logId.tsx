@@ -1,14 +1,14 @@
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { VideoButton } from "~/components/video-modal";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { signFileUrl } from "~/lib/files";
 import { daysAgo, fmtDate } from "~/lib/format";
 import { loadLogForViewer } from "~/lib/workouts";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
   const logId = args.params.logId ?? "";
 

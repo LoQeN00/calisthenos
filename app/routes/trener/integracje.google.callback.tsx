@@ -1,5 +1,5 @@
 import { type LoaderFunctionArgs, redirect } from "react-router";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { getEnv } from "~/lib/env";
 import { upsertConnection } from "~/lib/google/connections";
@@ -17,7 +17,7 @@ function readNonceCookie(request: Request): string | null {
 }
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { user } = requireUser(args.context, { role: "trainer" });
   const url = new URL(args.request.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
