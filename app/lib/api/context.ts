@@ -14,6 +14,16 @@ export interface AuthUser {
    */
   roles: Role[];
   trainerId: string | null;
+  /**
+   * Z `MeDto.coach.partyId`. **Zmieniło źródło, a z nim znaczenie:** do
+   * integracji była to lepka kolumna `users.trainer_id`, ustawiana raz przy
+   * przyjęciu zaproszenia. Teraz to pole kontraktu, którego pustka zależy od
+   * tego, jak BE rozstrzyga aktywność relacji — a ADR-0013 uczynił rolę faktem
+   * z OKRESEM. Kto na tym stoi: `authz.ts` (dostęp międzytenantowy) i
+   * `stripe/gate.ts`, gdzie `!trainerId` znaczy „dostęp za darmo". Zanim
+   * logowanie zacznie wystawiać tę sesję (krok 2 Etapu 2), trzeba ustalić
+   * i zapisać, co BE zwraca w `coach` po zakończeniu okresu relacji.
+   */
   /** Z `MeDto.coach.displayName` — oszczędza osobne zapytanie o nazwę trenera. */
   trainerName: string | null;
 }

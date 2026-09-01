@@ -2,8 +2,14 @@
 
 Warstwa repozytoriów (dostęp do DB, reguły domenowe) oraz infrastruktury (auth,
 storage, env, formatowanie). Trasy w `app/routes/` wołają te funkcje w loaderach
-i akcjach. **Zasada tenant-scope:** funkcje przyjmują wymagany `trainerId` lub
-`traineeId` i filtrują po nim — nie omijaj tego.
+i akcjach. **Zasada tenant-scope ma teraz dwa reżimy — sprawdź, na czym stoi
+moduł, zanim dodasz argument:**
+
+- **moduł na `db: Db`** (dziś większość) — przyjmuje wymagany `trainerId` lub
+  `traineeId` i filtruje po nim; nie omijaj tego;
+- **moduł na `api: Api`** (dziś `categories.ts`, docelowo wszystkie) — zakresu
+  tenanta **nie ma w sygnaturze**, bo niesie go token dostępowy, a egzekwuje BE.
+  Dokładanie tam `trainerId` podtrzymuje złudzenie, że FE cokolwiek pilnuje.
 
 ## Pliki w tym katalogu (moduły domenowe i pomocnicze)
 

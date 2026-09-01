@@ -73,6 +73,18 @@ describe("requireUser / optionalUser / hasRole — tożsamość i rola z konteks
     expect(requireUser(kontekst(osoba(["trainee"]))).user.id).toBe("p-1");
   });
 
+  it("osoba bez żadnej roli trafia na logowanie, a nie w pętlę przekierowań", () => {
+    // Rola jest faktem z okresem — między okresami lista bywa pusta. Bez
+    // strażnika `sekcjaDla` odesłałaby taką osobę na `/podopieczny`, ta trasa
+    // zażądałaby roli `trainee` i odesłała z powrotem. W nieskończoność.
+    try {
+      requireUser(kontekst(osoba([])), { role: "trainer" });
+      expect.unreachable("miało rzucić przekierowanie");
+    } catch (e) {
+      expect((e as Response).headers.get("location")).toBe("/login");
+    }
+  });
+
   it("hasRole sprawdza przynależność do listy, nie równość", () => {
     expect(hasRole(osoba(["trainee", "trainer"]), "trainer")).toBe(true);
     expect(hasRole(osoba(["trainee"]), "trainer")).toBe(false);

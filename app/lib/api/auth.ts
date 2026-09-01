@@ -1,4 +1,10 @@
 import { redirect } from "react-router";
+// `Readonly<...>`, nie goły `RouterContextProvider` — to jest typ, który
+// `LoaderFunctionArgs.context` faktycznie niesie przy włączonej fladze
+// `v8_middleware`. Różnica nie jest kosmetyczna: klasa ma pole `#private`,
+// więc `Readonly<T>` gubi markę prywatności i jest INNYM typem. Blokuje
+// wyłącznie podmianę metod `get`/`set`, nie ich wywołanie. Tak samo stoi
+// `MiddlewareArgs.context` w `middleware.ts`.
 import type { RouterContextProvider } from "react-router";
 import type { Api } from "./client";
 import { type AuthUser, type Role, apiContext } from "./context";
@@ -18,7 +24,7 @@ export interface RequireOptions {
  * może o czymś zapomnieć.
  */
 export function requireUser(
-  context: RouterContextProvider,
+  context: Readonly<RouterContextProvider>,
   { role }: RequireOptions = {},
 ): { api: Api; user: AuthUser } {
   const { api, user } = context.get(apiContext);
@@ -29,7 +35,10 @@ export function requireUser(
   return { api, user };
 }
 
-export function optionalUser(context: RouterContextProvider): { api: Api; user: AuthUser | null } {
+export function optionalUser(context: Readonly<RouterContextProvider>): {
+  api: Api;
+  user: AuthUser | null;
+} {
   const { api, user } = context.get(apiContext);
   return { api, user };
 }
@@ -49,5 +58,10 @@ export function hasRole(user: AuthUser, role: Role): boolean {
  * znaczenie dopiero, gdyby ról przybyło.
  */
 function sekcjaDla(user: AuthUser): string {
+  // Pusta lista jest osiągalna: rola jest faktem z OKRESEM (ADR-0013), więc
+  // między okresami nie ma żadnej. Bez tego strażnika taka osoba dostawałaby
+  // `/podopieczny`, ta trasa zażądałaby roli `trainee`, której nie ma, i
+  // odesłałaby w to samo miejsce — nieskończona pętla przekierowań.
+  if (user.roles.length === 0) return "/login";
   return hasRole(user, "trainer") ? "/trener" : "/podopieczny";
 }

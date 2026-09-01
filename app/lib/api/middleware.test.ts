@@ -23,7 +23,7 @@ import { RouterContextProvider } from "react-router";
 import { apiContext } from "./context";
 import { ApiError } from "./errors";
 import { resetRefreshState } from "./refresh";
-import { buildSessionCookie, type ApiSession } from "./session";
+import { buildSessionCookie, readSessionCookie, type ApiSession } from "./session";
 import { apiMiddleware } from "./middleware";
 
 const TERAZ = new Date("2026-08-31T10:00:00Z");
@@ -89,11 +89,10 @@ describe("apiMiddleware — cykl życia sesji w jednym żądaniu", () => {
     const s = serwer(() => json(200, {}));
     const context = new RouterContextProvider();
 
-    await apiMiddleware(
-      { request: zadanie(null), context },
-      async () => new Response("ok"),
-      { fetch: s.fetch, now: () => TERAZ },
-    );
+    await apiMiddleware({ request: zadanie(null), context }, async () => new Response("ok"), {
+      fetch: s.fetch,
+      now: () => TERAZ,
+    });
 
     expect(s.trafienia).toEqual([]);
     expect(context.get(apiContext).user).toBeNull();
@@ -135,7 +134,9 @@ describe("apiMiddleware — cykl życia sesji w jednym żądaniu", () => {
   });
 
   it("martwy token odświeżający czyści ciastko i odsyła na logowanie", async () => {
-    const s = serwer(() => json(401, { error: { code: "INVALID_REFRESH", message: "Zaloguj się ponownie." } }));
+    const s = serwer(() =>
+      json(401, { error: { code: "INVALID_REFRESH", message: "Zaloguj się ponownie." } }),
+    );
     const context = new RouterContextProvider();
     const bliska = sesja({ accessExpiresAt: TERAZ.getTime() - 1 });
 
@@ -171,7 +172,9 @@ describe("apiMiddleware — cykl życia sesji w jednym żądaniu", () => {
     await apiMiddleware(
       { request: zadanie(sesja()), context },
       async () => {
-        await context.get(apiContext).api.post({ url: "/v1/mutacja-testowa", body: { pole: "wartosc" } });
+        await context
+          .get(apiContext)
+          .api.post({ url: "/v1/mutacja-testowa", body: { pole: "wartosc" } });
         return new Response("ok");
       },
       { fetch: s.fetch, now: () => TERAZ },
@@ -199,11 +202,10 @@ describe("apiMiddleware — cykl życia sesji w jednym żądaniu", () => {
 
     let zlapany: unknown;
     try {
-      await apiMiddleware(
-        { request: zadanie(sesja()), context },
-        async () => new Response("ok"),
-        { fetch: s.fetch, now: () => TERAZ },
-      );
+      await apiMiddleware({ request: zadanie(sesja()), context }, async () => new Response("ok"), {
+        fetch: s.fetch,
+        now: () => TERAZ,
+      });
     } catch (e) {
       zlapany = e;
     }
@@ -224,11 +226,10 @@ describe("apiMiddleware — cykl życia sesji w jednym żądaniu", () => {
 
     let zlapany: unknown;
     try {
-      await apiMiddleware(
-        { request: zadanie(sesja()), context },
-        async () => new Response("ok"),
-        { fetch: s.fetch, now: () => TERAZ },
-      );
+      await apiMiddleware({ request: zadanie(sesja()), context }, async () => new Response("ok"), {
+        fetch: s.fetch,
+        now: () => TERAZ,
+      });
     } catch (e) {
       zlapany = e;
     }
@@ -241,19 +242,55 @@ describe("apiMiddleware — cykl życia sesji w jednym żądaniu", () => {
     // Bez tej gałęzi `wyloguj` przekierowałby `/login` → `/login` → …
     // Dziś usunięcie gałęzi nie wywraca żadnego testu; jej awaria to
     // nieskończona pętla przekierowań w przeglądarce.
-    const s = serwer(() => json(401, { error: { code: "INVALID_REFRESH", message: "Zaloguj się ponownie." } }));
+    const s = serwer(() =>
+      json(401, { error: { code: "INVALID_REFRESH", message: "Zaloguj się ponownie." } }),
+    );
     const context = new RouterContextProvider();
     const bliska = sesja({ accessExpiresAt: TERAZ.getTime() - 1 });
 
     const res = await apiMiddleware(
       { request: zadanie(bliska, "/login"), context },
-      async () => new Response("ok"),
+      async () => new Response("FORMULARZ LOGOWANIA"),
       { fetch: s.fetch, now: () => TERAZ },
     );
 
     expect(res.status).toBe(200);
     expect(res.headers.get("location")).toBeNull();
     expect(res.headers.get("set-cookie")).toContain("Max-Age=0");
+    // TREŚĆ, nie sam status. Middleware, który na `/login` przerywa żądanie
+    // i zwraca własne puste `200`, przechodził komplet asercji wyżej — a
+    // użytkownik dostawał BIAŁĄ STRONĘ zamiast formularza i nie miał jak
+    // wrócić. Ta trasa musi dojść do `next()`.
+    await expect(res.text()).resolves.toBe("FORMULARZ LOGOWANIA");
+    expect(context.get(apiContext).user).toBeNull();
+  });
+
+  it("awaria BE PO udanej rotacji oddaje nową parę tokenów mimo błędu", async () => {
+    // Najgroźniejsza ścieżka w tym pliku. Rotacja się dokonała, więc stary
+    // token odświeżający jest po stronie BE zużyty; gdyby błąd `/me` wyleciał
+    // rzutem, nowa para nie trafiłaby do przeglądarki. Okno łaski kryje 60 s,
+    // a potem pierwsze żądanie ze starym ciastkiem wygląda dla BE jak PONOWNE
+    // UŻYCIE tokenu — `deleteChain`, czyli wylogowanie ze wszystkich urządzeń
+    // w odpowiedzi na cudzą usterkę. Wyzwalacz jest zwyczajny: rolling deploy
+    // BE trafiający tuż po rotacji.
+    const s = serwer((url) =>
+      url === "/v1/auth/refresh"
+        ? json(200, { accessToken: "A2", refreshToken: "R2", expiresIn: 900 })
+        : json(502, {}),
+    );
+    const context = new RouterContextProvider();
+    const bliska = sesja({ accessExpiresAt: TERAZ.getTime() + 10_000 });
+
+    const res = await apiMiddleware(
+      { request: zadanie(bliska), context },
+      async () => new Response("nie powinno dojsc"),
+      { fetch: s.fetch, now: () => TERAZ },
+    );
+
+    expect(s.trafienia).toEqual(["/v1/auth/refresh", "/v1/me"]);
+    expect(res.status).toBe(502);
+    const ciastko = res.headers.get("set-cookie");
+    expect(readSessionCookie(ciastko?.split(";")[0] ?? null)?.refreshToken).toBe("R2");
   });
 
   it("zUzytkownika nie myli pól trenera przy obecnym coach", async () => {
@@ -264,11 +301,10 @@ describe("apiMiddleware — cykl życia sesji w jednym żądaniu", () => {
     const s = serwer(() => json(200, zTrenerem));
     const context = new RouterContextProvider();
 
-    await apiMiddleware(
-      { request: zadanie(sesja()), context },
-      async () => new Response("ok"),
-      { fetch: s.fetch, now: () => TERAZ },
-    );
+    await apiMiddleware({ request: zadanie(sesja()), context }, async () => new Response("ok"), {
+      fetch: s.fetch,
+      now: () => TERAZ,
+    });
 
     const user = context.get(apiContext).user;
     expect(user?.trainerId).toBe("coach-1");

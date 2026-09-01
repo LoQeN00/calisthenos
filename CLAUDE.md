@@ -98,8 +98,11 @@ w `.gitignore`), `design-system/_src/` (rozpakowany prototyp, read-only).
 ## Kluczowe konwencje (czytaj zanim zaczniesz kodować)
 
 - **Multi-tenant przez `trainer_id`.** Każda tabela domenowa nosi `trainer_id`.
-  Funkcje repozytorium w `app/lib/*.ts` przyjmują wymagany `trainerId`/`traineeId`
-  i filtrują po nim. Brak autoryzacji → **404** (nie 403), by nie zdradzać
+  Funkcje repozytorium w `app/lib/*.ts` **stojące na `db`** przyjmują wymagany
+  `trainerId`/`traineeId` i filtrują po nim. **Moduły biorące `api: Api`**
+  (warstwa [`app/lib/api/`](app/lib/api/README.md); na razie przeniesiony jest
+  tylko `categories.ts`) tego argumentu NIE mają — zakres niesie token
+  dostępowy, egzekwuje go BE. Brak autoryzacji → **404** (nie 403), by nie zdradzać
   istnienia zasobu. Szczegóły: [`app/lib/README.md`](app/lib/README.md),
   `app/lib/authz.ts`.
 - **Trasy = plik + wpis w `app/routes.ts`.** Nazewnictwo plików:

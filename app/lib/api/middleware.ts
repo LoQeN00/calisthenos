@@ -5,7 +5,7 @@ import type { MeDto } from "@kalisthenos/api-client";
 import { getEnv } from "~/lib/env";
 import { type Api, createApiClient } from "./client";
 import { type AuthUser, apiContext } from "./context";
-import { ApiError } from "./errors";
+import { ApiError, toRouteResponse } from "./errors";
 import { refreshOnce } from "./refresh";
 import {
   type ApiSession,
@@ -27,6 +27,9 @@ import {
  * czegokolwiek — nie ma tu komu czekać dłużej.
  */
 const REFRESH_TIMEOUT_MS = 10_000;
+
+/** Jedyne miejsce nazywające tę ścieżkę — używają jej trzy gałęzie niżej. */
+const SCIEZKA_LOGOWANIA = "/login";
 
 /** Wstrzykiwane wyłącznie w testach; produkcyjnie wartości domyślne. */
 export interface MiddlewareDeps {
@@ -65,10 +68,7 @@ export async function apiMiddleware(
   const zapisana = readSessionCookie(request.headers.get("cookie"));
 
   if (!zapisana) {
-    context.set(apiContext, {
-      api: createApiClient({ baseUrl, getToken: () => undefined, fetch: transport }),
-      user: null,
-    });
+    context.set(apiContext, { api: anonimowyKlient(baseUrl, transport), user: null });
     return next();
   }
 
@@ -145,7 +145,7 @@ export async function apiMiddleware(
       // rzucony `Response` jak zwróconą odpowiedź (`apiMiddleware` przez
       // swój `catch` niżej, docelowo React Router). Moduł domenowy nic o tym
       // nie wie — to jest granica między błędem sesji a błędem danych.
-      if (blad instanceof ApiError && blad.status === 401) throw wyloguj(request);
+      if (blad instanceof ApiError && blad.status === 401) throw wyloguj();
       throw blad;
     }
 
@@ -153,6 +153,9 @@ export async function apiMiddleware(
     const kopia = kopieZadan.get(request_) ?? request_;
     return transport(new Request(kopia, { headers: naglowkiZTokenem(kopia, uchwyt.session) }));
   });
+
+  /** Ustawiane tylko na `/login`: sesja martwa, ale żądanie ma dojść do końca. */
+  let czyscCiastko = false;
 
   try {
     if (needsRefresh(uchwyt.session, now())) await odswiez();
@@ -167,17 +170,49 @@ export async function apiMiddleware(
     // Awaria BE (`502`, `500`) NIE jest wylogowaniem — odesłanie na logowanie
     // kazałoby użytkownikowi wpisywać hasło w odpowiedzi na cudzą usterkę,
     // a po zalogowaniu i tak nie zadziałałoby nic.
-    if (blad instanceof ApiError && blad.status === 401) return wyloguj(request);
-    throw blad;
+    if (blad instanceof ApiError && blad.status === 401) {
+      // Na `/login` NIE wolno przerwać żądania. Ta trasa musi się
+      // wyrenderować — inaczej użytkownik z martwym ciastkiem dostaje pustą
+      // odpowiedź zamiast formularza i nie ma jak wrócić. Czyścimy sesję,
+      // wpuszczamy dalej jako anonima i dopinamy czyszczenie w drodze powrotnej.
+      if (new URL(request.url).pathname === SCIEZKA_LOGOWANIA) {
+        czyscCiastko = true;
+        context.set(apiContext, { api: anonimowyKlient(baseUrl, transport), user: null });
+      } else {
+        return redirect(SCIEZKA_LOGOWANIA, { headers: { "Set-Cookie": clearSessionCookie() } });
+      }
+    } else if (uchwyt.zmieniona) {
+      // Rotacja JUŻ się dokonała, więc stary token odświeżający jest po stronie
+      // BE zużyty, a okno łaski kryje tylko 60 s. Gdyby ten błąd wyleciał
+      // rzutem, nowa para nigdy nie trafiłaby do przeglądarki i pierwsze
+      // żądanie po wygaśnięciu okna wyglądałoby dla BE jak PONOWNE UŻYCIE
+      // tokenu — czyli `deleteChain`, czyli awaria BE zamieniona w wylogowanie
+      // ze WSZYSTKICH urządzeń. Wyzwalacz jest zwyczajny: rolling deploy BE
+      // trafiający tuż po rotacji. Dlatego tu zwracamy odpowiedź niosącą
+      // ciastko, zamiast rzucać.
+      const odpowiedz =
+        blad instanceof ApiError ? toRouteResponse(blad) : new Response(null, { status: 500 });
+      odpowiedz.headers.append("Set-Cookie", buildSessionCookie(uchwyt.session));
+      return odpowiedz;
+    } else {
+      throw blad;
+    }
   }
 
   const response = await next();
 
-  if (uchwyt.zmieniona) {
+  if (czyscCiastko) {
+    response.headers.append("Set-Cookie", clearSessionCookie());
+  } else if (uchwyt.zmieniona) {
     response.headers.append("Set-Cookie", buildSessionCookie(uchwyt.session));
   }
 
   return response;
+}
+
+/** Klient bez tokenu — dla żądań bez sesji i dla `/login` po jej wygaśnięciu. */
+function anonimowyKlient(baseUrl: string, transport: typeof fetch): Api {
+  return createApiClient({ baseUrl, getToken: () => undefined, fetch: transport });
 }
 
 function naglowkiZTokenem(request_: Request, session: ApiSession): Headers {
@@ -197,13 +232,15 @@ function zUzytkownika(me: MeDto): AuthUser {
   };
 }
 
-/** Bez pętli: gdy celem już jest `/login`, samo czyszczenie wystarczy. */
-function wyloguj(request: Request): Response {
-  const naglowki = { "Set-Cookie": clearSessionCookie() };
-
-  if (new URL(request.url).pathname === "/login") {
-    return new Response(null, { status: 200, headers: naglowki });
-  }
-
-  return redirect("/login", { headers: naglowki });
+/**
+ * Wyłącznie dla ścieżki REAKTYWNEJ — z interceptora w środku loadera nie da się
+ * już wrócić do `next()`, więc jedynym wyjściem jest rzucone przekierowanie.
+ * Pętli nie będzie: `Set-Cookie` kasuje sesję, więc kolejne żądanie na `/login`
+ * przychodzi już bez ciastka i middleware przepuszcza je jako anonima. Rzucać
+ * wolno TYLKO przekierowanie — React Router przepuszcza nietknięty wyłącznie
+ * `Response` przekierowujący, każdy inny zamienia na granicę błędu, gubiąc
+ * nagłówki (czyli i czyszczenie ciastka).
+ */
+function wyloguj(): Response {
+  return redirect(SCIEZKA_LOGOWANIA, { headers: { "Set-Cookie": clearSessionCookie() } });
 }
