@@ -51,7 +51,19 @@ export function createApiClient({ baseUrl, getToken, fetch: transport }: ApiClie
     // `response` jest niezdefiniowane, gdy `fetch` w ogóle nie doszedł do skutku.
     // `502` zamiast `0`, bo `0` nie jest poprawnym statusem `Response` i wysadziłby
     // `toRouteResponse` w miejscu, które ma ratować sytuację, a nie ją pogarszać.
-    return parseApiError(response?.status ?? 502, error);
+    // `Retry-After` dopuszcza sekundy ALBO datę HTTP. Bierzemy wyłącznie
+    // pierwszy kształt: data wymagałaby zegara i strefy, a jedyny nasz
+    // wystawca (throttler BE) podaje sekundy. Śmieć od proxy ma dać brak
+    // wartości, nigdy `NaN` — `NaN` przeciekłby do komunikatu jako „za NaN min".
+    // Surowy nagłówek sprawdzany PRZED konwersją, bo `Number(null)` to **zero**,
+    // nie `NaN` — naiwne `Number(headers.get(...))` nadawałoby `retryAfter: 0`
+    // każdej odpowiedzi błędnej, a `0` znaczy „próbuj teraz", czyli co innego
+    // niż „nie wiem". Wywołujący nie miałby jak tych dwóch przypadków odróżnić.
+    const surowy = response?.headers.get("retry-after");
+    const sekundy = surowy == null ? Number.NaN : Number(surowy);
+    const retryAfter = Number.isFinite(sekundy) && sekundy >= 0 ? sekundy : undefined;
+
+    return parseApiError(response?.status ?? 502, error, retryAfter);
   });
 
   return api;

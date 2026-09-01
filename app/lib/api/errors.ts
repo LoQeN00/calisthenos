@@ -12,8 +12,7 @@ import { redirect } from "react-router";
 /** Kod zastępczy dla odpowiedzi, która nie niesie koperty kontraktu. */
 const UNKNOWN = "UNKNOWN";
 
-const FALLBACK_MESSAGE =
-  "Nie udało się połączyć z serwerem. Spróbuj ponownie za chwilę.";
+const FALLBACK_MESSAGE = "Nie udało się połączyć z serwerem. Spróbuj ponownie za chwilę.";
 
 export interface ApiErrorDetails {
   [key: string]: unknown;
@@ -25,6 +24,12 @@ export class ApiError extends Error {
     readonly code: string,
     message: string,
     readonly details?: ApiErrorDetails,
+    /**
+     * Sekundy z nagłówka `Retry-After`. Nagłówek, nie koperta — BE podaje czas
+     * oczekiwania wyłącznie tam, a `parseApiError` widzi samo ciało, więc
+     * wartość musi przyjść od wywołującego (interceptor w `client.ts`).
+     */
+    readonly retryAfter?: number,
   ) {
     super(message);
     this.name = "ApiError";
@@ -36,10 +41,10 @@ export class ApiError extends Error {
  * balancer, przerwane połączenie — a każde z nich oddaje ciało innego kształtu.
  * Wyjątek przy rozbiorze błędu zamienia czytelny komunikat w `500` bez śladu.
  */
-export function parseApiError(status: number, payload: unknown): ApiError {
+export function parseApiError(status: number, payload: unknown, retryAfter?: number): ApiError {
   const koperta = kopertaZ(payload);
 
-  if (!koperta) return new ApiError(status, UNKNOWN, FALLBACK_MESSAGE);
+  if (!koperta) return new ApiError(status, UNKNOWN, FALLBACK_MESSAGE, undefined, retryAfter);
 
   const { code, message, details } = koperta;
 
@@ -47,9 +52,8 @@ export function parseApiError(status: number, payload: unknown): ApiError {
     status,
     typeof code === "string" && code !== "" ? code : UNKNOWN,
     typeof message === "string" && message !== "" ? message : FALLBACK_MESSAGE,
-    typeof details === "object" && details !== null
-      ? (details as ApiErrorDetails)
-      : undefined,
+    typeof details === "object" && details !== null ? (details as ApiErrorDetails) : undefined,
+    retryAfter,
   );
 }
 

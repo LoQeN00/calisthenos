@@ -132,6 +132,70 @@ describe("createApiClient", () => {
     expect((blad as Response).status).toBe(302);
     expect((blad as Response).headers.get("Location")).toBe("/login");
   });
+
+  it("odczytuje Retry-After z odpowiedzi i wkłada go do ApiError", async () => {
+    // Interceptor jest jedynym miejscem, które widzi nagłówki — `parseApiError`
+    // dostaje samo ciało. Bez tego przejścia pole zostałoby na zawsze puste,
+    // a komunikat o limicie prób nie miałby skąd wziąć minut.
+    const api = createApiClient({
+      baseUrl: "http://be.test",
+      getToken: () => "T",
+      fetch: (async () =>
+        new Response(JSON.stringify({ error: { code: "RATE_LIMITED", message: "Za dużo." } }), {
+          status: 429,
+          headers: { "content-type": "application/json", "retry-after": "900" },
+        })) as unknown as typeof fetch,
+    });
+
+    const blad = await api.get({ url: "/v1/cokolwiek" }).catch((e: unknown) => e);
+
+    expect(blad).toBeInstanceOf(ApiError);
+    expect((blad as ApiError).retryAfter).toBe(900);
+  });
+
+  it("nagłówek nieliczbowy nie psuje błędu", async () => {
+    // `Retry-After` dopuszcza też datę HTTP, a proxy potrafi wstawić śmieć.
+    // Błąd ma wtedy dojść bez czasu, a nie wywrócić się na `NaN` — „za NaN min"
+    // jest gorsze niż brak liczby.
+    const api = createApiClient({
+      baseUrl: "http://be.test",
+      getToken: () => "T",
+      fetch: (async () =>
+        new Response(JSON.stringify({ error: { code: "RATE_LIMITED", message: "Za dużo." } }), {
+          status: 429,
+          headers: {
+            "content-type": "application/json",
+            "retry-after": "Wed, 21 Oct 2026 07:28:00 GMT",
+          },
+        })) as unknown as typeof fetch,
+    });
+
+    const blad = await api.get({ url: "/v1/cokolwiek" }).catch((e: unknown) => e);
+
+    expect((blad as ApiError).status).toBe(429);
+    expect((blad as ApiError).retryAfter).toBeUndefined();
+  });
+
+  it("brak nagłówka daje BRAK wartości, nie zero", async () => {
+    // `Number(null)` to 0, nie NaN — więc naiwne `Number(headers.get(...))`
+    // nadawałoby `retryAfter: 0` KAŻDEJ odpowiedzi błędnej. A `0` znaczy
+    // „próbuj teraz", czyli co innego niż „nie wiem", i wywołujący nie miałby
+    // jak tych dwóch przypadków odróżnić.
+    const api = createApiClient({
+      baseUrl: "http://be.test",
+      getToken: () => "T",
+      fetch: (async () =>
+        new Response(JSON.stringify({ error: { code: "INTERNAL", message: "Ups." } }), {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        })) as unknown as typeof fetch,
+    });
+
+    const blad = await api.get({ url: "/v1/cokolwiek" }).catch((e: unknown) => e);
+
+    expect((blad as ApiError).status).toBe(500);
+    expect((blad as ApiError).retryAfter).toBeUndefined();
+  });
 });
 
 describe("orNull — reguła D3", () => {
@@ -139,9 +203,7 @@ describe("orNull — reguła D3", () => {
     // 37 funkcji w `app/lib` deklaruje `Promise<… | null>`, a 40 miejsc w trasach
     // robi z tego `404`. Gdyby `404` leciał wyjątkiem, te 40 miejsc stałoby się
     // martwym kodem — i krok 3 Etapu 2 przestałby być mechaniczny.
-    const wynik = await orNull(
-      Promise.reject(new ApiError(404, "NOT_FOUND", "Nie znaleziono.")),
-    );
+    const wynik = await orNull(Promise.reject(new ApiError(404, "NOT_FOUND", "Nie znaleziono.")));
 
     expect(wynik).toBeNull();
   });

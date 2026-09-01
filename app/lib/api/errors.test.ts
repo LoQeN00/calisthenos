@@ -33,6 +33,20 @@ describe("parseApiError — koperta kontraktu", () => {
     expect(blad.code).toBe("UNKNOWN");
     expect(blad.message.length).toBeGreaterThan(0);
   });
+
+  it("niesie Retry-After, gdy wywołujący go poda", () => {
+    // Nagłówek jest jedynym miejscem, gdzie BE podaje czas oczekiwania —
+    // koperta błędu go nie zawiera. Bez tego pola komunikat traci minuty.
+    const blad = parseApiError(429, { error: { code: "RATE_LIMITED", message: "Za dużo." } }, 900);
+
+    expect(blad.status).toBe(429);
+    expect(blad.retryAfter).toBe(900);
+  });
+
+  it("bez nagłówka zostawia retryAfter pustym, nie zerowym", () => {
+    // `0` znaczyłoby „próbuj teraz" — czyli co innego niż „nie wiem".
+    expect(parseApiError(500, {}).retryAfter).toBeUndefined();
+  });
 });
 
 describe("toRouteResponse — bramki przenoszone z zapytań na kody HTTP", () => {
@@ -51,18 +65,14 @@ describe("toRouteResponse — bramki przenoszone z zapytań na kody HTTP", () =>
   it("`401` przekierowuje na logowanie", () => {
     // Osiągalne dopiero PO nieudanym odświeżeniu: token unieważniony po
     // stronie BE (wylogowanie ze wszystkich urządzeń).
-    const odpowiedz = toRouteResponse(
-      new ApiError(401, "UNAUTHORIZED", "Zaloguj się ponownie."),
-    );
+    const odpowiedz = toRouteResponse(new ApiError(401, "UNAUTHORIZED", "Zaloguj się ponownie."));
 
     expect(odpowiedz.status).toBe(302);
     expect(odpowiedz.headers.get("Location")).toBe("/login");
   });
 
   it("`404` zostaje `404` — cudzy zasób jest nieodróżnialny od nieistniejącego", () => {
-    const odpowiedz = toRouteResponse(
-      new ApiError(404, "NOT_FOUND", "Nie znaleziono."),
-    );
+    const odpowiedz = toRouteResponse(new ApiError(404, "NOT_FOUND", "Nie znaleziono."));
 
     expect(odpowiedz.status).toBe(404);
   });
@@ -70,9 +80,7 @@ describe("toRouteResponse — bramki przenoszone z zapytań na kody HTTP", () =>
   it("`403` z innym kodem zostaje `403`, nie przekierowaniem", () => {
     // Przekierowanie na formularz w odpowiedzi na brak roli zapętliłoby
     // nawigację: formularz też odmawia, więc trasa odsyłałaby sama do siebie.
-    const odpowiedz = toRouteResponse(
-      new ApiError(403, "FORBIDDEN", "Brak dostępu."),
-    );
+    const odpowiedz = toRouteResponse(new ApiError(403, "FORBIDDEN", "Brak dostępu."));
 
     expect(odpowiedz.status).toBe(403);
   });
@@ -83,8 +91,6 @@ describe("toRouteResponse — bramki przenoszone z zapytań na kody HTTP", () =>
     );
 
     expect(odpowiedz.status).toBe(409);
-    await expect(odpowiedz.text()).resolves.toContain(
-      "Ćwiczenie jest wariantem umiejętności.",
-    );
+    await expect(odpowiedz.text()).resolves.toContain("Ćwiczenie jest wariantem umiejętności.");
   });
 });
