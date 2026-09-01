@@ -6,97 +6,62 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
+import { invitesControllerPreview } from "@kalisthenos/api-client";
 import { z } from "zod";
-import { db } from "~/lib/db/client";
-import type * as schema from "~/lib/db/schema";
-import {
-  buildSetCookie,
-  consumeInvite,
-  createSession,
-  findInviteByToken,
-  hashPassword,
-} from "~/lib/auth";
-import { enforceRateLimit, RATE_LIMITS, rateLimited, resetRateLimit } from "~/lib/rate-limit";
-import { stripeApiConfigured } from "~/lib/env";
-import { errorMeta, logger } from "~/lib/logger";
-import { setMonthlyAmount } from "~/lib/stripe/subscriptions";
+import { optionalUser } from "~/lib/api/auth";
+import { AuthError, acceptInvite } from "~/lib/api/auth-session";
+import { ApiError } from "~/lib/api/errors";
+import { buildSessionCookie } from "~/lib/api/session";
 
 const AcceptSchema = z.object({
+  email: z.string().email().max(254),
   displayName: z.string().min(1).max(80),
   password: z.string().min(8).max(1024),
 });
 
 export async function loader(args: LoaderFunctionArgs) {
+  const { api } = optionalUser(args.context);
   const token = args.params.token ?? "";
-  const invite = await findInviteByToken(db, token);
-  // Treat unknown / consumed / expired invites identically as 404 so a probe can't
-  // distinguish "wrong token" from "right token but used/expired".
-  if (!invite || invite.consumedAt || invite.expiresAt.getTime() < Date.now()) {
-    throw new Response("invite not found", { status: 404 });
+
+  try {
+    const { data } = await invitesControllerPreview({
+      client: api,
+      path: { token },
+      throwOnError: true,
+    });
+    return { displayName: data.displayName, emailHint: data.email };
+  } catch (e) {
+    // Nieistniejące, zużyte i wygasłe zaproszenie dają w BE jeden kod — i tu
+    // też jeden `404`, żeby sonda nie odróżniła „zły token" od „dobry, ale
+    // już użyty". Awaria BE zostaje awarią i leci do granicy błędu.
+    if (e instanceof ApiError && e.status === 404) {
+      throw new Response("invite not found", { status: 404 });
+    }
+    throw e;
   }
-  return { displayName: invite.displayName, emailHint: invite.email };
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const retry = enforceRateLimit(args.request, RATE_LIMITS.invite);
-  if (retry !== null) return rateLimited(retry);
-
+  const { api } = optionalUser(args.context);
   const token = args.params.token ?? "";
   const fd = await args.request.formData();
   const parsed = AcceptSchema.safeParse({
+    email: fd.get("email"),
     displayName: fd.get("displayName"),
     password: fd.get("password"),
   });
-  if (!parsed.success) {
-    return { error: "Sprawdź pola formularza." };
-  }
+  if (!parsed.success) return { error: "Sprawdź pola formularza." };
 
-  // Email is authoritative from the invite — the trainer sets it, the trainee
-  // accepts it. Don't trust anything the form posted under that name.
-  const invite = await findInviteByToken(db, token);
-  if (!invite || invite.consumedAt || invite.expiresAt.getTime() < Date.now()) {
-    return { error: "Zaproszenie nieprawidłowe." };
-  }
-  if (!invite.email) {
-    return { error: "To zaproszenie nie ma przypisanego emaila — poproś trenera o nowe." };
-  }
-
-  const passwordHash = await hashPassword(parsed.data.password);
-  let user: schema.User;
-  let resultKind: "created" | "replaced";
   try {
-    const result = await consumeInvite(db, {
-      token,
-      chosenEmail: invite.email,
-      chosenDisplayName: parsed.data.displayName,
-      newPasswordHash: passwordHash,
-    });
-    user = result.user;
-    resultKind = result.kind;
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : "";
-    if (/expired/i.test(msg)) return { error: "Zaproszenie wygasło." };
-    if (/used/i.test(msg)) return { error: "Zaproszenie już użyte." };
-    return { error: "Zaproszenie nieprawidłowe." };
+    const session = await acceptInvite(api, token, parsed.data);
+    // Na `/`, NIE do sekcji: odpowiedź przyjęcia typuje `roles` jako
+    // `Array<string>`, szerzej niż `MeDto`, więc sekcję rozstrzyga `_index.tsx`
+    // na wąskim `/v1/me` z następnego żądania (D4 specu).
+    return redirect("/", { headers: { "Set-Cookie": buildSessionCookie(session) } });
+  } catch (e) {
+    if (e instanceof AuthError) return { error: e.userMessage };
+    throw e;
   }
-  const { id, expiresAt } = await createSession(db, {
-    userId: user.id,
-    userAgentHint: args.request.headers.get("user-agent"),
-  });
-  resetRateLimit("invite", args.request);
-  const redirectTo = user.role === "trainer" ? "/trener" : "/podopieczny";
-  // Best-effort: zapisz kwotę miesięczną z zaproszenia. Po /podopieczny gate
-  // w layoutcie sam odeśle nieopłaconych do /podopieczny/aktywuj — nie ma już
-  // specjalnego celu ?onboarding=1.
-  if (resultKind === "created" && invite.monthlyAmountGrosze != null && stripeApiConfigured()) {
-    try {
-      await setMonthlyAmount(db, invite.trainerId, user.id, invite.monthlyAmountGrosze);
-    } catch (err) {
-      // Nie blokuj założenia konta. Trener ustawi kwotę później.
-      logger.error("onboarding.set_amount_failed", errorMeta(err));
-    }
-  }
-  return redirect(redirectTo, { headers: { "Set-Cookie": buildSetCookie(id, expiresAt) } });
 }
 
 export default function InviteAccept() {
