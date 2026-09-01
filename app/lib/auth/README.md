@@ -9,6 +9,15 @@ podopiecznego. Importuj przez `index.ts`.
 > obsługuje dziś wyłącznie **starą** sesję bazodanową, z której korzysta jeszcze `login.tsx`
 > i `zaproszenie.$token.tsx` — do czasu kroku 2 Etapu 2.
 
+> ⚠️ **Pułapka na krok 2: `clearSessionCookie` istnieje DWA RAZY**, pod tą samą nazwą
+> i w dwóch warstwach — tutaj (`cookie.ts`, kasuje `__Host-kth_session`) oraz
+> w [`../api/session.ts`](../api/README.md) (kasuje `__Host-kth_api`). `routes/wyloguj.tsx`
+> importuje dziś tę **stąd** i ma rację, bo nikt jeszcze nie ma ciastka tokenowego. Gdy
+> logowanie zacznie je wystawiać, `wyloguj` musi kasować **oba** — a przy identycznej nazwie
+> zła podpowiedź importu jest cicha, objawem jest „wylogowanie nie wylogowuje" (middleware
+> wskrzesza użytkownika z tokenu, którego nikt nie skasował), i `wyloguj.tsx` nie ma
+> żadnego testu, który by to złapał.
+
 | Plik | Rola / kluczowe eksporty |
 |---|---|
 | `index.ts` | **Sama fasada re-eksportów** nad ciastkiem sesji, hasłami, zaproszeniami i odczytami użytkowników — bez własnej logiki. Tożsamość wyprowadziła się stąd do [`../api/`](../api/README.md): `requireUser`/`optionalUser` czytają `context` wypełniony przez `apiMiddleware`, a nie bazę (spec rozbicia FE/BE, krok 1 Etapu 2). To, co zostało tutaj, znika w krokach 2 i 6 Etapu 2. |
