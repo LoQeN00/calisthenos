@@ -14,7 +14,7 @@ vi.mock("~/lib/env", () => ({
 
 import { createApiClient } from "./client";
 import { ApiError } from "./errors";
-import { AuthError, startSession } from "./auth-session";
+import { AuthError, acceptInvite, endSession, startSession } from "./auth-session";
 
 const PROFIL = {
   partyId: "p-1",
@@ -124,5 +124,115 @@ describe("startSession — wystawienie sesji na tokenach BE", () => {
 
     expect(blad).toBeInstanceOf(ApiError);
     expect(blad).not.toBeInstanceOf(AuthError);
+  });
+});
+
+describe("acceptInvite — przyjęcie zaproszenia", () => {
+  it("wystawia sesję i NIE interpretuje ról z odpowiedzi", async () => {
+    // Kontrakt typuje tu `roles` jako `Array<string>`, szerzej niż w `MeDto`.
+    // Moduł świadomie nie buduje z tego `AuthUser` — o sekcji rozstrzyga `/`
+    // na podstawie wąskiego `/v1/me` z następnego żądania (D4 specu). Rola
+    // „cokolwiek" w tym teście jest tu po to, żeby próba zawężenia jej filtrem
+    // rzuciła się w oczy przy najbliższej zmianie.
+    let opis = "";
+    const api = klient((req) => {
+      opis = `${req.method} ${new URL(req.url).pathname}`;
+      return json(200, {
+        accessToken: "A1",
+        refreshToken: "R1",
+        expiresIn: 900,
+        profile: {
+          partyId: "p-2",
+          displayName: "Ola",
+          email: "ola@e.pl",
+          roles: ["cokolwiek"],
+          coach: null,
+        },
+      });
+    });
+
+    const session = await acceptInvite(
+      api,
+      "tok-1",
+      { email: "ola@e.pl", displayName: "Ola", password: "tajne123" },
+      () => TERAZ,
+    );
+
+    expect(opis).toBe("POST /v1/invites/tok-1/accept");
+    expect(session.refreshToken).toBe("R1");
+    expect(session.accessExpiresAt).toBe(TERAZ.getTime() + 900_000);
+  });
+
+  it("404 znaczy nieprawidłowe zaproszenie, bez rozróżniania dlaczego", async () => {
+    // BE zwraca jeden kod dla nieistniejącego, zużytego, wygasłego i takiego,
+    // przy którym nie zgadza się adres — osobne kody byłyby wyrocznią
+    // pozwalającą dobierać adres serią prób (ADR-0032).
+    const api = klient(() =>
+      json(404, { error: { code: "RESOURCE_NOT_FOUND", message: "Brak." } }),
+    );
+
+    const blad = await acceptInvite(api, "tok-1", {
+      email: "ola@e.pl",
+      displayName: "Ola",
+      password: "tajne123",
+    }).catch((e: unknown) => e);
+
+    expect(blad).toBeInstanceOf(AuthError);
+    expect((blad as AuthError).userMessage).toBe("Zaproszenie nieprawidłowe lub już wykorzystane.");
+  });
+
+  it("409 znaczy adres zajęty", async () => {
+    const api = klient(() =>
+      json(409, { error: { code: "EMAIL_ALREADY_TAKEN", message: "Zajęty." } }),
+    );
+
+    const blad = await acceptInvite(api, "tok-1", {
+      email: "ola@e.pl",
+      displayName: "Ola",
+      password: "tajne123",
+    }).catch((e: unknown) => e);
+
+    expect((blad as AuthError).userMessage).toBe("Ten adres e-mail jest już zajęty.");
+  });
+
+  it("awaria BE nie zamienia się w komunikat o zaproszeniu", async () => {
+    const api = klient(() => json(500, { error: { code: "INTERNAL", message: "Ups." } }));
+
+    const blad = await acceptInvite(api, "tok-1", {
+      email: "ola@e.pl",
+      displayName: "Ola",
+      password: "tajne123",
+    }).catch((e: unknown) => e);
+
+    expect(blad).toBeInstanceOf(ApiError);
+    expect(blad).not.toBeInstanceOf(AuthError);
+  });
+});
+
+describe("endSession — wylogowanie", () => {
+  it("podaje token odświeżający w ciele", async () => {
+    // FE trzyma token we WŁASNYM ciastku, nie w tym, którego szuka BE, więc
+    // musi go podać jawnie — `RefreshDto.refreshToken` jest opcjonalny
+    // wyłącznie dla klientów mających ciastko BE.
+    let cialo = "";
+    const api = klient(async (req) => {
+      cialo = await req.text();
+      return new Response(null, { status: 204 });
+    });
+
+    await endSession(api, { accessToken: "A1", refreshToken: "R1", accessExpiresAt: 0 });
+
+    expect(JSON.parse(cialo)).toEqual({ refreshToken: "R1" });
+  });
+
+  it("nie rzuca, gdy BE odmawia", async () => {
+    // D5 specu: wylogowanie, które nie wylogowuje, bo backend akurat nie
+    // odpowiada, jest gorsze niż osierocona sesja po tamtej stronie.
+    // Czyszczenie ciastka w trasie NIE MOŻE zależeć od tego wywołania.
+    const api = klient(() => json(503, {}));
+
+    await expect(
+      endSession(api, { accessToken: "A1", refreshToken: "R1", accessExpiresAt: 0 }),
+    ).resolves.toBeUndefined();
   });
 });

@@ -1,4 +1,8 @@
-import { authControllerLogin } from "@kalisthenos/api-client";
+import {
+  authControllerLogin,
+  authControllerLogout,
+  invitesControllerAccept,
+} from "@kalisthenos/api-client";
 import type { Api } from "./client";
 import type { AuthUser } from "./context";
 import { ApiError } from "./errors";
@@ -77,5 +81,67 @@ export async function startSession(
     }
     if (e instanceof ApiError && e.status === 429) throw limitPrzekroczony(e.retryAfter);
     throw e;
+  }
+}
+
+/**
+ * Przyjmuje zaproszenie i oddaje **samą sesję**, bez użytkownika.
+ *
+ * Nie z lenistwa: `AcceptedProfileResponse.roles` jest w kontrakcie typowane
+ * jako `Array<string>`, szerzej niż `MeDto.roles`. Zbudowanie z tego `AuthUser`
+ * wymagałoby zawężenia filtrem — czyli cichego wyrzucenia roli, której nie
+ * znamy — a to jest dokładnie ten kształt błędu, przed którym broni się reguła
+ * z kroku 1: trzecia rola ma zapalić `typecheck`, nie zniknąć. Trasa
+ * przekierowuje na `/`, gdzie o sekcji rozstrzyga wąskie `/v1/me` z następnego
+ * żądania.
+ */
+export async function acceptInvite(
+  api: Api,
+  token: string,
+  input: { email: string; displayName: string; password: string },
+  now: () => Date = () => new Date(),
+): Promise<ApiSession> {
+  try {
+    const { data } = await invitesControllerAccept({
+      client: api,
+      path: { token },
+      body: input,
+      throwOnError: true,
+    });
+    return sessionFromTokens(data, now());
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) {
+      // Jeden komunikat dla nieistniejącego, zużytego, wygasłego i takiego,
+      // przy którym nie zgadza się adres — BE nie rozróżnia ich celowo
+      // (ADR-0032), bo osobny kod pozwalałby dobierać adres serią prób.
+      throw new AuthError("invite unusable", "Zaproszenie nieprawidłowe lub już wykorzystane.");
+    }
+    if (e instanceof ApiError && e.status === 409) {
+      throw new AuthError("email taken", "Ten adres e-mail jest już zajęty.");
+    }
+    if (e instanceof ApiError && e.status === 429) throw limitPrzekroczony(e.retryAfter);
+    throw e;
+  }
+}
+
+/**
+ * Gasi sesję po stronie BE. **Best-effort i to jest decyzja, nie niedbałość**
+ * (D5 specu): wywołujący ma wyczyścić ciastko niezależnie od wyniku, bo
+ * wylogowanie, które nie wylogowuje przez chwilową awarię backendu, zostawia
+ * użytkownika zalogowanego wbrew jego kliknięciu. Sesję osieroconą po tamtej
+ * stronie zamknie wygaśnięcie; ciastka w przeglądarce nie zamknie nic.
+ *
+ * Token idzie w ciele jawnie: `RefreshDto.refreshToken` jest opcjonalny tylko
+ * dla klientów, którzy mają ciastko BE. FE trzyma go we własnym.
+ */
+export async function endSession(api: Api, session: ApiSession): Promise<void> {
+  try {
+    await authControllerLogout({
+      client: api,
+      body: { refreshToken: session.refreshToken },
+      throwOnError: true,
+    });
+  } catch {
+    // Świadomie połknięty — patrz komentarz wyżej.
   }
 }
