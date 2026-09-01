@@ -84,6 +84,29 @@ describe("createApiClient", () => {
     expect(blad).toBeInstanceOf(ApiError);
     expect((blad as ApiError).status).toBe(502);
   });
+
+  it("błąd, który wszedł już jako ApiError, wychodzi tym samym błędem", async () => {
+    // Zagnieżdżone odświeżenie (nieudana ponowna próba po 401) rzuca gotowy
+    // ApiError, a ten wraca przez TEN SAM interceptor drugi raz. Bez tej
+    // wczesnej ścieżki `parseApiError` dostałby `ApiError` zamiast surowej
+    // koperty, nie znalazłby w nim pola `.error` (bo `ApiError` go nie ma)
+    // i zamieniłby 401/TOKEN_EXPIRED na 502/UNKNOWN — dokładnie informację,
+    // po którą sięga middleware rozpoznający martwą sesję.
+    const api = createApiClient({
+      baseUrl: "http://be.test",
+      getToken: () => "T",
+      fetch: async () => {
+        throw new ApiError(401, "TOKEN_EXPIRED", "Token wygasł.");
+      },
+    });
+
+    const blad = await exerciseCategoriesControllerList({ client: api }).catch((e: unknown) => e);
+
+    expect(blad).toBeInstanceOf(ApiError);
+    expect((blad as ApiError).status).toBe(401);
+    expect((blad as ApiError).code).toBe("TOKEN_EXPIRED");
+    expect((blad as ApiError).message).toBe("Token wygasł.");
+  });
 });
 
 describe("orNull — reguła D3", () => {

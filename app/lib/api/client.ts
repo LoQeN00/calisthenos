@@ -57,9 +57,9 @@ export function createApiClient({ baseUrl, getToken, fetch: transport }: ApiClie
  * łykający wszystko zamieniałby błędną ścieżkę w kliencie i awarię BE w pusty
  * ekran, czyli w objaw nie do odróżnienia od „nic tu nie ma".
  */
-export async function orNull<T>(wywolanie: Promise<T>): Promise<T | null> {
+export async function orNull<T>(call: Promise<T>): Promise<T | null> {
   try {
-    return await wywolanie;
+    return await call;
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) return null;
     throw e;
