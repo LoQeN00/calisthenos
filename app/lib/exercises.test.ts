@@ -18,7 +18,6 @@ vi.mock("~/lib/env", () => ({
 import { createApiClient } from "./api/client";
 import { ApiError } from "./api/errors";
 import {
-  countActiveExercisesForTrainer,
   createExercise,
   ExerciseError,
   getExerciseDetail,
@@ -140,22 +139,6 @@ describe("listExercisesForTrainer — lista biblioteki na kontrakcie", () => {
     const wynik = await listExercisesForTrainer(api, { sort: "name_asc", page: 1 });
 
     expect(wynik.items[0]?.demoUrl).toBe(`https://api.kalisthenos.test${sciezka}`);
-  });
-});
-
-describe("countActiveExercisesForTrainer — licznik nawigacji", () => {
-  it("bierze `total` z pierwszej strony aktywnych", async () => {
-    let zapytanie = "";
-    const api = klient((req) => {
-      zapytanie = new URL(req.url).search;
-      return json(200, strona([CWICZENIE], 1, 2, 42));
-    });
-
-    const wynik = await countActiveExercisesForTrainer(api);
-
-    expect(wynik).toBe(42);
-    expect(zapytanie).toContain("status=active");
-    expect(zapytanie).toContain("page=1");
   });
 });
 
@@ -378,10 +361,7 @@ describe("setExerciseArchived — archiwizacja i przywrócenie", () => {
     await setExerciseArchived(api, "e-1", true);
     await setExerciseArchived(api, "e-1", false);
 
-    expect(trafienia).toEqual([
-      "POST /v1/exercises/e-1/archive",
-      "POST /v1/exercises/e-1/restore",
-    ]);
+    expect(trafienia).toEqual(["POST /v1/exercises/e-1/archive", "POST /v1/exercises/e-1/restore"]);
   });
 
   it("wariant aktywnej umiejętności wraca jako ExerciseError z komunikatem BE", async () => {

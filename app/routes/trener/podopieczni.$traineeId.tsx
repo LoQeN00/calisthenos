@@ -27,7 +27,7 @@ import { db } from "~/lib/db/client";
 import { daysAgo, fmtDate, fmtDateTime, pluralizePl, type PlForms } from "~/lib/format";
 import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
 import { getFormStatusForTrainee } from "~/lib/onboarding-forms";
-import { deletePlan, listPlansForTrainee, PlanRepoError } from "~/lib/plans";
+import { deletePlan, listPlansForTrainee, PlanError, planDeleteOutcomeMessage } from "~/lib/plans";
 import {
   getActivePlanSessionUsage,
   getActivityHeatmap,
@@ -75,7 +75,7 @@ const spec: ListControlsSpec = {
 const LOGS_PAGE_SIZE = 20;
 
 export async function loader(args: LoaderFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainer" });
+  const { api, user } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
   const url = new URL(args.request.url);
   const logsPage = parsePage(url.searchParams);
@@ -88,7 +88,7 @@ export async function loader(args: LoaderFunctionArgs) {
   // plakietka w pasku przycisków w ogóle się nie renderuje.
   const onboardingStatus = await getFormStatusForTrainee(db, user.id, traineeId);
 
-  const plans = await listPlansForTrainee(db, user.id, traineeId);
+  const plans = await listPlansForTrainee(api, traineeId);
 
   const activePlan = plans.find((p) => p.status === "active") ?? null;
   const draftPlan = plans.find((p) => p.status === "draft") ?? null;
@@ -157,7 +157,7 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainer" });
+  const { api, user } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
 
   // Re-verify trainee ownership before any mutation.
@@ -189,15 +189,10 @@ export async function action(args: ActionFunctionArgs) {
   const planId = String(fd.get("planId") ?? "");
   if (!planId) return { error: "Brak id planu." };
   try {
-    const result = await deletePlan(db, planId, user.id);
-    if (result.kind === "deleted") {
-      return { success: "Plan usunięty." };
-    }
-    return {
-      success: `Plan zarchiwizowany — ma ${result.logCount} zapisanych sesji, historia została zachowana.`,
-    };
+    const outcome = await deletePlan(api, planId);
+    return { success: planDeleteOutcomeMessage(outcome) };
   } catch (e) {
-    if (e instanceof PlanRepoError) return { error: e.userMessage };
+    if (e instanceof PlanError) return { error: e.userMessage };
     throw e;
   }
 }
@@ -368,9 +363,7 @@ export default function TrenerPodopiecznyDetail() {
                 </span>
                 <span className="mono text-xs muted">
                   v{activePlan.version}
-                  {activePlan.publishedAt && (
-                    <> · od {fmtDate(activePlan.publishedAt.toString())}</>
-                  )}
+                  {activePlan.publishedAt && <> · od {fmtDate(activePlan.publishedAt)}</>}
                 </span>
               </div>
               <h2 style={{ fontSize: 19, marginBottom: 4 }}>{activePlan.name}</h2>

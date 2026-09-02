@@ -1,390 +1,31 @@
-import { and, asc, count, desc, eq, ilike, inArray, max, ne, or, sql } from "drizzle-orm";
-import type { Db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
+import {
+  plansControllerCreate,
+  plansControllerDetail,
+  plansControllerDraft,
+  plansControllerList,
+  plansControllerPublish,
+  plansControllerRemove,
+  plansControllerSave,
+  traineePlansControllerTraineePlans,
+} from "@kalisthenos/api-client";
+import type {
+  PlanDeletedView,
+  PlanDetailView,
+  PlanListPage,
+  SavePlanDto,
+  TraineePlanItemView,
+} from "@kalisthenos/api-client";
+import { orNull } from "~/lib/api/client";
+import type { Api } from "~/lib/api/client";
+import { ApiError } from "~/lib/api/errors";
 import type { PlanForm } from "~/lib/plan-types";
 
-// ---------------- Reads ----------------
-
-export interface PlanDetail {
-  plan: schema.Plan;
-  trainee: { id: string; displayName: string };
-  sessions: Array<{
-    session: schema.PlanSession;
-    blocks: Array<{
-      block: schema.PlanBlock;
-      items: schema.PlanItem[];
-    }>;
-  }>;
-}
-
-/** Load a plan with all its nested sessions, blocks, and items. Returns null if not owned by the trainer. */
-export async function loadPlanForTrainer(
-  db: Db,
-  planId: string,
-  trainerId: string,
-): Promise<PlanDetail | null> {
-  const planRows = await db
-    .select({
-      plan: schema.plans,
-      trainee: { id: schema.users.id, displayName: schema.users.displayName },
-    })
-    .from(schema.plans)
-    .innerJoin(schema.users, eq(schema.users.id, schema.plans.traineeId))
-    .where(and(eq(schema.plans.id, planId), eq(schema.plans.trainerId, trainerId)))
-    .limit(1);
-  const head = planRows[0];
-  if (!head) return null;
-
-  const sessions = await db
-    .select()
-    .from(schema.planSessions)
-    .where(eq(schema.planSessions.planId, planId))
-    .orderBy(schema.planSessions.ordinal);
-
-  if (sessions.length === 0) {
-    return { plan: head.plan, trainee: head.trainee, sessions: [] };
-  }
-
-  const sessionIds = sessions.map((s) => s.id);
-  const blocks = await db
-    .select()
-    .from(schema.planBlocks)
-    .where(inArray(schema.planBlocks.planSessionId, sessionIds))
-    .orderBy(schema.planBlocks.planSessionId, schema.planBlocks.ordinal);
-
-  const blockIds = blocks.map((b) => b.id);
-  const items =
-    blockIds.length === 0
-      ? []
-      : await db
-          .select()
-          .from(schema.planItems)
-          .where(inArray(schema.planItems.planBlockId, blockIds))
-          .orderBy(schema.planItems.planBlockId, schema.planItems.ordinal);
-
-  const itemsByBlock = new Map<string, schema.PlanItem[]>();
-  for (const it of items) {
-    const list = itemsByBlock.get(it.planBlockId) ?? [];
-    list.push(it);
-    itemsByBlock.set(it.planBlockId, list);
-  }
-
-  const blocksBySession = new Map<
-    string,
-    Array<{ block: schema.PlanBlock; items: schema.PlanItem[] }>
-  >();
-  for (const b of blocks) {
-    const list = blocksBySession.get(b.planSessionId) ?? [];
-    list.push({ block: b, items: itemsByBlock.get(b.id) ?? [] });
-    blocksBySession.set(b.planSessionId, list);
-  }
-
-  return {
-    plan: head.plan,
-    trainee: head.trainee,
-    sessions: sessions.map((s) => ({
-      session: s,
-      blocks: blocksBySession.get(s.id) ?? [],
-    })),
-  };
-}
-
-export type PlanSort = "newest" | "oldest" | "name_asc" | "published";
-export type PlanStatusFilter = "all" | "active" | "draft";
-
-export interface PlanListRow {
-  plan: schema.Plan;
-  trainee: { id: string; displayName: string };
-  sessionCount: number;
-}
-
-/** Liczniki zakładek — zawsze bez zarchiwizowanych, niezależnie od filtra listy. */
-export async function countPlansByStatusForTrainer(
-  db: Db,
-  trainerId: string,
-): Promise<{ all: number; active: number; draft: number }> {
-  const rows = await db
-    .select({ status: schema.plans.status, c: count() })
-    .from(schema.plans)
-    .where(and(eq(schema.plans.trainerId, trainerId), ne(schema.plans.status, "archived")))
-    .groupBy(schema.plans.status);
-
-  const counts = { all: 0, active: 0, draft: 0 };
-  for (const r of rows) {
-    if (r.status === "active" || r.status === "draft") {
-      counts[r.status] = Number(r.c);
-      counts.all += Number(r.c);
-    }
-  }
-  return counts;
-}
-
-function planConditions(trainerId: string, filter: { status: PlanStatusFilter; q?: string }) {
-  // Zarchiwizowane są ukryte w UI trenera — powstają automatycznie przy publikacji
-  // i nie niosą akcji.
-  const conditions = [eq(schema.plans.trainerId, trainerId), ne(schema.plans.status, "archived")];
-  if (filter.status !== "all") {
-    conditions.push(eq(schema.plans.status, filter.status));
-  }
-  if (filter.q != null && filter.q.length > 0) {
-    conditions.push(
-      or(
-        ilike(schema.plans.name, `%${filter.q}%`),
-        ilike(schema.users.displayName, `%${filter.q}%`),
-      )!,
-    );
-  }
-  return conditions;
-}
-
-export async function countPlansForTrainer(
-  db: Db,
-  trainerId: string,
-  filter: { status: PlanStatusFilter; q?: string },
-): Promise<number> {
-  const [row] = await db
-    .select({ c: count() })
-    .from(schema.plans)
-    .innerJoin(schema.users, eq(schema.users.id, schema.plans.traineeId))
-    .where(and(...planConditions(trainerId, filter)));
-  return Number(row?.c ?? 0);
-}
-
-/** List plans for one trainer with trainee + session count, filtered/sorted/paginated. */
-export async function listPlansForTrainer(
-  db: Db,
-  trainerId: string,
-  opts: { status: PlanStatusFilter; q?: string; sort: PlanSort; limit: number; offset: number },
-): Promise<PlanListRow[]> {
-  const orderBy =
-    opts.sort === "oldest"
-      ? [asc(schema.plans.createdAt)]
-      : opts.sort === "name_asc"
-        ? [asc(schema.plans.name)]
-        : opts.sort === "published"
-          ? [sql`${schema.plans.publishedAt} DESC NULLS LAST`]
-          : [desc(schema.plans.createdAt)];
-
-  const sessionCountSub = db.$with("session_counts").as(
-    db
-      .select({ planId: schema.planSessions.planId, c: count().as("c") })
-      .from(schema.planSessions)
-      .groupBy(schema.planSessions.planId),
-  );
-
-  return await db
-    .with(sessionCountSub)
-    .select({
-      plan: schema.plans,
-      trainee: { id: schema.users.id, displayName: schema.users.displayName },
-      sessionCount: sql<number>`COALESCE(${sessionCountSub.c}, 0)::int`,
-    })
-    .from(schema.plans)
-    .innerJoin(schema.users, eq(schema.users.id, schema.plans.traineeId))
-    .leftJoin(sessionCountSub, eq(sessionCountSub.planId, schema.plans.id))
-    .where(and(...planConditions(trainerId, opts)))
-    .orderBy(...orderBy)
-    .limit(opts.limit)
-    .offset(opts.offset);
-}
-
-/** Wszystkie plany pary (łącznie z zarchiwizowanymi) — widok klienta. */
-export async function listPlansForTrainee(
-  db: Db,
-  trainerId: string,
-  traineeId: string,
-): Promise<schema.Plan[]> {
-  return await db
-    .select()
-    .from(schema.plans)
-    .where(and(eq(schema.plans.trainerId, trainerId), eq(schema.plans.traineeId, traineeId)))
-    .orderBy(desc(schema.plans.createdAt));
-}
-
-export async function findPlanStatusForTrainer(
-  db: Db,
-  planId: string,
-  trainerId: string,
-): Promise<{ status: schema.Plan["status"]; traineeId: string } | null> {
-  const rows = await db
-    .select({ status: schema.plans.status, traineeId: schema.plans.traineeId })
-    .from(schema.plans)
-    .where(and(eq(schema.plans.id, planId), eq(schema.plans.trainerId, trainerId)))
-    .limit(1);
-  return rows[0] ?? null;
-}
-
-/** `status: null` liczy WSZYSTKIE plany trenera, także zarchiwizowane (licznik nawigacji). */
-export async function countPlansForTrainerByStatus(
-  db: Db,
-  trainerId: string,
-  status: "active" | "draft" | null,
-): Promise<number> {
-  const conditions = [eq(schema.plans.trainerId, trainerId)];
-  if (status != null) conditions.push(eq(schema.plans.status, status));
-  const [row] = await db
-    .select({ c: count() })
-    .from(schema.plans)
-    .where(and(...conditions));
-  return Number(row?.c ?? 0);
-}
-
-export async function countSessionsInPlan(db: Db, planId: string): Promise<number> {
-  const [row] = await db
-    .select({ c: count() })
-    .from(schema.planSessions)
-    .where(eq(schema.planSessions.planId, planId));
-  return Number(row?.c ?? 0);
-}
-
-/** Return the existing draft for a given (trainee, basedOnVersion), if any. */
-export async function findDraftBasedOn(
-  db: Db,
-  traineeId: string,
-  basedOnVersion: number,
-): Promise<schema.Plan | null> {
-  const rows = await db
-    .select()
-    .from(schema.plans)
-    .where(
-      and(
-        eq(schema.plans.traineeId, traineeId),
-        eq(schema.plans.status, "draft"),
-        eq(schema.plans.basedOnVersion, basedOnVersion),
-      ),
-    )
-    .limit(1);
-  return rows[0] ?? null;
-}
-
-/** Any draft for the trainee (regardless of basedOnVersion). At most one due to partial unique index. */
-export async function findAnyDraftFor(db: Db, traineeId: string): Promise<schema.Plan | null> {
-  const rows = await db
-    .select()
-    .from(schema.plans)
-    .where(and(eq(schema.plans.traineeId, traineeId), eq(schema.plans.status, "draft")))
-    .limit(1);
-  return rows[0] ?? null;
-}
-
-/** Returns the trainer's next free version number for a trainee. */
-async function nextVersionFor(db: Db, traineeId: string): Promise<number> {
-  const rows = await db
-    .select({ m: max(schema.plans.version) })
-    .from(schema.plans)
-    .where(eq(schema.plans.traineeId, traineeId));
-  const current = rows[0]?.m ?? 0;
-  return current + 1;
-}
-
-// ---------------- Writes ----------------
-
-export interface CreateBlankPlanInput {
-  trainerId: string;
-  traineeId: string;
-  name: string;
-}
-
-/** Create a new draft plan with no sessions. Returns the new plan's id. */
-export async function createBlankPlan(db: Db, input: CreateBlankPlanInput): Promise<string> {
-  return await db.transaction(async (tx) => {
-    const version = await nextVersionFor(tx, input.traineeId);
-    const [row] = await tx
-      .insert(schema.plans)
-      .values({
-        trainerId: input.trainerId,
-        traineeId: input.traineeId,
-        name: input.name,
-        version,
-        basedOnVersion: null,
-        status: "draft",
-      })
-      .returning({ id: schema.plans.id });
-    return row!.id;
-  });
-}
-
-/** Deep-clone the given active plan into a new draft. Returns the new draft id. */
-export async function createDraftFromActive(db: Db, sourcePlanId: string): Promise<string> {
-  return await db.transaction(async (tx) => {
-    const sourceRows = await tx
-      .select()
-      .from(schema.plans)
-      .where(eq(schema.plans.id, sourcePlanId))
-      .limit(1);
-    const source = sourceRows[0];
-    if (!source) throw new Error("source plan not found");
-    if (source.status !== "active") throw new Error("source plan is not active");
-
-    const newVersion = await nextVersionFor(tx, source.traineeId);
-    const [draftRow] = await tx
-      .insert(schema.plans)
-      .values({
-        trainerId: source.trainerId,
-        traineeId: source.traineeId,
-        name: source.name,
-        version: newVersion,
-        basedOnVersion: source.version,
-        status: "draft",
-      })
-      .returning({ id: schema.plans.id });
-    const draftId = draftRow!.id;
-
-    // Clone the tree (sessions → blocks → items).
-    const srcSessions = await tx
-      .select()
-      .from(schema.planSessions)
-      .where(eq(schema.planSessions.planId, sourcePlanId))
-      .orderBy(schema.planSessions.ordinal);
-
-    for (const s of srcSessions) {
-      const [newS] = await tx
-        .insert(schema.planSessions)
-        .values({ planId: draftId, ordinal: s.ordinal, name: s.name })
-        .returning({ id: schema.planSessions.id });
-      const srcBlocks = await tx
-        .select()
-        .from(schema.planBlocks)
-        .where(eq(schema.planBlocks.planSessionId, s.id))
-        .orderBy(schema.planBlocks.ordinal);
-      for (const b of srcBlocks) {
-        const [newB] = await tx
-          .insert(schema.planBlocks)
-          .values({
-            planSessionId: newS!.id,
-            ordinal: b.ordinal,
-            kind: b.kind,
-            sets: b.sets,
-            restSeconds: b.restSeconds,
-          })
-          .returning({ id: schema.planBlocks.id });
-        const srcItems = await tx
-          .select()
-          .from(schema.planItems)
-          .where(eq(schema.planItems.planBlockId, b.id))
-          .orderBy(schema.planItems.ordinal);
-        if (srcItems.length > 0) {
-          await tx.insert(schema.planItems).values(
-            srcItems.map((it) => ({
-              planBlockId: newB!.id,
-              ordinal: it.ordinal,
-              exerciseId: it.exerciseId,
-              sets: it.sets,
-              restSeconds: it.restSeconds,
-              reps: it.reps,
-              unit: it.unit,
-              note: it.note,
-            })),
-          );
-        }
-      }
-    }
-
-    return draftId;
-  });
-}
-
-export class PlanRepoError extends Error {
+/**
+ * Własny typ błędu obszaru, bo trasy pokazują `userMessage` w formularzu albo
+ * w pasku akcji (precedens: `CategoryError`, `ExerciseError`). Źródłem
+ * `userMessage` jest `message` z koperty BE — po polsku i dla użytkownika.
+ */
+export class PlanError extends Error {
   constructor(
     message: string,
     public readonly userMessage: string,
@@ -393,193 +34,282 @@ export class PlanRepoError extends Error {
   }
 }
 
+// ---------------- Reads ----------------
+
 /**
- * Save the entire plan tree. Wipe-and-rewrite of sessions/blocks/items.
- * Verifies ownership AND that every referenced exercise belongs to the trainer.
+ * Pełne drzewo planu z nazwą podopiecznego i nazwami ćwiczeń, `draftId` pary
+ * i `editable` wyliczonym ze stanu (`docs/03` „Plan — edytor"). Cudzy plan jest
+ * nieodróżnialny od nieistniejącego — `404`, tu `null`.
  */
-export async function saveDraftPlan(
-  db: Db,
-  planId: string,
-  trainerId: string,
-  input: PlanForm,
-): Promise<void> {
-  // Collect distinct exercise ids referenced in the incoming plan tree.
-  const referencedExerciseIds = new Set<string>();
-  for (const session of input.sessions) {
-    for (const block of session.blocks) {
-      for (const item of block.items) {
-        referencedExerciseIds.add(item.exerciseId);
-      }
+export async function loadPlanForTrainer(api: Api, planId: string): Promise<PlanDetailView | null> {
+  return await orNull(
+    plansControllerDetail({ client: api, path: { id: planId }, throwOnError: true }).then(
+      (r) => r.data,
+    ),
+  );
+}
+
+export type PlanSort = "newest" | "oldest" | "name_asc" | "published";
+export type PlanStatusFilter = "all" | "active" | "draft";
+
+export interface PlanListFilter {
+  status: PlanStatusFilter;
+  q?: string;
+}
+
+/**
+ * Jedno żądanie zamiast trzech: kontrakt oddaje stronę RAZEM z `total` i z
+ * licznikami zakładek `counts` — policzonymi niezależnie od `status` i `q`,
+ * zawsze bez zarchiwizowanych (`docs/04` §Plany) — więc `countPlansForTrainer`
+ * i `countPlansByStatusForTrainer` znikają bez zamiennika. Stronę spoza zakresu
+ * przycina BE (`paginate`), dokładnie tak, jak robiła to `safePage` w trasie.
+ *
+ * Wartości `sort` są w kontrakcie DOKŁADNIE te, które stoją w zakładkowalnych
+ * adresach list, więc — inaczej niż w ćwiczeniach — nie ma tu słownika.
+ * Szukajka `q` obejmuje po tamtej stronie nazwę planu ALBO nazwę podopiecznego,
+ * tak jak dotychczasowy `innerJoin` na `users`.
+ */
+export async function listPlansForTrainer(
+  api: Api,
+  opts: PlanListFilter & { sort: PlanSort; page: number },
+): Promise<PlanListPage> {
+  const { data } = await plansControllerList({
+    client: api,
+    query: {
+      page: opts.page,
+      sort: opts.sort,
+      // `all` to BRAK parametru: lista i tak nigdy nie niesie zarchiwizowanych,
+      // a `status` w kontrakcie zawęża wyłącznie do jednego stanu.
+      ...(opts.status !== "all" ? { status: opts.status } : {}),
+      // Rozłożone warunkowo, nie przez `q: opts.q`: klucz z wartością `undefined`
+      // i BRAK klucza to dla serializatora zapytań dwie różne rzeczy, a puste
+      // `q=` znaczy w kontrakcie „szukaj pustego łańcucha", nie „bez filtra".
+      ...(opts.q != null && opts.q.length > 0 ? { q: opts.q } : {}),
+    },
+    throwOnError: true,
+  });
+  return data;
+}
+
+/**
+ * Wszystkie plany pary, łącznie z zarchiwizowanymi, malejąco po numerze wersji
+ * (`docs/04`: bez stronicowania — zasób nie ma rozmiaru strony). Cudzy
+ * podopieczny daje PUSTĄ listę, nie `404` — tak zdecydował kontrakt.
+ */
+export async function listPlansForTrainee(
+  api: Api,
+  traineeId: string,
+): Promise<TraineePlanItemView[]> {
+  const { data } = await traineePlansControllerTraineePlans({
+    client: api,
+    path: { traineeId },
+    throwOnError: true,
+  });
+  return data;
+}
+
+/**
+ * Jedyne miejsce, które pyta o szkic pary bez szczegółu planu pod ręką, to
+ * odbicie w loaderze `plany.nowy.tsx` przy `?traineeId=`. Edytor bierze szkic
+ * z `PlanDetailView.draftId`, a tworzenie — z `409 PLAN_DRAFT_EXISTS`.
+ */
+export async function findDraftForTrainee(
+  api: Api,
+  traineeId: string,
+): Promise<TraineePlanItemView | null> {
+  const plans = await listPlansForTrainee(api, traineeId);
+  return plans.find((p) => p.status === "draft") ?? null;
+}
+
+// ---------------- Writes ----------------
+
+export interface CreateBlankPlanInput {
+  traineeId: string;
+  name: string;
+}
+
+export interface CreatePlanResult {
+  id: string;
+  /** `false`, gdy para miała już szkic — `id` wskazuje wtedy ten istniejący. */
+  created: boolean;
+}
+
+/**
+ * Pusty szkic dla podopiecznego. „Jeden szkic na parę" pilnuje unikat po stronie
+ * BE: `409 PLAN_DRAFT_EXISTS` niesie w `details.planId` istniejący szkic (`docs/04`:
+ * „odpowiedź wskazuje istniejący"), więc nie ma pre-checku i nie ma wyścigu.
+ * Funkcja o nazwie „utwórz" oddająca cudzy identyfikator bez słowa wprowadzałaby
+ * w błąd — stąd `created` w wyniku.
+ */
+export async function createBlankPlan(
+  api: Api,
+  input: CreateBlankPlanInput,
+): Promise<CreatePlanResult> {
+  try {
+    const { data } = await plansControllerCreate({
+      client: api,
+      body: { traineeId: input.traineeId, name: input.name },
+      throwOnError: true,
+    });
+    return { id: data.id, created: true };
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 409 && e.code === "PLAN_DRAFT_EXISTS") {
+      const existingId = e.details?.planId;
+      if (typeof existingId === "string") return { id: existingId, created: false };
     }
+    // Cudzy/nieistniejący podopieczny (`404`) i każdy inny `409` (np.
+    // `PLAN_DRAFT_EXISTS` bez `details.planId` — BE go zawsze niesie, ale odmowa
+    // bez wskazania i tak ma zostać zdaniem w formularzu, nie ekranem błędu) —
+    // do formularza, komunikatem BE.
+    if (e instanceof ApiError && (e.status === 404 || e.status === 409)) {
+      throw new PlanError(e.code, e.message);
+    }
+    throw e;
   }
-
-  await db.transaction(async (tx) => {
-    // 1) Ownership + draft-status guard.
-    const planRows = await tx
-      .select({ status: schema.plans.status })
-      .from(schema.plans)
-      .where(and(eq(schema.plans.id, planId), eq(schema.plans.trainerId, trainerId)))
-      .limit(1);
-    const plan = planRows[0];
-    if (!plan)
-      throw new PlanRepoError("plan not found", "Plan nie istnieje albo nie należy do Ciebie.");
-    if (plan.status !== "draft") {
-      throw new PlanRepoError("not a draft", "Plan nie jest w trybie draft.");
-    }
-
-    // 2) Tenant scope check on referenced exercises. Prevents a crafted request
-    //    from inserting plan_items that point at another trainer's exercises.
-    if (referencedExerciseIds.size > 0) {
-      const ids = Array.from(referencedExerciseIds);
-      const validRows = await tx
-        .select({ id: schema.exercises.id })
-        .from(schema.exercises)
-        .where(and(eq(schema.exercises.trainerId, trainerId), inArray(schema.exercises.id, ids)));
-      if (validRows.length !== ids.length) {
-        throw new PlanRepoError(
-          "exercise not in library",
-          "Niektóre ćwiczenia w planie nie są z Twojej biblioteki.",
-        );
-      }
-    }
-
-    // 3) Update name.
-    await tx.update(schema.plans).set({ name: input.name }).where(eq(schema.plans.id, planId));
-
-    // 4) Wipe sessions (CASCADE → blocks → items).
-    await tx.delete(schema.planSessions).where(eq(schema.planSessions.planId, planId));
-
-    // 5) Reinsert tree.
-    for (const [sIdx, session] of input.sessions.entries()) {
-      const [sRow] = await tx
-        .insert(schema.planSessions)
-        .values({ planId, ordinal: sIdx, name: session.name })
-        .returning({ id: schema.planSessions.id });
-      const sessionId = sRow!.id;
-
-      for (const [bIdx, block] of session.blocks.entries()) {
-        const isDropset = block.kind === "dropset";
-        const [bRow] = await tx
-          .insert(schema.planBlocks)
-          .values({
-            planSessionId: sessionId,
-            ordinal: bIdx,
-            kind: block.kind,
-            sets: isDropset ? (block.sets ?? null) : null,
-            restSeconds: isDropset ? (block.restSeconds ?? null) : null,
-          })
-          .returning({ id: schema.planBlocks.id });
-        const blockId = bRow!.id;
-
-        if (block.items.length > 0) {
-          await tx.insert(schema.planItems).values(
-            block.items.map((it, iIdx) => ({
-              planBlockId: blockId,
-              ordinal: iIdx,
-              exerciseId: it.exerciseId,
-              sets: isDropset ? null : (it.sets ?? null),
-              restSeconds: isDropset ? null : (it.restSeconds ?? null),
-              reps: it.reps,
-              unit: it.unit,
-              note: it.note ?? null,
-            })),
-          );
-        }
-      }
-    }
-  });
 }
 
 /**
- * Publish a draft. Atomically: archive any prior active plan for the same
- * trainee, then flip this draft to active with published_at = now.
- * Verifies ownership.
+ * Formularz edytora → `SavePlanDto`. Trzy rzeczy, które do integracji robił
+ * `saveDraftPlan` w transakcji:
+ * 1. zdejmuje `id` sesji, bloków i pozycji — BE ma `forbidNonWhitelisted: true`,
+ *    więc pole spoza DTO to `400`; a `PlanForm` jest strukturalnie szerszy niż
+ *    DTO, więc TypeScript nadmiaru nie zgłosi;
+ * 2. normalizuje tempo per rodzaj bloku: dropset niesie `sets`/`restSeconds` na
+ *    bloku, a pozycje mają `null`; single/superset odwrotnie;
+ * 3. `undefined` → `null`, bo `PlanItemDto` WYMAGA kluczy `sets`, `restSeconds`,
+ *    `note` (nullable, nie opcjonalne).
  */
-export async function publishPlan(db: Db, planId: string, trainerId: string): Promise<void> {
-  await db.transaction(async (tx) => {
-    const rows = await tx
-      .select()
-      .from(schema.plans)
-      .where(and(eq(schema.plans.id, planId), eq(schema.plans.trainerId, trainerId)))
-      .for("update")
-      .limit(1);
-    const target = rows[0];
-    if (!target)
-      throw new PlanRepoError("plan not found", "Plan nie istnieje albo nie należy do Ciebie.");
-    if (target.status !== "draft") {
-      throw new PlanRepoError("not a draft", "Tylko draft można opublikować.");
-    }
-
-    await tx
-      .update(schema.plans)
-      .set({ status: "archived" })
-      .where(and(eq(schema.plans.traineeId, target.traineeId), eq(schema.plans.status, "active")));
-
-    await tx
-      .update(schema.plans)
-      .set({ status: "active", publishedAt: new Date() })
-      .where(eq(schema.plans.id, planId));
-  });
+export function toSavePlanDto(form: PlanForm): SavePlanDto {
+  return {
+    name: form.name,
+    sessions: form.sessions.map((session) => ({
+      name: session.name,
+      blocks: session.blocks.map((block) => {
+        const isDropset = block.kind === "dropset";
+        return {
+          kind: block.kind,
+          sets: isDropset ? (block.sets ?? null) : null,
+          restSeconds: isDropset ? (block.restSeconds ?? null) : null,
+          items: block.items.map((item) => ({
+            exerciseId: item.exerciseId,
+            reps: item.reps,
+            unit: item.unit,
+            sets: isDropset ? null : (item.sets ?? null),
+            restSeconds: isDropset ? null : (item.restSeconds ?? null),
+            note: item.note ?? null,
+          })),
+        };
+      }),
+    })),
+  };
 }
 
-export type DeletePlanResult = { kind: "deleted" } | { kind: "archived"; logCount: number };
+/**
+ * Wąski `catch` zapisów edytora. Trasa pokazuje `userMessage` w formularzu, więc
+ * własny typ dostają: `400` (reguły drzewa po stronie BE — Zod stoi pierwszy,
+ * ale tamte bywają ostrzejsze), `404` (plan albo ćwiczenie spoza biblioteki —
+ * §2 `docs/04` rozciąga „cudzy = nieistniejący" na identyfikatory w ciele) oraz
+ * `409` (nie szkic, pusty plan, pusta sesja, nie aktywny). Reszta leci dalej.
+ */
+function toPlanError(e: unknown): never {
+  if (e instanceof ApiError && (e.status === 400 || e.status === 404 || e.status === 409)) {
+    throw new PlanError(e.code, e.message);
+  }
+  throw e;
+}
 
-// Smart delete: hard-delete if no logs reference the plan; otherwise archive
-// to preserve historical sessions (workout_logs.plan_id is ON DELETE RESTRICT).
-export async function deletePlan(
-  db: Db,
-  planId: string,
-  trainerId: string,
-): Promise<DeletePlanResult> {
-  return await db.transaction(async (tx) => {
-    const planRows = await tx
-      .select()
-      .from(schema.plans)
-      .where(and(eq(schema.plans.id, planId), eq(schema.plans.trainerId, trainerId)))
-      .for("update")
-      .limit(1);
-    const plan = planRows[0];
-    if (!plan) {
-      throw new PlanRepoError("plan not found", "Plan nie istnieje albo nie należy do Ciebie.");
+/**
+ * Zapis całego drzewa szkicu — wipe & rewrite po stronie BE, identyfikatory sesji
+ * nadawane od nowa. Dozwolone wyłącznie dla `draft` (`409 PLAN_NOT_DRAFT`).
+ * Zakres tenanta ćwiczeń w drzewie sprawdza BE (`404`), nie ten moduł.
+ */
+export async function saveDraftPlan(api: Api, planId: string, form: PlanForm): Promise<void> {
+  try {
+    await plansControllerSave({
+      client: api,
+      path: { id: planId },
+      body: toSavePlanDto(form),
+      throwOnError: true,
+    });
+  } catch (e) {
+    toPlanError(e);
+  }
+}
+
+export interface DraftResult {
+  id: string;
+  /** `false`, gdy para miała już szkic — BE oddał go zamiast tworzyć drugi. */
+  created: boolean;
+}
+
+/**
+ * Głęboka kopia planu aktywnego jako nowy szkic. BE sprawdza po kolei: cudzy →
+ * `404`; para ma szkic → `200` z istniejącym; źródło nie `active` → `409
+ * PLAN_NOT_ACTIVE`. Jedno wywołanie zastępuje więc dawną dwuetapową sekwencję
+ * „sprawdź, czy para ma już szkic" + „sklonuj z aktywnego"; `created` czyta się
+ * z kodu odpowiedzi.
+ */
+export async function createDraftFromActive(api: Api, sourcePlanId: string): Promise<DraftResult> {
+  try {
+    const { data, response } = await plansControllerDraft({
+      client: api,
+      path: { id: sourcePlanId },
+      throwOnError: true,
+    });
+    return { id: data.id, created: response.status === 201 };
+  } catch (e) {
+    return toPlanError(e);
+  }
+}
+
+/**
+ * Publikacja szkicu; poprzedni aktywny trafia do archiwum atomowo po stronie BE.
+ * BE odmawia planowi bez sesji i z pustą sesją (`PLAN_EMPTY`, `PLAN_SESSION_EMPTY`)
+ * — reguła, której FE nie miał; komunikat idzie do formularza jak każdy `409`.
+ */
+export async function publishPlan(api: Api, planId: string): Promise<void> {
+  try {
+    await plansControllerPublish({ client: api, path: { id: planId }, throwOnError: true });
+  } catch (e) {
+    toPlanError(e);
+  }
+}
+
+export type PlanDeleteOutcome = PlanDeletedView["outcome"];
+
+/**
+ * Komunikat sukcesu usuwania — w module, nie w trasach: dwie trasy pokazują
+ * to samo zdanie, a treść komunikatów tego obszaru mieszka już tutaj
+ * (`PlanError.userMessage`). Zwraca napis, nie kształt danych akcji, żeby moduł
+ * nie znał tras.
+ */
+export function planDeleteOutcomeMessage(outcome: PlanDeleteOutcome): string {
+  return outcome === "deleted"
+    ? "Plan usunięty."
+    : "Plan zarchiwizowany — historia treningów została zachowana.";
+}
+
+/**
+ * O wyniku decydują logi, nie status (`docs/04` §Plany): plan bez logów znika
+ * trwale, plan z logami trafia do archiwum. Liczby logów kontrakt nie oddaje,
+ * więc komunikat trasy przestał ją nieść. Plan już zarchiwizowany, mający logi,
+ * daje `409 PLAN_NOT_ARCHIVABLE`. Wyścig z równolegle dopisanym treningiem jest
+ * od teraz sprawą BE — dotychczasowe dopasowanie po nazwie constraintu FK znika.
+ */
+export async function deletePlan(api: Api, planId: string): Promise<PlanDeleteOutcome> {
+  try {
+    const { data } = await plansControllerRemove({
+      client: api,
+      path: { id: planId },
+      throwOnError: true,
+    });
+    return data.outcome;
+  } catch (e) {
+    // Wąsko: trasa pokazuje `userMessage` w pasku akcji, więc własny typ dostają
+    // wyłącznie odmowy z treścią dla użytkownika. Awaria BE ma zostać awarią.
+    if (e instanceof ApiError && (e.status === 404 || e.status === 409)) {
+      throw new PlanError(e.code, e.message);
     }
-
-    const logCountRows = await tx
-      .select({ c: count() })
-      .from(schema.workoutLogs)
-      .where(eq(schema.workoutLogs.planId, planId));
-    const logCount = Number(logCountRows[0]?.c ?? 0);
-
-    if (logCount === 0) {
-      try {
-        await tx.delete(schema.plans).where(eq(schema.plans.id, planId));
-      } catch (e) {
-        // Teoretyczny wyścig: log treningu wstawiony równolegle mimo blokady
-        // `FOR UPDATE` wyżej (workout_logs.plan_id jest RESTRICT). Zamiast surowego
-        // błędu FK (→ 500) zwracamy przyjazny komunikat, by trener odświeżył i ponowił.
-        // Dopasowanie po nazwie constraintu (precyzyjniej niż sama nazwa tabeli).
-        if (e instanceof Error && e.message.includes("workout_logs_plan_id")) {
-          throw new PlanRepoError(
-            "race: logs added concurrently",
-            "Plan ma już zapisane sesje — odśwież stronę i spróbuj ponownie.",
-          );
-        }
-        throw e;
-      }
-      return { kind: "deleted" };
-    }
-
-    // Plan has logs. We can only archive it (smart-delete intent). Already
-    // archived → there's nothing left to do; the previous code silently
-    // returned a misleading "archived" success — bail out loudly instead so
-    // the user understands the action wasn't a no-op by accident.
-    if (plan.status === "archived") {
-      throw new PlanRepoError(
-        "archived with logs",
-        `Plan jest już zarchiwizowany i ma ${logCount} ${logCount === 1 ? "zapisaną sesję" : "zapisanych sesji"}. Historia treningów jest chroniona — całkowite usunięcie nie jest możliwe.`,
-      );
-    }
-
-    await tx.update(schema.plans).set({ status: "archived" }).where(eq(schema.plans.id, planId));
-    return { kind: "archived", logCount };
-  });
+    throw e;
+  }
 }

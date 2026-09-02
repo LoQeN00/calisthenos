@@ -3,25 +3,27 @@ import { Icons } from "~/components/icons";
 import { UserMenu } from "~/components/user-menu";
 import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
-import { countActiveExercisesForTrainer } from "~/lib/exercises";
 import { countNewForTrainer } from "~/lib/feature-requests";
-import { countPlansForTrainerByStatus } from "~/lib/plans";
 import { countTraineesOfTrainer } from "~/lib/trainees";
+import { loadTrainerNavigation } from "~/lib/views";
 
 export async function loader(args: LoaderFunctionArgs) {
   const { api, user } = requireUser(args.context, { role: "trainer" });
 
+  // Jedno wywołanie na ekran. `trainees` i `ideas` zostają na bazie do swoich
+  // obszarów — tam migracja to usunięcie funkcji i wzięcie pola z `nav`.
+  const nav = await loadTrainerNavigation(api);
   const traineeCount = await countTraineesOfTrainer(db, user.id);
-  const exerciseCount = await countActiveExercisesForTrainer(api);
-  const planCount = await countPlansForTrainerByStatus(db, user.id, null);
   const newIdeas = await countNewForTrainer(db, user.id);
 
   return {
     user,
     tails: {
       trainees: traineeCount,
-      exercises: exerciseCount,
-      plans: planCount,
+      exercises: nav.activeExercises,
+      // Bez zarchiwizowanych — tak liczy BE (`docs/03`: licznik powłoki liczy
+      // jak zakładka „wszystkie" na liście). Do integracji liczył także archiwum.
+      plans: nav.plans,
       ideas: newIdeas,
     },
   };

@@ -3,7 +3,7 @@ import { Icons } from "~/components/icons";
 import { requireUser } from "~/lib/api/auth";
 import { db } from "~/lib/db/client";
 import { daysAgo, fmtDate, pluralizePl, type PlForms } from "~/lib/format";
-import { countPlansForTrainerByStatus } from "~/lib/plans";
+import { loadTrainerDashboard } from "~/lib/views";
 
 const OSOBA_AKTYWNA: PlForms = {
   one: "osoba aktywna",
@@ -21,7 +21,7 @@ function isoDaysAgo(n: number): string {
 }
 
 export async function loader(args: LoaderFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainer" });
+  const { api, user } = requireUser(args.context, { role: "trainer" });
 
   const clients = await listClientsForTrainer(db, user.id);
 
@@ -29,8 +29,11 @@ export async function loader(args: LoaderFunctionArgs) {
 
   const sevenDaysAgo = isoDaysAgo(7);
 
-  const activePlans = await countPlansForTrainerByStatus(db, user.id, "active");
-  const drafts = await countPlansForTrainerByStatus(db, user.id, "draft");
+  // Z pulpitu BE bierzemy dziś dwie liczby; klienci, ostatnie treningi i sesje
+  // tygodnia przejdą na ten sam widok w obszarze dziennika.
+  const dashboard = await loadTrainerDashboard(api);
+  const activePlans = dashboard.activePlans;
+  const drafts = dashboard.drafts;
   const weekSessions = await countLogsForTrainerSince(db, user.id, sevenDaysAgo);
 
   return {

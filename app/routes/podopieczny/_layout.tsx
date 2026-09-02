@@ -7,12 +7,12 @@ import { countPendingForTrainee } from "~/lib/consultations";
 import { db } from "~/lib/db/client";
 import { countForTrainee } from "~/lib/feature-requests";
 import { hasPendingOnboarding } from "~/lib/onboarding-forms";
-import { countSessionsInPlan } from "~/lib/plans";
 import { hasTraineeAppAccess } from "~/lib/stripe/gate";
-import { countLogsForTrainee, findActivePlanForTrainee } from "~/lib/workouts";
+import { loadTraineeNavigation } from "~/lib/views";
+import { countLogsForTrainee } from "~/lib/workouts";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainee" });
+  const { api, user } = requireUser(args.context, { role: "trainee" });
 
   // Bramki idą PRZED licznikami — podopieczny, którego i tak odsyłamy, nie ma po
   // co kosztować sześciu zapytań. Kolejność: najpierw płatność (drzwi do
@@ -23,8 +23,11 @@ export async function loader(args: LoaderFunctionArgs) {
 
   const logCount = await countLogsForTrainee(db, user.id, {});
   const photoCount = await countBodyPhotosForTrainee(db, user.id);
-  const activePlan = await findActivePlanForTrainee(db, user.id);
-  const sessionsCount = activePlan != null ? await countSessionsInPlan(db, activePlan.id) : 0;
+  // Jedno wywołanie na ekran; cztery pozostałe liczniki zostają na bazie do
+  // swoich obszarów. `null` (brak planu) i `0` (plan bez sesji) powłoka pokazuje
+  // tak samo — jak do integracji.
+  const nav = await loadTraineeNavigation(api);
+  const sessionsCount = nav.activePlanSessions ?? 0;
 
   const pending = await countPendingForTrainee(db, user.id);
   const ideas = await countForTrainee(db, user.id);

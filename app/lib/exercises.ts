@@ -45,26 +45,6 @@ async function activeExercisePage(api: Api, page: number): Promise<ExercisePage>
 }
 
 /**
- * `GET /v1/trainer/nav` niesie `activeExercises` RAZEM z trzema pozostałymi
- * licznikami powłoki trenera — i to jest wywołanie na EKRAN, nie na licznik.
- * Gdyby każda z czterech funkcji wołała `nav`, jedna nawigacja robiłaby cztery
- * identyczne żądania. Do zwinięcia `_layout.tsx` w jedno `nav` wracamy w ostatnim
- * obszarze kroku 3, gdy migrują `trainees`, `plans` i `feature-requests`.
- *
- * Do tego czasu płacimy jedną stroną listy (24 pozycje) ściąganą po to, żeby
- * odczytać jedną liczbę. Kontrakt nie ma tańszego sposobu — `page` bez `items`
- * nie istnieje.
- */
-export async function countActiveExercisesForTrainer(api: Api): Promise<number> {
-  const { data } = await exercisesControllerList({
-    client: api,
-    query: { page: 1, status: "active" },
-    throwOnError: true,
-  });
-  return data.total;
-}
-
-/**
  * Kontrakt oddaje `demoUrl` PODPISANY (ADR-0023), ale jako **ścieżkę** —
  * `/v1/files/…`, bez origin. Trafia stamtąd prosto do `src` w `<video>`, więc
  * origin musi ktoś dołożyć; robi to moduł, nie trasa, bo trasa nie ma wiedzieć,
@@ -214,11 +194,7 @@ export async function createExercise(
  * a nie z ćwiczeniem, więc niesie ją `UploadError`: trasa ma dla niego miejsce
  * w formularzu, a `ApiError` poszedłby na granicę błędu, czyli na inny ekran.
  */
-async function patchExercise(
-  api: Api,
-  exerciseId: string,
-  body: UpdateExerciseDto,
-): Promise<void> {
+async function patchExercise(api: Api, exerciseId: string, body: UpdateExerciseDto): Promise<void> {
   try {
     await exercisesControllerUpdate({
       client: api,
