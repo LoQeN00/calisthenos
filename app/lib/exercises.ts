@@ -1,167 +1,267 @@
-import { and, arrayContains, asc, count, desc, eq, ilike, isNull } from "drizzle-orm";
-import type { Db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
-import { deleteFileBlob, deleteFileRow, UploadCleanupQueue, uploadFile } from "~/lib/file-uploads";
-
-/** Normalize a raw comma-separated tag string into a deduplicated, length-capped array. */
-export function normalizeTags(raw: string): string[] {
-  const seen = new Set<string>();
-  for (const part of raw.split(",")) {
-    const tag = part.trim().toLowerCase();
-    if (tag.length === 0 || tag.length > 32) continue;
-    seen.add(tag);
-    if (seen.size >= 20) break;
-  }
-  return Array.from(seen);
-}
-
-export interface ExerciseWithDemo {
-  exercise: schema.Exercise;
-  demoFile: schema.File | null;
-}
+import {
+  exercisesControllerArchive,
+  exercisesControllerCreate,
+  exercisesControllerGet,
+  exercisesControllerList,
+  exercisesControllerRestore,
+  exercisesControllerUpdate,
+} from "@kalisthenos/api-client";
+import type { ExerciseDetail, ExercisePage, UpdateExerciseDto } from "@kalisthenos/api-client";
+import { orNull, publicFileUrl } from "~/lib/api/client";
+import type { Api } from "~/lib/api/client";
+import { ApiError } from "~/lib/api/errors";
+import { UploadError, uploadExerciseDemo } from "~/lib/file-uploads";
 
 /**
  * Aktywne ćwiczenia trenera do pickerów (edytor planu, formularz startowy).
- * Celowo BEZ filtra wariantów umiejętności — to robi `listAssignableExercises` w `skills.ts`
- * i jest to inna lista.
+ * Celowo BEZ filtra wariantów umiejętności — to robi `listAssignableExercises`
+ * w `skills.ts` i jest to inna lista.
+ *
+ * Kontrakt stronicuje po 24 i nie ma parametru „wszystko", więc moduł skleja
+ * strony sam, sekwencyjnie (`totalPages` z pierwszej odpowiedzi jest granicą,
+ * więc pętla nie może się rozbiec). Wstawienie ćwiczenia MIĘDZY żądaniami może
+ * przesunąć jedną pozycję — picker jest listą doradczą, a jedyną alternatywą
+ * byłby dodatek do kontraktu.
  */
 export async function listActiveExercisesForTrainer(
-  db: Db,
-  trainerId: string,
+  api: Api,
 ): Promise<Array<{ id: string; name: string; unit: "REPS" | "SEC" }>> {
-  return await db
-    .select({ id: schema.exercises.id, name: schema.exercises.name, unit: schema.exercises.unit })
-    .from(schema.exercises)
-    .where(and(eq(schema.exercises.trainerId, trainerId), isNull(schema.exercises.archivedAt)))
-    .orderBy(asc(schema.exercises.name));
+  const first = await activeExercisePage(api, 1);
+  const items = [...first.items];
+  for (let page = 2; page <= first.totalPages; page += 1) {
+    const next = await activeExercisePage(api, page);
+    items.push(...next.items);
+  }
+  return items.map((e) => ({ id: e.id, name: e.name, unit: e.unit }));
 }
 
-export async function countActiveExercisesForTrainer(db: Db, trainerId: string): Promise<number> {
-  const [row] = await db
-    .select({ c: count() })
-    .from(schema.exercises)
-    .where(and(eq(schema.exercises.trainerId, trainerId), isNull(schema.exercises.archivedAt)));
-  return Number(row?.c ?? 0);
-}
-
-/** Ćwiczenie razem z wierszem pliku demo (LEFT JOIN) — do widoku edycji. */
-export async function getExerciseWithDemoForTrainer(
-  db: Db,
-  trainerId: string,
-  exerciseId: string,
-): Promise<ExerciseWithDemo | null> {
-  const rows = await db
-    .select({ exercise: schema.exercises, demoFile: schema.files })
-    .from(schema.exercises)
-    .leftJoin(schema.files, eq(schema.files.id, schema.exercises.demoFileId))
-    .where(and(eq(schema.exercises.id, exerciseId), eq(schema.exercises.trainerId, trainerId)))
-    .limit(1);
-  return rows[0] ?? null;
-}
-
-/** Sam wiersz ćwiczenia, bez demo — do akcji, które tylko sprawdzają stan. */
-export async function getExerciseForTrainer(
-  db: Db,
-  trainerId: string,
-  exerciseId: string,
-): Promise<schema.Exercise | null> {
-  const rows = await db
-    .select()
-    .from(schema.exercises)
-    .where(and(eq(schema.exercises.id, exerciseId), eq(schema.exercises.trainerId, trainerId)))
-    .limit(1);
-  return rows[0] ?? null;
+async function activeExercisePage(api: Api, page: number): Promise<ExercisePage> {
+  const { data } = await exercisesControllerList({
+    client: api,
+    query: { page, sort: "name", status: "active" },
+    throwOnError: true,
+  });
+  return data;
 }
 
 /**
- * Archiwizacja / przywrócenie. `trainer_id` JEST w WHERE — dla obcego tenanta to no-op,
- * mimo że wywołanie i tak stoi za sprawdzeniem własności (obrona w głąb).
+ * `GET /v1/trainer/nav` niesie `activeExercises` RAZEM z trzema pozostałymi
+ * licznikami powłoki trenera — i to jest wywołanie na EKRAN, nie na licznik.
+ * Gdyby każda z czterech funkcji wołała `nav`, jedna nawigacja robiłaby cztery
+ * identyczne żądania. Do zwinięcia `_layout.tsx` w jedno `nav` wracamy w ostatnim
+ * obszarze kroku 3, gdy migrują `trainees`, `plans` i `feature-requests`.
+ *
+ * Do tego czasu płacimy jedną stroną listy (24 pozycje) ściąganą po to, żeby
+ * odczytać jedną liczbę. Kontrakt nie ma tańszego sposobu — `page` bez `items`
+ * nie istnieje.
+ */
+export async function countActiveExercisesForTrainer(api: Api): Promise<number> {
+  const { data } = await exercisesControllerList({
+    client: api,
+    query: { page: 1, status: "active" },
+    throwOnError: true,
+  });
+  return data.total;
+}
+
+/**
+ * Kontrakt oddaje `demoUrl` PODPISANY (ADR-0023), ale jako **ścieżkę** —
+ * `/v1/files/…`, bez origin. Trafia stamtąd prosto do `src` w `<video>`, więc
+ * origin musi ktoś dołożyć; robi to moduł, nie trasa, bo trasa nie ma wiedzieć,
+ * skąd biorą się dane (ten sam szew, przez który cały dostęp idzie przez
+ * `app/lib`). Ta sama obróbka czeka `videoUrl` w dzienniku i `photoUrl`
+ * w sylwetce — te obszary idą kolejnymi krokami.
+ */
+function withPublicDemoUrl<T extends { demoUrl: string | null }>(view: T): T {
+  return view.demoUrl == null ? view : { ...view, demoUrl: publicFileUrl(view.demoUrl) };
+}
+
+/**
+ * Szczegół ćwiczenia do widoku edycji.
+ *
+ * `| null` w sygnaturze jest tym, co włącza mapowanie `404` (`orNull`): cudze
+ * ćwiczenie jest po tamtej stronie nieodróżnialne od nieistniejącego i oba mają
+ * dać ten sam ekran co dziś.
+ */
+export async function getExerciseDetail(
+  api: Api,
+  exerciseId: string,
+): Promise<ExerciseDetail | null> {
+  const detail = await orNull(
+    exercisesControllerGet({ client: api, path: { id: exerciseId }, throwOnError: true }).then(
+      (r) => r.data,
+    ),
+  );
+  return detail == null ? null : withPublicDemoUrl(detail);
+}
+
+/**
+ * Własny typ błędu obszaru — powstaje wyłącznie dla tych odmów, dla których
+ * trasa ma komunikat w formularzu (precedens: `CategoryError`, `AuthError`).
+ */
+export class ExerciseError extends Error {
+  constructor(
+    message: string,
+    public readonly userMessage: string,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Archiwizacja / przywrócenie. Bramka „ćwiczenie jest wariantem aktywnej
+ * umiejętności" przeszła do BE — z trasy znika `findSkillForExercise`, a razem
+ * z nim ostatnia zależność tego obszaru od `skills.ts`.
+ *
+ * Komunikat bierzemy z kontraktu DOSŁOWNIE. Jest krótszy od dotychczasowego:
+ * nie nazywa umiejętności, choć `details.skillName` przychodzi w odpowiedzi.
+ * To świadoma strata — treść komunikatów należy teraz do BE (spec: „ustalenia
+ * po stronie BE są nadrzędne"), a wzbogacenie zdania jest zmianą TAM, nie tutaj.
  */
 export async function setExerciseArchived(
-  db: Db,
-  trainerId: string,
+  api: Api,
   exerciseId: string,
   archived: boolean,
 ): Promise<void> {
-  await db
-    .update(schema.exercises)
-    .set({ archivedAt: archived ? new Date() : null })
-    .where(and(eq(schema.exercises.id, exerciseId), eq(schema.exercises.trainerId, trainerId)));
-}
-
-/**
- * Tworzy ćwiczenie razem z opcjonalnym demo w JEDNEJ transakcji.
- * `UploadCleanupQueue` żyje wewnątrz — rollback transakcji musi też sprzątnąć blob,
- * inaczej na wolumenie zostaje plik, do którego nic nie prowadzi.
- *
- * `UploadError` leci na zewnątrz — komunikat dla użytkownika składa trasa.
- */
-export async function createExerciseWithDemo(
-  db: Db,
-  input: {
-    trainerId: string;
-    name: string;
-    unit: "REPS" | "SEC";
-    /** Kolumna jest NOT NULL DEFAULT '' — brak opisu to pusty string, nie `null`. */
-    description: string;
-    tags: string[];
-    tracksRpe: boolean;
-    demo: File | null;
-  },
-): Promise<void> {
-  const cleanup = new UploadCleanupQueue(db);
   try {
-    await db.transaction(async (tx) => {
-      let demoFileId: string | null = null;
-      if (input.demo != null) {
-        const uploaded = await uploadFile(
-          tx,
-          {
-            file: input.demo,
-            kind: "exercise_demo",
-            trainerId: input.trainerId,
-            uploadedBy: input.trainerId,
-          },
-          cleanup,
-        );
-        demoFileId = uploaded.id;
-      }
-      await tx.insert(schema.exercises).values({
-        trainerId: input.trainerId,
-        name: input.name,
-        unit: input.unit,
-        description: input.description,
-        tracksRpe: input.tracksRpe,
-        tags: input.tags,
-        demoFileId,
+    if (archived) {
+      await exercisesControllerArchive({
+        client: api,
+        path: { id: exerciseId },
+        throwOnError: true,
       });
-    });
-    cleanup.commit();
+    } else {
+      await exercisesControllerRestore({
+        client: api,
+        path: { id: exerciseId },
+        throwOnError: true,
+      });
+    }
   } catch (e) {
-    await cleanup.cleanup();
+    if (e instanceof ApiError && e.code === "EXERCISE_IS_SKILL_VARIATION") {
+      throw new ExerciseError("archiving an active skill variation", e.message);
+    }
     throw e;
   }
 }
 
 /**
- * Zapis edycji ćwiczenia z opcjonalną PODMIANĄ demo. Wiersz starego pliku znika w tej samej
- * transakcji, ale blob kasujemy DOPIERO po commicie — inaczej rollback zostawiłby wiersz
- * przywrócony, a plik już usunięty z dysku (martwy odnośnik do nieistniejącego nagrania).
+ * Tworzy ćwiczenie razem z opcjonalnym demo. Do integracji była to JEDNA
+ * transakcja; teraz to sekwencja żądań, bo `CreateExerciseDto` nie przyjmuje
+ * `demoFileId` — podpięcie jest osobnym `PATCH`-em.
  *
- * `currentDemoFileId` podaje wywołujący z wiersza, który i tak wczytał do sprawdzenia
- * własności (`getExerciseForTrainer`) — dzięki temu nie robimy drugiego SELECT-a.
- * `trainer_id` JEST w `WHERE` UPDATE-a (obrona w głąb, jak w `setExerciseArchived`).
+ * **Kolejność jest decyzją:** wysyłka idzie PIERWSZA, bo to krok najbardziej
+ * podatny na odmowę (`413`), a jego porażka ma nie zostawić po sobie ćwiczenia —
+ * tak jak dziś rollback. Cena nowego układu: gdy padnie `POST` albo `PATCH` PO
+ * udanej wysyłce, plik zostaje niepodpięty (sprzątnie go `orphan-files-sweep`
+ * w BE po 24 h), a ćwiczenie może istnieć bez demo.
+ *
+ * **Dlatego wynik nie jest `void`, a odmowa podpięcia nie jest wyjątkiem.**
+ * Sekwencja ma dwie fazy o przeciwnych skutkach: przed `POST` porażka nie
+ * zostawia niczego i wolno ponowić cały formularz, po `POST` ćwiczenie JUŻ
+ * ISTNIEJE i ponowienie utworzyłoby drugie. Pierwsza faza leci wyjątkiem
+ * (`UploadError`), druga wraca w `demoError` — trasa ma wtedy zaprowadzić
+ * trenera do ćwiczenia, które powstało, zamiast oddawać mu wypełniony formularz.
  */
-export async function updateExerciseWithDemo(
-  db: Db,
+export interface CreatedExercise {
+  id: string;
+  /** Komunikat dla użytkownika, gdy ćwiczenie powstało, ale demo nie dało się podpiąć. */
+  demoError: string | null;
+}
+
+export async function createExercise(
+  api: Api,
   input: {
-    trainerId: string;
-    exerciseId: string;
-    /** Z wiersza wczytanego przy sprawdzeniu własności. */
-    currentDemoFileId: string | null;
     name: string;
     unit: "REPS" | "SEC";
-    /** Kolumna jest NOT NULL DEFAULT '' — brak opisu to pusty string, nie `null`. */
+    /** Kolumna po tamtej stronie jest NOT NULL DEFAULT '' — brak opisu to pusty string. */
+    description: string;
+    tags: string[];
+    tracksRpe: boolean;
+    demo: File | null;
+  },
+): Promise<CreatedExercise> {
+  const demoFileId = input.demo != null ? await uploadExerciseDemo(api, input.demo) : null;
+
+  const { data: created } = await exercisesControllerCreate({
+    client: api,
+    body: {
+      name: input.name,
+      unit: input.unit,
+      description: input.description,
+      tags: input.tags,
+      tracksRpe: input.tracksRpe,
+    },
+    throwOnError: true,
+  });
+
+  if (demoFileId != null) {
+    try {
+      await patchExercise(api, created.id, { demoFileId });
+    } catch (e) {
+      // Wyłącznie odmowa podpięcia — awaria BE ma dalej być awarią.
+      if (e instanceof UploadError) return { id: created.id, demoError: e.userMessage };
+      throw e;
+    }
+  }
+
+  return { id: created.id, demoError: null };
+}
+
+/**
+ * Jedyne miejsce, w którym `demoFileId` trafia do kontraktu — razem z jedynym
+ * mapowaniem odmowy podpięcia. Odmowa jest dla użytkownika problemem z PLIKIEM,
+ * a nie z ćwiczeniem, więc niesie ją `UploadError`: trasa ma dla niego miejsce
+ * w formularzu, a `ApiError` poszedłby na granicę błędu, czyli na inny ekran.
+ */
+async function patchExercise(
+  api: Api,
+  exerciseId: string,
+  body: UpdateExerciseDto,
+): Promise<void> {
+  try {
+    await exercisesControllerUpdate({
+      client: api,
+      path: { id: exerciseId },
+      body,
+      throwOnError: true,
+    });
+  } catch (e) {
+    if (e instanceof ApiError && e.code === "EXERCISE_DEMO_FILE_UNAVAILABLE") {
+      throw new UploadError(`demo not attachable: ${body.demoFileId}`, e.message);
+    }
+    throw e;
+  }
+}
+
+/**
+ * Zapis edycji z opcjonalną PODMIANĄ demo — jednym `PATCH`-em, bo `UpdateExerciseDto`
+ * przyjmuje `demoFileId` razem z polami.
+ *
+ * **`currentDemoFileId` znika z sygnatury.** Do integracji wywołujący podawał je
+ * z wiersza wczytanego przy sprawdzeniu własności, a moduł kasował wiersz starego
+ * pliku w transakcji i blob po commicie. Całą tę ostrożność — łącznie z kolejnością
+ * „najpierw dane, potem zawartość" — trzyma teraz BE (`ExercisesService.update`
+ * oddaje `staleStoragePath` i kasuje po zatwierdzeniu).
+ *
+ * **To samo okno osierocenia co w `createExercise`:** gdy wysyłka nowego demo
+ * się powiedzie, a `PATCH` zawiedzie PO niej, plik zostaje niepodpięty i czeka
+ * na `orphan-files-sweep` w BE (24 h) — ćwiczenie zostaje wtedy przy starym
+ * demo, nie bez demo.
+ *
+ * **`demo === null` znaczy „zostaw dotychczasowe", nie „odepnij".** W kontrakcie
+ * `demoFileId: null` ODPINA demo; „zostaw dotychczasowe" to brak tego klucza
+ * w ciele w ogóle — typy tej różnicy nie pilnują, `demoFileId?: string | null`
+ * przyjmuje pominięcie i `null` jednakowo chętnie. Rozłożenie warunkowe niżej
+ * (`!= null`, nie `!== undefined`) razem z testem obok („brak nowego pliku NIE
+ * odpina istniejącego demo") są tym, co tę różnicę faktycznie utrzymuje.
+ */
+export async function updateExercise(
+  api: Api,
+  input: {
+    exerciseId: string;
+    name: string;
+    unit: "REPS" | "SEC";
     description: string;
     tags: string[];
     tracksRpe: boolean;
@@ -169,123 +269,67 @@ export async function updateExerciseWithDemo(
     demo: File | null;
   },
 ): Promise<void> {
-  const cleanup = new UploadCleanupQueue(db);
-  let oldDemoStoragePathToDelete: string | null = null;
-  try {
-    await db.transaction(async (tx) => {
-      let demoFileId: string | null = input.currentDemoFileId;
-      const oldDemoFileId = input.currentDemoFileId;
+  const demoFileId = input.demo != null ? await uploadExerciseDemo(api, input.demo) : undefined;
 
-      if (input.demo != null) {
-        const uploaded = await uploadFile(
-          tx,
-          {
-            file: input.demo,
-            kind: "exercise_demo",
-            trainerId: input.trainerId,
-            uploadedBy: input.trainerId,
-          },
-          cleanup,
-        );
-        demoFileId = uploaded.id;
-      }
-
-      await tx
-        .update(schema.exercises)
-        .set({
-          name: input.name,
-          unit: input.unit,
-          description: input.description,
-          tracksRpe: input.tracksRpe,
-          tags: input.tags,
-          demoFileId,
-        })
-        .where(
-          and(
-            eq(schema.exercises.id, input.exerciseId),
-            eq(schema.exercises.trainerId, input.trainerId),
-          ),
-        );
-
-      if (input.demo != null && oldDemoFileId) {
-        // Wiersz starego demo znika W transakcji; blob dopiero po commicie (niżej).
-        oldDemoStoragePathToDelete = await deleteFileRow(tx, oldDemoFileId);
-      }
-    });
-    cleanup.commit();
-    if (oldDemoStoragePathToDelete) {
-      // Best-effort po commicie (jak w deleteBodyPhoto / trainees): podmiana jest już
-      // zatwierdzona, więc błąd usunięcia starego blobu nie może wywrócić operacji.
-      try {
-        await deleteFileBlob(oldDemoStoragePathToDelete);
-      } catch {
-        // Swallow — osierocony blob zamiast wywrócenia udanej operacji.
-      }
-    }
-  } catch (e) {
-    await cleanup.cleanup();
-    throw e;
-  }
+  await patchExercise(api, input.exerciseId, {
+    name: input.name,
+    unit: input.unit,
+    description: input.description,
+    tags: input.tags,
+    tracksRpe: input.tracksRpe,
+    ...(demoFileId != null ? { demoFileId } : {}),
+  });
 }
 
 export type ExerciseSort = "name_asc" | "name_desc" | "newest" | "oldest";
 
 export interface ExerciseFilter {
   q?: string;
-  /** Nazwa kategorii. Wywołujący podaje wyłącznie kategorię znaną trenerowi. */
+  /** Nazwa kategorii. Nieznaną u tego trenera kontrakt ignoruje sam. */
   tag?: string;
   unit?: "REPS" | "SEC";
 }
 
-function exerciseConditions(trainerId: string, filter: ExerciseFilter) {
-  const conditions = [
-    eq(schema.exercises.trainerId, trainerId),
-    isNull(schema.exercises.archivedAt),
-  ];
-  if (filter.q != null && filter.q.length > 0) {
-    conditions.push(ilike(schema.exercises.name, `%${filter.q}%`));
-  }
-  if (filter.tag != null) {
-    conditions.push(arrayContains(schema.exercises.tags, [filter.tag]));
-  }
-  if (filter.unit === "REPS" || filter.unit === "SEC") {
-    conditions.push(eq(schema.exercises.unit, filter.unit));
-  }
-  return conditions;
-}
+/**
+ * Słownik FE→kontrakt. Wartości po lewej są w ZAKŁADKOWALNYCH adresach list
+ * (`?sort=name_desc`), więc zostają; kontrakt nazywa to samo inaczej i to on
+ * jest nadrzędny. Tłumaczy moduł — trasa nie zna nazw z kontraktu.
+ */
+const CONTRACT_SORT: Record<ExerciseSort, "name" | "-name" | "newest" | "oldest"> = {
+  name_asc: "name",
+  name_desc: "-name",
+  newest: "newest",
+  oldest: "oldest",
+};
 
-export async function countExercisesForTrainer(
-  db: Db,
-  trainerId: string,
-  filter: ExerciseFilter,
-): Promise<number> {
-  const [row] = await db
-    .select({ c: count() })
-    .from(schema.exercises)
-    .where(and(...exerciseConditions(trainerId, filter)));
-  return Number(row?.c ?? 0);
-}
-
+/**
+ * Jedno żądanie: kontrakt oddaje `total` RAZEM z listą. Stronę spoza zakresu
+ * przycina BE (`paginate`) — dokładnie tak, jak robiła to dawniej `safePage`
+ * w trasie.
+ *
+ * `status: "active"` jest jawny: biblioteka pokazuje wyłącznie aktywne, a
+ * zarchiwizowane są osiągalne wyłącznie adresem szczegółu (tam widnieją z odznaką).
+ */
 export async function listExercisesForTrainer(
-  db: Db,
-  trainerId: string,
-  opts: ExerciseFilter & { sort: ExerciseSort; limit: number; offset: number },
-): Promise<ExerciseWithDemo[]> {
-  const orderBy =
-    opts.sort === "name_desc"
-      ? [desc(schema.exercises.name)]
-      : opts.sort === "newest"
-        ? [desc(schema.exercises.createdAt)]
-        : opts.sort === "oldest"
-          ? [asc(schema.exercises.createdAt)]
-          : [asc(schema.exercises.name)];
-
-  return await db
-    .select({ exercise: schema.exercises, demoFile: schema.files })
-    .from(schema.exercises)
-    .leftJoin(schema.files, eq(schema.files.id, schema.exercises.demoFileId))
-    .where(and(...exerciseConditions(trainerId, opts)))
-    .orderBy(...orderBy)
-    .limit(opts.limit)
-    .offset(opts.offset);
+  api: Api,
+  opts: ExerciseFilter & { sort: ExerciseSort; page: number },
+): Promise<ExercisePage> {
+  const { data } = await exercisesControllerList({
+    client: api,
+    query: {
+      page: opts.page,
+      sort: CONTRACT_SORT[opts.sort],
+      status: "active",
+      // Rozłożone warunkowo, nie przez `q: opts.q`: klucz z wartością `undefined`
+      // i BRAK klucza to dla serializatora zapytań dwie różne rzeczy, a puste
+      // `q=` znaczy w kontrakcie „szukaj pustego łańcucha", nie „bez filtra".
+      ...(opts.q != null && opts.q.length > 0 ? { q: opts.q } : {}),
+      ...(opts.tag != null ? { tag: opts.tag } : {}),
+      ...(opts.unit != null ? { unit: opts.unit } : {}),
+    },
+    throwOnError: true,
+  });
+  // Kafelki listy renderują `<video src={demoUrl}>` tak samo jak szczegół,
+  // więc origin dokładamy i tu — inaczej biblioteka pokazuje same puste ramki.
+  return { ...data, items: data.items.map(withPublicDemoUrl) };
 }

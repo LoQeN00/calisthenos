@@ -100,19 +100,24 @@ w `.gitignore`), `design-system/_src/` (rozpakowany prototyp, read-only).
 - **Multi-tenant przez `trainer_id`.** Każda tabela domenowa nosi `trainer_id`.
   Funkcje repozytorium w `app/lib/*.ts` **stojące na `db`** przyjmują wymagany
   `trainerId`/`traineeId` i filtrują po nim. **Moduły biorące `api: Api`**
-  (warstwa [`app/lib/api/`](app/lib/api/README.md); na razie przeniesiony jest
-  tylko `categories.ts`) tego argumentu NIE mają — zakres niesie token
-  dostępowy, egzekwuje go BE. Brak autoryzacji → **404** (nie 403), by nie zdradzać
-  istnienia zasobu. Szczegóły: [`app/lib/README.md`](app/lib/README.md),
+  (warstwa [`app/lib/api/`](app/lib/api/README.md)) tego argumentu NIE mają —
+  zakres niesie token dostępowy, egzekwuje go BE. Brak autoryzacji → **404**
+  (nie 403), by nie zdradzać istnienia zasobu. Które moduły stoją już na
+  kontrakcie i pełne szczegóły: [`app/lib/README.md`](app/lib/README.md),
   `app/lib/authz.ts`.
 - **Trasy = plik + wpis w `app/routes.ts`.** Nazewnictwo plików:
   `segment.$param.tsx`, `_index.tsx`, `_layout.tsx`. Dodając trasę, dopisz ją do
   `app/routes.ts`. Mapa URL→plik: [`app/routes/README.md`](app/routes/README.md).
 - **Loadery czytają, akcje mutują.** Brak osobnego API — dane lecą przez
   loadery/akcje RR7. Mutacje plikowe to `multipart/form-data`.
-- **Pliki tylko przez `FileStorage` + podpisane URL-e.** Nigdy nie serwuj ścieżek
-  z dysku wprost; używaj `signFileUrl`/`verifyFileUrl` (`app/lib/files.ts`) i
-  trasy `files/$fileId`. Upload zawsze przez `uploadFile` z walidacją magic-bytes.
+- **Pliki: dwie ścieżki, bo migracja jest w toku.** Nagrania serii (`set_video`)
+  i zdjęcia sylwetki (`body_photo`) zostają na wolumenie: nigdy nie serwuj ścieżek
+  z dysku wprost, używaj `signFileUrl`/`verifyFileUrl` (`app/lib/files.ts`), trasy
+  `files/$fileId` i `uploadFile` z walidacją magic-bytes. **Demo ćwiczeń
+  (`exercise_demo`) chodzi już kontraktem BE:** wysyłka dwufazowa przez
+  `uploadExerciseDemo` (typ sprawdza BE po zawartości, nie FE), a odnośnik
+  podpisuje BE i przychodzi jako ŚCIEŻKA — origin dokłada `publicFileUrl`
+  z `app/lib/api/client.ts` (`API_PUBLIC_URL`), nigdy trasa.
 - **Schemat to źródło prawdy.** Zmiana modelu danych = edycja
   `app/lib/db/schema.ts`, potem `npm run db:generate` (nowa migracja) — **nigdy
   ręcznie nie edytuj plików w `migrations/`**.

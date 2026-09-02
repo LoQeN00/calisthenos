@@ -70,6 +70,22 @@ export function createApiClient({ baseUrl, getToken, fetch: transport }: ApiClie
 }
 
 /**
+ * Podpisany odnośnik do pliku przychodzi z BE jako **ścieżka, nie adres**:
+ * `FileUrlSigner.sign` zwraca `/v1/files/{id}?exp=…&partyId=…&trainerId=…&sig=…`.
+ * Włożona wprost w `src` rozwiązałaby się względem origin **FE**, gdzie takiej
+ * trasy nie ma — i to bez żadnego błędu, bo puste `<video>` wygląda dokładnie
+ * jak brak nagrania. Origin dokłada `API_PUBLIC_URL`, zmienna istniejąca
+ * dokładnie po to: `API_URL` bywa siecią prywatną Railway, a ten adres trafia
+ * do HTML-a, czyli do przeglądarki użytkownika.
+ *
+ * `new URL(x, base)` zwraca wejście BEZWZGLĘDNE nietknięte, więc funkcja
+ * przeżyje ewentualną zmianę po stronie BE bez podwójnego origin.
+ */
+export function publicFileUrl(path: string): string {
+  return new URL(path, getEnv().API_PUBLIC_URL).toString();
+}
+
+/**
  * Reguła D3 specu: **funkcja deklarująca `Promise<… | null>` łapie `404`;
  * każda inna pozwala mu lecieć.**
  *

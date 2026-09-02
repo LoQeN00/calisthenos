@@ -9,10 +9,10 @@ import { countPlansForTrainerByStatus } from "~/lib/plans";
 import { countTraineesOfTrainer } from "~/lib/trainees";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainer" });
+  const { api, user } = requireUser(args.context, { role: "trainer" });
 
   const traineeCount = await countTraineesOfTrainer(db, user.id);
-  const exerciseCount = await countActiveExercisesForTrainer(db, user.id);
+  const exerciseCount = await countActiveExercisesForTrainer(api);
   const planCount = await countPlansForTrainerByStatus(db, user.id, null);
   const newIdeas = await countNewForTrainer(db, user.id);
 

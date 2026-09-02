@@ -67,7 +67,7 @@ const spec: ListControlsSpec = {
 };
 
 export async function loader(args: LoaderFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainer" });
+  const { api, user } = requireUser(args.context, { role: "trainer" });
   const url = new URL(args.request.url);
   const page = parsePage(url.searchParams);
   const deletedName = url.searchParams.get("usuniety");
@@ -90,7 +90,7 @@ export async function loader(args: LoaderFunctionArgs) {
 
   // Biblioteka do pickera formularza startowego. Ciągniemy ją w loaderze zamiast
   // osobnym fetcherem — kilka KB na wejście, a modal działa bez dodatkowej rundy.
-  const exercises = await listActiveExercisesForTrainer(db, user.id);
+  const exercises = await listActiveExercisesForTrainer(api);
 
   return {
     clients,

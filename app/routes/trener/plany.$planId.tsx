@@ -47,7 +47,7 @@ import {
 export type PlanRouteMode = "view-active" | "edit-active" | "edit-draft" | "view-archived";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainer" });
+  const { api, user } = requireUser(args.context, { role: "trainer" });
   const planId = args.params.planId ?? "";
   const url = new URL(args.request.url);
   const wantsEdit = url.searchParams.get("edit") === "1";
@@ -77,7 +77,7 @@ export async function loader(args: LoaderFunctionArgs) {
 
   // Exercise library — loaded always; views use it for display names, the
   // editor uses it for the picker.
-  const exercises = await listActiveExercisesForTrainer(db, user.id);
+  const exercises = await listActiveExercisesForTrainer(api);
 
   // Map the DB tree into the editor's `PlanForm` shape.
   const initial: PlanForm = {

@@ -13,6 +13,9 @@ import {
   newFileId,
   setVideoPath,
 } from "~/lib/files";
+import { filesControllerConfirm, filesControllerExerciseDemo } from "@kalisthenos/api-client";
+import type { Api } from "~/lib/api/client";
+import { ApiError } from "~/lib/api/errors";
 
 /**
  * `file-type` library inspects the first ~4100 bytes to identify common formats
@@ -79,7 +82,14 @@ export function maxUploadBytesFor(
   kind: UploadKind,
   limits: Pick<Env, "MAX_UPLOAD_BYTES" | "MAX_VIDEO_UPLOAD_BYTES"> = getEnv(),
 ): number {
-  return kind === "body_photo" ? limits.MAX_UPLOAD_BYTES : limits.MAX_VIDEO_UPLOAD_BYTES;
+  // `exercise_demo` chodzi limitem OGÓLNYM, nie wideo — to lustro decyzji BE
+  // (`UPLOAD_LIMIT_SOURCE.exercise_demo === 'maxUploadBytes'`, `libs/files/.../upload-limits.ts`):
+  // demo instruktażowe trenera jest dokładnie tym plikiem, dla którego ten wyższy
+  // limit powstał. Do integracji FE BYŁO serwerem i niższy limit był prawdą; teraz
+  // FE jest klientem, a limit surowszy od kontraktu odrzucałby w przeglądarce pliki,
+  // które BE przyjmie. `set_video` (nagranie serii podopiecznego) zostaje przy
+  // niższym limicie wideo — tam FE nadal rządzi, bo ta ścieżka jest na bazie.
+  return kind === "set_video" ? limits.MAX_VIDEO_UPLOAD_BYTES : limits.MAX_UPLOAD_BYTES;
 }
 
 /**
@@ -297,4 +307,53 @@ export async function deleteFile(db: Db, fileId: string): Promise<void> {
 export async function findFileById(db: Db, fileId: string): Promise<schema.File | null> {
   const rows = await db.select().from(schema.files).where(eq(schema.files.id, fileId)).limit(1);
   return rows[0] ?? null;
+}
+
+/**
+ * Ścieżka `exercise_demo` **na kontrakcie**: dwie fazy z §8 kroku 4 specu —
+ * `POST /v1/files/exercise-demo` (bajty idą przez serwer BE) i `POST /v1/files/{id}/confirm`.
+ * Pozostałe dwa rodzaje (`set_video`, `body_photo`) zostają na bazie do kroku 4.
+ *
+ * **Czego tu NIE MA i dlaczego:**
+ * - kontroli deklarowanego MIME — BE sprawdza typ PO ZAWARTOŚCI w locie, co jest
+ *   mocniejsze niż `file.type` od klienta, a źródło stałych (`app/lib/files.ts`)
+ *   znika w kroku 4;
+ * - `UploadCleanupQueue` — sprzątanie po nieudanym zapisie przejął BE
+ *   (`orphan-files-sweep`, 24 h karencji dla pliku, na który nic nie wskazuje).
+ *
+ * `confirm` niczego dziś nie zapisuje (`FilesService.confirm` sprawdza istnienie
+ * i tenant) — plik przed zamiataczem ratuje dopiero PODPIĘCIE do ćwiczenia.
+ */
+export async function uploadExerciseDemo(api: Api, file: File): Promise<string> {
+  if (file.size === 0) {
+    throw new UploadError("empty file", "Plik jest pusty.");
+  }
+  const maxBytes = maxUploadBytesFor("exercise_demo");
+  if (file.size > maxBytes) {
+    throw new UploadError(
+      `file too large: ${file.size} > ${maxBytes}`,
+      `Plik za duży (limit: ${Math.floor(maxBytes / 1_000_000)} MB).`,
+    );
+  }
+
+  let fileId: string;
+  try {
+    const { data } = await filesControllerExerciseDemo({
+      client: api,
+      body: { file },
+      throwOnError: true,
+    });
+    fileId = data.id;
+  } catch (e) {
+    // Wąsko: trzy statusy, dla których BE ma komunikat o SAMYM PLIKU i dla których
+    // trasa pokazuje tekst w formularzu. `401`/`403`/`404` to sprawa sesji i tenanta —
+    // te lecą dalej i obsługuje je warstwa klienta.
+    if (e instanceof ApiError && (e.status === 400 || e.status === 409 || e.status === 413)) {
+      throw new UploadError(`upload rejected: ${e.code}`, e.message);
+    }
+    throw e;
+  }
+
+  await filesControllerConfirm({ client: api, path: { id: fileId }, throwOnError: true });
+  return fileId;
 }

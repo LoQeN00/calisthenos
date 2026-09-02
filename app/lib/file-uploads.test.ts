@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { UploadError, iterateFileChunks, maxUploadBytesFor, uploadFile } from "./file-uploads";
+import { UploadError, iterateFileChunks, maxUploadBytesFor, uploadFile, uploadExerciseDemo } from "./file-uploads";
+import { createApiClient } from "~/lib/api/client";
+import { ApiError } from "~/lib/api/errors";
 
 const { writeMock, deleteMock, fileTypeMock, loggerErrorMock } = vi.hoisted(() => ({
   writeMock: vi.fn(async (_path: string, _source: AsyncIterable<Uint8Array> | Uint8Array) => ({
@@ -25,12 +27,16 @@ vi.mock("~/lib/logger", () => ({
 describe("maxUploadBytesFor", () => {
   const limits = { MAX_UPLOAD_BYTES: 250_000_000, MAX_VIDEO_UPLOAD_BYTES: 30_000_000 };
 
-  it("stosuje niższy limit wideo dla nagrań serii i demo ćwiczeń", () => {
+  it("stosuje niższy limit wideo wyłącznie dla nagrań serii", () => {
     expect(maxUploadBytesFor("set_video", limits)).toBe(30_000_000);
-    expect(maxUploadBytesFor("exercise_demo", limits)).toBe(30_000_000);
   });
 
-  it("stosuje ogólny limit dla zdjęć sylwetki", () => {
+  it("stosuje ogólny limit dla demo ćwiczeń i zdjęć sylwetki", () => {
+    // `exercise_demo` przeszło z limitu wideo na ogólny, żeby zgadzać się
+    // z kontraktem: BE wiąże ten rodzaj z `maxUploadBytes` i uzasadnia to wprost
+    // (demo instruktażowe trenera). Limit surowszy od kontraktu odrzucałby
+    // w przeglądarce pliki, które BE przyjmuje bez zastrzeżeń.
+    expect(maxUploadBytesFor("exercise_demo", limits)).toBe(250_000_000);
     expect(maxUploadBytesFor("body_photo", limits)).toBe(250_000_000);
   });
 });
@@ -219,5 +225,121 @@ describe("uploadFile — bezpieczeństwo zapisu (streaming nie omija walidacji)"
 
     // Osierocony blob nie może zostać na dysku — cleanup queue jeszcze go nie zna.
     expect(deleteMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+function klientPlikow(reguly: (req: Request) => Response | Promise<Response>) {
+  return createApiClient({
+    baseUrl: "http://be.test",
+    getToken: () => "T",
+    fetch: (async (req: Request) => reguly(req)) as unknown as typeof fetch,
+  });
+}
+
+function wideo(bajtow: number): File {
+  return new File([new Uint8Array(bajtow)], "demo.mp4", { type: "video/mp4" });
+}
+
+/**
+ * Plik o ROZMIARZE ponad limit, bez alokowania tylu bajtów — limit demo to dziś
+ * 250 MB (zgodnie z kontraktem), a prawdziwy bufor tej wielkości w teście
+ * jednostkowym byłby kosztem bez wartości: sprawdzana gałąź patrzy wyłącznie
+ * na `file.size`.
+ */
+function wideoORozmiarze(bajtow: number): File {
+  const plik = wideo(1);
+  Object.defineProperty(plik, "size", { value: bajtow });
+  return plik;
+}
+
+describe("uploadExerciseDemo — wysyłka demo przez kontrakt", () => {
+  it("pusty plik odrzuca bez wywołania sieci", async () => {
+    let wywolan = 0;
+    const api = klientPlikow(() => {
+      wywolan += 1;
+      return new Response(null, { status: 201 });
+    });
+
+    await expect(uploadExerciseDemo(api, wideo(0))).rejects.toBeInstanceOf(UploadError);
+    expect(wywolan).toBe(0);
+  });
+
+  it("plik ponad limit odrzuca bez wywołania sieci", async () => {
+    // Plik jest już w pamięci po `request.formData()`, więc sprawdzenie tutaj
+    // oszczędza wysłanie kilkudziesięciu megabajtów po to, żeby usłyszeć `413`.
+    let wywolan = 0;
+    const api = klientPlikow(() => {
+      wywolan += 1;
+      return new Response(null, { status: 201 });
+    });
+
+    const blad = await uploadExerciseDemo(api, wideoORozmiarze(250_000_001)).catch(
+      (e: unknown) => e,
+    );
+
+    expect(blad).toBeInstanceOf(UploadError);
+    expect((blad as UploadError).userMessage).toContain("Plik za duży");
+    expect(wywolan).toBe(0);
+  });
+
+  it("wysyła multipartem i potwierdza plik", async () => {
+    // Druga faza (`confirm`) jest dziś po stronie BE udokumentowanym no-opem —
+    // wołamy ją, bo kontrakt tak deklaruje protokół, a weryfikacja wraca do życia
+    // przy wysyłce prosto do magazynu. Pliku przed zamiataczem sierot broni
+    // podpięcie (`PATCH`), nie to wywołanie.
+    const trafienia: string[] = [];
+    let typZawartosci = "";
+    const api = klientPlikow((req) => {
+      const sciezka = new URL(req.url).pathname;
+      trafienia.push(`${req.method} ${sciezka}`);
+      if (sciezka === "/v1/files/exercise-demo") {
+        typZawartosci = req.headers.get("content-type") ?? "";
+        return new Response(JSON.stringify({ id: "f-1", bytes: 10, mimeType: "video/mp4" }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(null, { status: 204 });
+    });
+
+    const wynik = await uploadExerciseDemo(api, wideo(10));
+
+    expect(wynik).toBe("f-1");
+    expect(trafienia).toEqual([
+      "POST /v1/files/exercise-demo",
+      "POST /v1/files/f-1/confirm",
+    ]);
+    expect(typZawartosci).toContain("multipart/form-data");
+  });
+
+  it("413 z kontraktu wraca jako UploadError z komunikatem BE", async () => {
+    const api = klientPlikow(() =>
+      new Response(
+        JSON.stringify({ error: { code: "FILE_TOO_LARGE", message: "Plik jest za duży." } }),
+        { status: 413, headers: { "content-type": "application/json" } },
+      ),
+    );
+
+    const blad = await uploadExerciseDemo(api, wideo(10)).catch((e: unknown) => e);
+
+    expect(blad).toBeInstanceOf(UploadError);
+    expect((blad as UploadError).userMessage).toBe("Plik jest za duży.");
+  });
+
+  it("awaria BE NIE zamienia się w UploadError", async () => {
+    // Ta sama wąskość co przy `CategoryError`: gdyby moduł łykał każdy błąd,
+    // awaria serwera pokazałaby się w formularzu jako problem z plikiem —
+    // komunikat kierujący użytkownika na fałszywy trop i ukrywający usterkę.
+    const api = klientPlikow(() =>
+      new Response(JSON.stringify({ error: { code: "INTERNAL", message: "Ups." } }), {
+        status: 500,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    const blad = await uploadExerciseDemo(api, wideo(10)).catch((e: unknown) => e);
+
+    expect(blad).toBeInstanceOf(ApiError);
+    expect(blad).not.toBeInstanceOf(UploadError);
   });
 });

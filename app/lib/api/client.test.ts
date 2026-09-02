@@ -1,7 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { exerciseCategoriesControllerList } from "@kalisthenos/api-client";
+
+// Potrzebne wyłącznie dla `publicFileUrl` — pozostałe testy w tym pliku podają
+// `baseUrl` jawnie, więc do konfiguracji nie sięgają w ogóle.
+vi.mock("~/lib/env", () => ({
+  getEnv: () => ({ API_URL: "http://be.internal", API_PUBLIC_URL: "https://api.kalisthenos.test" }),
+}));
+
 import { ApiError } from "./errors";
-import { createApiClient, orNull } from "./client";
+import { createApiClient, orNull, publicFileUrl } from "./client";
 
 function odpowiedz(status: number, cialo: unknown): Response {
   return new Response(JSON.stringify(cialo), {
@@ -218,5 +225,26 @@ describe("orNull — reguła D3", () => {
 
   it("wartość przepuszcza bez zmian", async () => {
     expect(await orNull(Promise.resolve({ id: "x" }))).toEqual({ id: "x" });
+  });
+});
+
+describe("publicFileUrl", () => {
+  it("do ścieżki z kontraktu dokłada publiczny origin", () => {
+    // Podpis z BE jest ŚCIEŻKĄ (`FileUrlSigner.sign`), a trafia do `src`
+    // w `<video>`/`<img>` — bez tego origin przeglądarka szukałaby pliku
+    // pod adresem FE, gdzie tej trasy nie ma.
+    expect(publicFileUrl("/v1/files/f-1?exp=1&sig=abc")).toBe(
+      "https://api.kalisthenos.test/v1/files/f-1?exp=1&sig=abc",
+    );
+  });
+
+  it("adres BEZWZGLĘDNY zwraca nietknięty — bez podwojonego origin", () => {
+    // Ta gałąź jest siatką na wypadek, gdyby BE zaczęło kiedyś zwracać pełne
+    // adresy: `new URL(x, base)` je przepuszcza, a naiwne sklejanie łańcuchów
+    // dałoby `https://api…https://cdn…`. Bez tego testu podmiana implementacji
+    // na sklejanie przeszłaby niezauważona — cała suita karmi ją ścieżkami.
+    expect(publicFileUrl("https://cdn.example.test/v1/files/f-1?sig=abc")).toBe(
+      "https://cdn.example.test/v1/files/f-1?sig=abc",
+    );
   });
 });

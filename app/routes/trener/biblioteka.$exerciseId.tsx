@@ -5,6 +5,7 @@ import {
   useActionData,
   useLoaderData,
   useNavigation,
+  useSearchParams,
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
@@ -12,17 +13,15 @@ import { z } from "zod";
 import { ConfirmSubmitButton } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
 import { requireUser } from "~/lib/api/auth";
+import { ApiError, toRouteResponse } from "~/lib/api/errors";
 import { filterToKnownCategoryNames, listCategoriesForTrainer } from "~/lib/categories";
-import { db } from "~/lib/db/client";
 import {
-  getExerciseForTrainer,
-  getExerciseWithDemoForTrainer,
+  ExerciseError,
+  getExerciseDetail,
   setExerciseArchived,
-  updateExerciseWithDemo,
+  updateExercise,
 } from "~/lib/exercises";
 import { maxUploadBytesFor, UploadError } from "~/lib/file-uploads";
-import { signFileUrl } from "~/lib/files";
-import { findSkillForExercise } from "~/lib/skills";
 import { CategoryPicker } from "~/components/exercise-fields";
 import { FileDropzone } from "~/components/file-dropzone";
 
@@ -34,57 +33,53 @@ const EditSchema = z.object({
 });
 
 export async function loader(args: LoaderFunctionArgs) {
-  const { api, user } = requireUser(args.context, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const exerciseId = args.params.exerciseId ?? "";
 
-  const row = await getExerciseWithDemoForTrainer(db, user.id, exerciseId);
-  if (row == null) {
+  const exercise = await getExerciseDetail(api, exerciseId);
+  if (exercise == null) {
     throw new Response("not found", { status: 404 });
   }
 
   const categories = await listCategoriesForTrainer(api);
 
   return {
-    exercise: row.exercise,
+    exercise,
     categories,
     // Ten sam limit co na serwerze — patrz komentarz w biblioteka.nowe.tsx.
     maxVideoBytes: maxUploadBytesFor("exercise_demo"),
-    demo:
-      row.demoFile != null
-        ? { url: signFileUrl(row.demoFile.id, user.id), mime: row.demoFile.mimeType }
-        : null,
   };
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const { api, user } = requireUser(args.context, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const exerciseId = args.params.exerciseId ?? "";
   const fd = await args.request.formData();
   const intent = fd.get("intent");
 
-  // Verify tenant ownership before any mutation.
-  const existing = await getExerciseForTrainer(db, user.id, exerciseId);
-  if (existing == null) {
-    throw new Response("not found", { status: 404 });
-  }
-  const exercise = existing;
-
   if (intent === "archive") {
-    // Inwariant: wariant aktywnej umiejętności nigdy nie wskazuje zarchiwizowanego
-    // ćwiczenia — inaczej w drzewie/mapie Rozwoju wisiałby „duch". Blokujemy
-    // archiwizację, dopóki ćwiczenie jest wariantem; trener musi je najpierw odpiąć.
-    const skill = await findSkillForExercise(db, user.id, exerciseId);
-    if (skill) {
-      return {
-        error: `To ćwiczenie jest wariantem umiejętności „${skill.skillName}". Usuń je z wariantów tej umiejętności, zanim je zarchiwizujesz.`,
-      };
+    try {
+      await setExerciseArchived(api, exerciseId, true);
+    } catch (e) {
+      if (e instanceof ExerciseError) return { error: e.userMessage };
+      if (e instanceof ApiError) throw toRouteResponse(e);
+      throw e;
     }
-    await setExerciseArchived(db, user.id, exerciseId, true);
     throw redirect("/trener/biblioteka");
   }
 
   if (intent === "unarchive") {
-    await setExerciseArchived(db, user.id, exerciseId, false);
+    try {
+      await setExerciseArchived(api, exerciseId, false);
+    } catch (e) {
+      // BE zna dziś odmowę „wariant aktywnej umiejętności" wyłącznie na
+      // archiwizacji (`ExercisesService.restore` nie ma tego sprawdzenia), więc
+      // ta gałąź jest utwardzeniem, nie żywym przypadkiem: `ExerciseError` nie
+      // dziedziczy po `ApiError`, więc bez tej linii uciekłby tu nieobsłużony.
+      if (e instanceof ExerciseError) return { error: e.userMessage };
+      if (e instanceof ApiError) throw toRouteResponse(e);
+      throw e;
+    }
     throw redirect(`/trener/biblioteka/${exerciseId}`);
   }
 
@@ -106,11 +101,8 @@ export async function action(args: ActionFunctionArgs) {
   const demo = demoBlob instanceof File && demoBlob.size > 0 ? demoBlob : null;
 
   try {
-    await updateExerciseWithDemo(db, {
-      trainerId: user.id,
+    await updateExercise(api, {
       exerciseId,
-      // Z wiersza wczytanego wyżej przy sprawdzeniu własności — bez drugiego SELECT-a.
-      currentDemoFileId: exercise.demoFileId,
       name: parsed.data.name,
       unit: parsed.data.unit,
       description: parsed.data.description,
@@ -120,15 +112,21 @@ export async function action(args: ActionFunctionArgs) {
     });
   } catch (e) {
     if (e instanceof UploadError) return { error: e.userMessage };
+    if (e instanceof ApiError) throw toRouteResponse(e);
     throw e;
   }
   throw redirect("/trener/biblioteka");
 }
 
 export default function EdytujCwiczenie() {
-  const { exercise, demo, categories, maxVideoBytes } = useLoaderData<typeof loader>();
+  const { exercise, categories, maxVideoBytes } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const isArchived = exercise.archivedAt != null;
+  // Przyszliśmy tu przekierowaniem z formularza tworzenia: ćwiczenie powstało,
+  // ale demo nie dało się podpiąć. Trener musi zobaczyć, czego brakuje — inaczej
+  // zostałby z ćwiczeniem bez nagrania i bez śladu, że coś poszło nie tak.
+  const [searchParams] = useSearchParams();
+  const demoNiePodpiete = searchParams.get("demo") === "blad";
   // Blokada podwójnej wysyłki na formularzu zapisu — niesie wideo demo, więc wysyłka
   // trwa, a drugie kliknięcie wgrywa drugi blob na wolumen. Dotyczy wyłącznie tego
   // przycisku; osobne intencje (archiwizacja/przywrócenie) zostają bez zmian.
@@ -157,13 +155,23 @@ export default function EdytujCwiczenie() {
         )}
       </div>
 
-      {demo && (
+      {demoNiePodpiete && (
+        <p
+          role="alert"
+          className="card"
+          style={{ padding: "10px 14px", marginBottom: 18, fontSize: 13 }}
+        >
+          Ćwiczenie zostało utworzone, ale wideo demo nie zostało podpięte. Wgraj je poniżej.
+        </p>
+      )}
+
+      {exercise.demoUrl != null && (
         <div style={{ marginBottom: 18 }}>
           <div className="field-label" style={{ marginBottom: 6 }}>
             Aktualne demo
           </div>
           <video
-            src={demo.url}
+            src={exercise.demoUrl}
             controls
             preload="metadata"
             playsInline
@@ -244,7 +252,11 @@ export default function EdytujCwiczenie() {
           name="demo"
           idSuffix="edit"
           kind="video"
-          label={demo ? "Zastąp wideo demo (opcjonalne)" : "Wideo demo (opcjonalne)"}
+          label={
+            exercise.demoUrl != null
+              ? "Zastąp wideo demo (opcjonalne)"
+              : "Wideo demo (opcjonalne)"
+          }
           maxBytes={maxVideoBytes}
         />
 
@@ -274,6 +286,16 @@ export default function EdytujCwiczenie() {
         method="post"
         style={{ marginTop: 28, paddingTop: 18, borderTop: "1px solid var(--line)" }}
       >
+        {!isArchived && exercise.variationOf != null && (
+          // Kontrakt niesie tę umiejętność w szczególe (`variationOf`, „wyłącznie
+          // aktywna, bo tylko taka blokuje archiwizację"), więc trener dowiaduje
+          // się, CO odpiąć, ZANIM kliknie i dostanie odmowę. Komunikat samej
+          // odmowy zostaje treścią BE — tu tylko uprzedzamy fakt.
+          <p className="text-xs muted" style={{ margin: "0 0 10px" }}>
+            To ćwiczenie jest wariantem umiejętności „{exercise.variationOf.skillName}" — żeby je
+            zarchiwizować, najpierw odepnij je od tej umiejętności.
+          </p>
+        )}
         {isArchived ? (
           <button type="submit" name="intent" value="unarchive" className="btn">
             Przywróć z archiwum
