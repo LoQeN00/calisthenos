@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createApiClient } from "./api/client";
-import { loadTraineeNavigation, loadTrainerDashboard, loadTrainerNavigation } from "./views";
+import {
+  loadTraineeDashboard,
+  loadTraineeNavigation,
+  loadTrainerDashboard,
+  loadTrainerNavigation,
+} from "./views";
 
 function klient(reguly: (req: Request) => Response | Promise<Response>) {
   return createApiClient({
@@ -26,8 +31,25 @@ const NAW_PODOPIECZNEGO = {
   pendingConsultations: 0,
   featureRequests: 1,
 };
+const PULPIT_PODOPIECZNEGO = {
+  activePlan: null,
+  recentLogs: [],
+  hero: {
+    totalSessions: 0,
+    totalReps: 0,
+    totalSecondsUnderTension: 0,
+    streakWeeks: 0,
+    longestStreakWeeks: 0,
+    journeyDayNumber: 0,
+    firstSessionOn: null,
+  },
+  thisWeek: { sessions: 0, avgPerWeek: 0 },
+  heatmap: [],
+  effort: { easy: 0, mid: 0, hard: 0, total: 0, verdict: "no-data" },
+  wrappedMonths: [],
+};
 
-// Trzy widoki, jeden wzorzec: moduł nie liczy, nie sumuje i nie mapuje — oddaje
+// Cztery widoki, jeden wzorzec: moduł nie liczy, nie sumuje i nie mapuje — oddaje
 // widok BE takim, jaki przyszedł. Test pilnuje ADRESU, bo to jedyne, co tu może
 // się rozjechać w ciszy (zła ścieżka to `404` zamieniony przez interceptor na
 // ApiError, ale dopiero w czasie wykonania).
@@ -68,5 +90,22 @@ describe("views — widoki przekrojowe BE", () => {
 
     expect(wynik.activePlanSessions).toBeNull();
     expect(sciezka).toBe("/v1/me/nav");
+  });
+
+  it("pulpit podopiecznego to `GET /v1/me/home`, a brak planu zostaje `null`", async () => {
+    // Do integracji ten ekran składał się z ośmiu zapytań; teraz jest jednym
+    // widokiem. `activePlan: null` znaczy „trener nic nie opublikował" — moduł
+    // nie zamienia go na pusty obiekt, bo pulpit rysuje wtedy inny stan.
+    let sciezka = "";
+    const api = klient((req) => {
+      sciezka = new URL(req.url).pathname;
+      return json(200, PULPIT_PODOPIECZNEGO);
+    });
+
+    const wynik = await loadTraineeDashboard(api);
+
+    expect(wynik.activePlan).toBeNull();
+    expect(wynik.thisWeek.sessions).toBe(0);
+    expect(sciezka).toBe("/v1/me/home");
   });
 });

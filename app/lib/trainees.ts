@@ -2,6 +2,9 @@ import { and, count, eq, isNull } from "drizzle-orm";
 import type { Db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
 import { deleteFileBlob } from "~/lib/file-uploads";
+import { traineeListControllerQuery } from "@kalisthenos/api-client";
+import type { TraineeListPage } from "@kalisthenos/api-client";
+import type { Api } from "~/lib/api/client";
 
 export class TraineeDeleteError extends Error {
   constructor(
@@ -10,6 +13,48 @@ export class TraineeDeleteError extends Error {
   ) {
     super(message);
   }
+}
+
+export type ClientSort = "name_asc" | "name_desc" | "last_session" | "most_sessions" | "newest";
+export type PlanFilter = "all" | "with" | "without";
+
+export interface ClientListOpts {
+  page: number;
+  sort: ClientSort;
+  q?: string;
+  /** Domyślnie `all` — wtedy parametr nie idzie do kontraktu. */
+  plan?: PlanFilter;
+}
+
+/**
+ * Lista podopiecznych trenera z liczbą sesji i datą ostatniej — pierwszy odczyt
+ * tego modułu na kontrakcie (`GET /v1/trainees`, dodany w Etapie 1 właśnie dla
+ * niego). Do integracji mieszkał w `workouts.ts` jako `listClientsForTrainer`
+ * + `countClientsForTrainer`; przeszedł tu, bo zasób to podopieczni, a po stronie
+ * BE model odczytu żyje w `analytics` (przekracza granicę kontekstu — ADR-0009).
+ * Strona (30) i licznik przychodzą razem; `q` obejmuje nazwę ALBO e-mail, jak
+ * dotychczasowy `ilike` na `users`.
+ *
+ * Dwie rzeczy, których kontrakt NIE niesie: nazwy aktywnego planu (jest `hasActivePlan`)
+ * i daty dołączenia — dołożenie ich jest addytywne po stronie BE. Trzecia różnica
+ * jest celowa: `sessionCount` liczy WYŁĄCZNIE treningi odbyte u tego trenera.
+ */
+export async function listClientsForTrainer(
+  api: Api,
+  opts: ClientListOpts,
+): Promise<TraineeListPage> {
+  const { data } = await traineeListControllerQuery({
+    client: api,
+    query: {
+      page: opts.page,
+      sort: opts.sort,
+      // `all` to BRAK parametru; puste `q=` znaczy „szukaj pustego łańcucha".
+      ...(opts.plan != null && opts.plan !== "all" ? { plan: opts.plan } : {}),
+      ...(opts.q != null && opts.q.length > 0 ? { q: opts.q } : {}),
+    },
+    throwOnError: true,
+  });
+  return data;
 }
 
 /**

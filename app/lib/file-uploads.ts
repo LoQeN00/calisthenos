@@ -13,7 +13,12 @@ import {
   newFileId,
   setVideoPath,
 } from "~/lib/files";
-import { filesControllerConfirm, filesControllerExerciseDemo } from "@kalisthenos/api-client";
+import {
+  filesControllerConfirm,
+  filesControllerExerciseDemo,
+  filesControllerSetVideo,
+} from "@kalisthenos/api-client";
+import type { UploadResultDto } from "@kalisthenos/api-client";
 import type { Api } from "~/lib/api/client";
 import { ApiError } from "~/lib/api/errors";
 
@@ -310,25 +315,33 @@ export async function findFileById(db: Db, fileId: string): Promise<schema.File 
 }
 
 /**
- * Ścieżka `exercise_demo` **na kontrakcie**: dwie fazy z §8 kroku 4 specu —
- * `POST /v1/files/exercise-demo` (bajty idą przez serwer BE) i `POST /v1/files/{id}/confirm`.
- * Pozostałe dwa rodzaje (`set_video`, `body_photo`) zostają na bazie do kroku 4.
+ * Wspólna, dwufazowa ścieżka wysyłki przez kontrakt (§8 krok 4 specu): limit
+ * rozmiaru sprawdzony PRZED wysłaniem (plik jest już w pamięci po
+ * `request.formData()`, a `413` po kilkudziesięciu megabajtach nic nie
+ * oszczędza), potem `POST /v1/files/{rodzaj}` i `POST /v1/files/{id}/confirm`.
+ * Rodzaj wynika z użytej operacji kontraktu, nie z parametru — klient nie
+ * decyduje, co wgrywa (`docs/04` §8); `kind` służy tu wyłącznie do wyboru limitu.
  *
  * **Czego tu NIE MA i dlaczego:**
  * - kontroli deklarowanego MIME — BE sprawdza typ PO ZAWARTOŚCI w locie, co jest
- *   mocniejsze niż `file.type` od klienta, a źródło stałych (`app/lib/files.ts`)
- *   znika w kroku 4;
+ *   mocniejsze niż `file.type` od klienta;
  * - `UploadCleanupQueue` — sprzątanie po nieudanym zapisie przejął BE
  *   (`orphan-files-sweep`, 24 h karencji dla pliku, na który nic nie wskazuje).
  *
  * `confirm` niczego dziś nie zapisuje (`FilesService.confirm` sprawdza istnienie
- * i tenant) — plik przed zamiataczem ratuje dopiero PODPIĘCIE do ćwiczenia.
+ * i tenant) — plik przed zamiataczem ratuje dopiero PODPIĘCIE do ćwiczenia albo
+ * do serii treningu.
  */
-export async function uploadExerciseDemo(api: Api, file: File): Promise<string> {
+async function uploadThroughContract(
+  api: Api,
+  file: File,
+  kind: UploadKind,
+  send: (file: File) => Promise<{ data: UploadResultDto }>,
+): Promise<string> {
   if (file.size === 0) {
     throw new UploadError("empty file", "Plik jest pusty.");
   }
-  const maxBytes = maxUploadBytesFor("exercise_demo");
+  const maxBytes = maxUploadBytesFor(kind);
   if (file.size > maxBytes) {
     throw new UploadError(
       `file too large: ${file.size} > ${maxBytes}`,
@@ -338,16 +351,12 @@ export async function uploadExerciseDemo(api: Api, file: File): Promise<string> 
 
   let fileId: string;
   try {
-    const { data } = await filesControllerExerciseDemo({
-      client: api,
-      body: { file },
-      throwOnError: true,
-    });
+    const { data } = await send(file);
     fileId = data.id;
   } catch (e) {
     // Wąsko: trzy statusy, dla których BE ma komunikat o SAMYM PLIKU i dla których
-    // trasa pokazuje tekst w formularzu. `401`/`403`/`404` to sprawa sesji i tenanta —
-    // te lecą dalej i obsługuje je warstwa klienta.
+    // trasa pokazuje tekst użytkownikowi. `401`/`403`/`404`/`429` to sprawa sesji,
+    // tenanta i limitów — te lecą dalej i obsługuje je wołający.
     if (e instanceof ApiError && (e.status === 400 || e.status === 409 || e.status === 413)) {
       throw new UploadError(`upload rejected: ${e.code}`, e.message);
     }
@@ -356,4 +365,23 @@ export async function uploadExerciseDemo(api: Api, file: File): Promise<string> 
 
   await filesControllerConfirm({ client: api, path: { id: fileId }, throwOnError: true });
   return fileId;
+}
+
+/** Demo ćwiczenia (`exercise_demo`, limit ogólny) — `POST /v1/files/exercise-demo`. */
+export async function uploadExerciseDemo(api: Api, file: File): Promise<string> {
+  return await uploadThroughContract(api, file, "exercise_demo", (file) =>
+    filesControllerExerciseDemo({ client: api, body: { file }, throwOnError: true }),
+  );
+}
+
+/**
+ * Nagranie serii (`set_video`, niższy limit wideo) — `POST /v1/files/set-video`.
+ * Druga z trzech ścieżek na kontrakcie; na bazie zostaje wyłącznie `body_photo`.
+ * Zwrócony identyfikator NICZEGO nie uprawnia — własność sprawdza dopiero BE przy
+ * zapisie treningu (`409 SET_VIDEO_UNAVAILABLE`).
+ */
+export async function uploadSetVideo(api: Api, file: File): Promise<string> {
+  return await uploadThroughContract(api, file, "set_video", (file) =>
+    filesControllerSetVideo({ client: api, body: { file }, throwOnError: true }),
+  );
 }

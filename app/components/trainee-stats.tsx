@@ -1,3 +1,8 @@
+import type {
+  TraineeEffortView,
+  TraineeHeroView,
+  TraineeThisWeekView,
+} from "@kalisthenos/api-client";
 import { Link } from "react-router";
 import { Icons } from "~/components/icons";
 import {
@@ -7,7 +12,7 @@ import {
   type BarSegment,
 } from "~/components/stat-widgets";
 import { fmtDate, pluralizePl, type PlForms } from "~/lib/format";
-import type { EffortBalance, HeatmapDay, HeroStats, ThisWeekStats } from "~/lib/stats";
+import type { HeatmapDay } from "~/lib/stats";
 
 // ============================================================
 // Local helpers
@@ -85,7 +90,7 @@ function HeroStat({
   );
 }
 
-export function HeroStatsCard({ hero }: { hero: HeroStats }) {
+export function HeroStatsCard({ hero }: { hero: TraineeHeroView }) {
   return (
     <div
       className="card"
@@ -160,14 +165,14 @@ export function HeroStatsCard({ hero }: { hero: HeroStats }) {
 // ThisWeekCard
 // ============================================================
 
-export function ThisWeekCard({ thisWeek }: { thisWeek: ThisWeekStats }) {
-  const aboveAvg = thisWeek.thisWeek >= thisWeek.avgPerWeek;
+export function ThisWeekCard({ thisWeek }: { thisWeek: TraineeThisWeekView }) {
+  const aboveAvg = thisWeek.sessions >= thisWeek.avgPerWeek;
   const message =
     thisWeek.avgPerWeek === 0
-      ? `${thisWeek.thisWeek} ${pluralizePl(thisWeek.thisWeek, SESJA)} w tym tygodniu — dobry początek!`
+      ? `${thisWeek.sessions} ${pluralizePl(thisWeek.sessions, SESJA)} w tym tygodniu — dobry początek!`
       : aboveAvg
-        ? `${thisWeek.thisWeek} ${pluralizePl(thisWeek.thisWeek, SESJA)} w tym tygodniu — twoja średnia to ${thisWeek.avgPerWeek}. ✓`
-        : `${thisWeek.thisWeek} ${pluralizePl(thisWeek.thisWeek, SESJA)} w tym tygodniu — średnio robisz ${thisWeek.avgPerWeek}. Dasz radę nadrobić?`;
+        ? `${thisWeek.sessions} ${pluralizePl(thisWeek.sessions, SESJA)} w tym tygodniu — twoja średnia to ${thisWeek.avgPerWeek}. ✓`
+        : `${thisWeek.sessions} ${pluralizePl(thisWeek.sessions, SESJA)} w tym tygodniu — średnio robisz ${thisWeek.avgPerWeek}. Dasz radę nadrobić?`;
 
   return (
     <div
@@ -214,7 +219,7 @@ export function ActivityHeatmapCard({ days }: { days: HeatmapDay[] }) {
 // EffortBalanceCard
 // ============================================================
 
-export function EffortBalanceCard({ effort }: { effort: EffortBalance }) {
+export function EffortBalanceCard({ effort }: { effort: TraineeEffortView }) {
   if (effort.total === 0) return null;
 
   const segments: BarSegment[] = [

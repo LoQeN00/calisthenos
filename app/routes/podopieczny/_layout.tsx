@@ -9,23 +9,21 @@ import { countForTrainee } from "~/lib/feature-requests";
 import { hasPendingOnboarding } from "~/lib/onboarding-forms";
 import { hasTraineeAppAccess } from "~/lib/stripe/gate";
 import { loadTraineeNavigation } from "~/lib/views";
-import { countLogsForTrainee } from "~/lib/workouts";
 
 export async function loader(args: LoaderFunctionArgs) {
   const { api, user } = requireUser(args.context, { role: "trainee" });
 
   // Bramki idą PRZED licznikami — podopieczny, którego i tak odsyłamy, nie ma po
-  // co kosztować sześciu zapytań. Kolejność: najpierw płatność (drzwi do
+  // co kosztować czterech zapytań. Kolejność: najpierw płatność (drzwi do
   // aplikacji), potem formularz startowy (już wnętrze relacji).
   const { hasAccess, sub } = await hasTraineeAppAccess(db, user);
   if (!hasAccess) throw redirect("/podopieczny/aktywuj");
   if (await hasPendingOnboarding(db, user.id)) throw redirect("/podopieczny/formularz");
 
-  const logCount = await countLogsForTrainee(db, user.id, {});
   const photoCount = await countBodyPhotosForTrainee(db, user.id);
-  // Jedno wywołanie na ekran; cztery pozostałe liczniki zostają na bazie do
-  // swoich obszarów. `null` (brak planu) i `0` (plan bez sesji) powłoka pokazuje
-  // tak samo — jak do integracji.
+  // Jedno wywołanie na ekran; trzy pozostałe liczniki (zdjęcia, konsultacje,
+  // zgłoszenia) zostają na bazie do swoich obszarów. `null` (brak planu) i `0`
+  // (plan bez sesji) powłoka pokazuje tak samo — jak do integracji.
   const nav = await loadTraineeNavigation(api);
   const sessionsCount = nav.activePlanSessions ?? 0;
 
@@ -43,7 +41,7 @@ export async function loader(args: LoaderFunctionArgs) {
     user,
     tails: {
       sessions: sessionsCount,
-      history: logCount,
+      history: nav.workoutLogs,
       photos: photoCount,
       consultations: pending,
       ideas,

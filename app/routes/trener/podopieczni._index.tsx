@@ -20,11 +20,11 @@ import { db } from "~/lib/db/client";
 import { getEnv, stripeApiConfigured } from "~/lib/env";
 import { listActiveExercisesForTrainer } from "~/lib/exercises";
 import { parsePlnToGrosze, MonthlyAmountSchema } from "~/lib/money";
-import { daysAgo, fmtDate, pluralizePl, type PlForms } from "~/lib/format";
+import { daysAgo, pluralizePl, type PlForms } from "~/lib/format";
 import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
 import { OnboardingFormError } from "~/lib/onboarding-forms";
 import { OnboardingTemplateSchema } from "~/lib/onboarding-form-types";
-import { countClientsForTrainer, listClientsForTrainer, type ClientSort } from "~/lib/workouts";
+import { listClientsForTrainer, type ClientSort, type PlanFilter } from "~/lib/trainees";
 
 const OSOBA: PlForms = { one: "osoba", few: "osoby", many: "osób" };
 
@@ -39,8 +39,6 @@ const InviteSchema = z.object({
       message: "Nieprawidłowy email.",
     }),
 });
-
-const PAGE_SIZE = 30;
 
 const spec: ListControlsSpec = {
   sortOptions: [
@@ -67,22 +65,18 @@ const spec: ListControlsSpec = {
 };
 
 export async function loader(args: LoaderFunctionArgs) {
-  const { api, user } = requireUser(args.context, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const url = new URL(args.request.url);
   const page = parsePage(url.searchParams);
   const deletedName = url.searchParams.get("usuniety");
 
   const controls = parseListControls(url.searchParams, spec);
-  const plan = (controls.filters.plan ?? "all") as "all" | "with" | "without";
+  const plan = (controls.filters.plan ?? "all") as PlanFilter;
 
-  const total = await countClientsForTrainer(db, user.id, { q: controls.q, plan });
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const offset = (safePage - 1) * PAGE_SIZE;
-
-  const clients = await listClientsForTrainer(db, user.id, {
-    limit: PAGE_SIZE,
-    offset,
+  // Jedno żądanie zamiast dwóch: strona przychodzi razem z `total`, a `page`
+  // spoza zakresu przycina BE — dawne `safePage` nie ma już czego liczyć.
+  const result = await listClientsForTrainer(api, {
+    page,
     sort: controls.sort as ClientSort,
     q: controls.q,
     plan,
@@ -93,12 +87,12 @@ export async function loader(args: LoaderFunctionArgs) {
   const exercises = await listActiveExercisesForTrainer(api);
 
   return {
-    clients,
+    clients: result.items,
     spec,
     controls,
-    page: safePage,
-    totalPages,
-    total,
+    page: result.page,
+    totalPages: result.totalPages,
+    total: result.total,
     deletedName,
     stripeAvailable: stripeApiConfigured(),
     exercises,
@@ -331,32 +325,27 @@ export default function TrenerPodopieczniList() {
                 <span className="avatar sm">{initialsOf(c.displayName)}</span>
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 500 }}>{c.displayName}</div>
-                  {c.joinedOn && (
-                    <div className="text-xs muted" style={{ marginTop: 2 }}>
-                      od {fmtDate(c.joinedOn)}
-                    </div>
-                  )}
                 </div>
               </div>
               <div>
-                {c.activePlanName != null ? (
+                {c.hasActivePlan ? (
                   <span className="badge active">
                     <span className="badge-dot" />
-                    {c.activePlanName}
+                    aktywny plan
                   </span>
                 ) : (
                   <span className="text-xs muted">brak aktywnego planu</span>
                 )}
               </div>
               <div className="text-sm">
-                {c.lastSession ? (
-                  <span className="muted">ostatnia {daysAgo(c.lastSession)}</span>
+                {c.lastSessionOn ? (
+                  <span className="muted">ostatnia {daysAgo(c.lastSessionOn)}</span>
                 ) : (
                   <span className="muted">brak sesji</span>
                 )}
-                {c.totalSessions > 0 && (
+                {c.sessionCount > 0 && (
                   <span className="muted" style={{ marginLeft: 6 }}>
-                    · <span className="mono">{c.totalSessions}</span>
+                    · <span className="mono">{c.sessionCount}</span>
                   </span>
                 )}
               </div>

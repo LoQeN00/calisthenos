@@ -1,9 +1,15 @@
 import {
+  traineeViewsControllerDashboard,
   traineeViewsControllerNavigation,
   trainerViewsControllerDashboard,
   trainerViewsControllerNavigation,
 } from "@kalisthenos/api-client";
-import type { TraineeNavView, TrainerHomeView, TrainerNavView } from "@kalisthenos/api-client";
+import type {
+  TraineeHomeView,
+  TraineeNavView,
+  TrainerHomeView,
+  TrainerNavView,
+} from "@kalisthenos/api-client";
 import type { Api } from "~/lib/api/client";
 
 /**
@@ -23,10 +29,10 @@ export async function loadTrainerNavigation(api: Api): Promise<TrainerNavView> {
 }
 
 /**
- * Pulpit trenera: klienci, ostatnie treningi, liczniki. Do czasu przepięcia
- * obszaru dziennika pulpit czyta stąd wyłącznie `activePlans` i `drafts`, a resztę
- * nadal z bazy — cena jednego pełnego widoku za dwie liczby, przyjęta świadomie,
- * bo dziennik jest następny w kolejce i zdejmie ją, biorąc pozostałe pola stąd.
+ * Pulpit trenera: klienci (`sessionCount` liczony WYŁĄCZNIE z treningów u tego
+ * trenera), sześć ostatnich treningów, liczniki planów i sesje tygodnia — od
+ * `dziś − 7 dni` włącznie, tak samo jak liczył dawny `countLogsForTrainerSince`.
+ * Jedno wywołanie na ekran; trasa nie dotyka już bazy.
  */
 export async function loadTrainerDashboard(api: Api): Promise<TrainerHomeView> {
   const { data } = await trainerViewsControllerDashboard({ client: api, throwOnError: true });
@@ -40,5 +46,17 @@ export async function loadTrainerDashboard(api: Api): Promise<TrainerHomeView> {
  */
 export async function loadTraineeNavigation(api: Api): Promise<TraineeNavView> {
   const { data } = await traineeViewsControllerNavigation({ client: api, throwOnError: true });
+  return data;
+}
+
+/**
+ * Pulpit podopiecznego: aktywny plan z liczbą wykonań per sesja, pięć ostatnich
+ * treningów, wskaźniki (hero, ten tydzień, mapa aktywności, bilans wysiłku)
+ * i miesiące z gotowym podsumowaniem — wszystko, co `podopieczny/_index` do
+ * integracji składał z ośmiu zapytań trzech modułów. `activePlan` jest `null`,
+ * gdy trener nic nie opublikował; moduł tego nie skleja.
+ */
+export async function loadTraineeDashboard(api: Api): Promise<TraineeHomeView> {
+  const { data } = await traineeViewsControllerDashboard({ client: api, throwOnError: true });
   return data;
 }

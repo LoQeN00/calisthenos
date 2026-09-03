@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { UploadError, iterateFileChunks, maxUploadBytesFor, uploadFile, uploadExerciseDemo } from "./file-uploads";
+import {
+  UploadError,
+  iterateFileChunks,
+  maxUploadBytesFor,
+  uploadFile,
+  uploadExerciseDemo,
+  uploadSetVideo,
+} from "./file-uploads";
 import { createApiClient } from "~/lib/api/client";
 import { ApiError } from "~/lib/api/errors";
 
@@ -305,19 +312,17 @@ describe("uploadExerciseDemo — wysyłka demo przez kontrakt", () => {
     const wynik = await uploadExerciseDemo(api, wideo(10));
 
     expect(wynik).toBe("f-1");
-    expect(trafienia).toEqual([
-      "POST /v1/files/exercise-demo",
-      "POST /v1/files/f-1/confirm",
-    ]);
+    expect(trafienia).toEqual(["POST /v1/files/exercise-demo", "POST /v1/files/f-1/confirm"]);
     expect(typZawartosci).toContain("multipart/form-data");
   });
 
   it("413 z kontraktu wraca jako UploadError z komunikatem BE", async () => {
-    const api = klientPlikow(() =>
-      new Response(
-        JSON.stringify({ error: { code: "FILE_TOO_LARGE", message: "Plik jest za duży." } }),
-        { status: 413, headers: { "content-type": "application/json" } },
-      ),
+    const api = klientPlikow(
+      () =>
+        new Response(
+          JSON.stringify({ error: { code: "FILE_TOO_LARGE", message: "Plik jest za duży." } }),
+          { status: 413, headers: { "content-type": "application/json" } },
+        ),
     );
 
     const blad = await uploadExerciseDemo(api, wideo(10)).catch((e: unknown) => e);
@@ -330,16 +335,84 @@ describe("uploadExerciseDemo — wysyłka demo przez kontrakt", () => {
     // Ta sama wąskość co przy `CategoryError`: gdyby moduł łykał każdy błąd,
     // awaria serwera pokazałaby się w formularzu jako problem z plikiem —
     // komunikat kierujący użytkownika na fałszywy trop i ukrywający usterkę.
-    const api = klientPlikow(() =>
-      new Response(JSON.stringify({ error: { code: "INTERNAL", message: "Ups." } }), {
-        status: 500,
-        headers: { "content-type": "application/json" },
-      }),
+    const api = klientPlikow(
+      () =>
+        new Response(JSON.stringify({ error: { code: "INTERNAL", message: "Ups." } }), {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        }),
     );
 
     const blad = await uploadExerciseDemo(api, wideo(10)).catch((e: unknown) => e);
 
     expect(blad).toBeInstanceOf(ApiError);
     expect(blad).not.toBeInstanceOf(UploadError);
+  });
+});
+
+describe("uploadSetVideo — nagranie serii przez kontrakt", () => {
+  it("wysyła multipartem na `/v1/files/set-video` i potwierdza plik", async () => {
+    // Rodzaj pliku wynika z użytej operacji, nie z parametru (`docs/04` §8) —
+    // ta sama dwufazowa ścieżka co demo, inny adres pierwszej fazy.
+    const trafienia: string[] = [];
+    const api = klientPlikow((req) => {
+      const sciezka = new URL(req.url).pathname;
+      trafienia.push(`${req.method} ${sciezka}`);
+      if (sciezka === "/v1/files/set-video") {
+        return new Response(JSON.stringify({ id: "f-2", bytes: 10, mimeType: "video/mp4" }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(null, { status: 204 });
+    });
+
+    expect(await uploadSetVideo(api, wideo(10))).toBe("f-2");
+    expect(trafienia).toEqual(["POST /v1/files/set-video", "POST /v1/files/f-2/confirm"]);
+  });
+
+  it("stosuje NIŻSZY limit wideo (30 MB) i odrzuca bez wywołania sieci", async () => {
+    // Demo ćwiczenia ma limit ogólny (250 MB), nagranie serii — limit wideo.
+    // Wspólna ścieżka musi wziąć limit z rodzaju, nie z jednej stałej.
+    let wywolan = 0;
+    const api = klientPlikow(() => {
+      wywolan += 1;
+      return new Response(null, { status: 201 });
+    });
+
+    const blad = await uploadSetVideo(api, wideoORozmiarze(30_000_001)).catch((e: unknown) => e);
+
+    expect(blad).toBeInstanceOf(UploadError);
+    expect((blad as UploadError).userMessage).toContain("30 MB");
+    expect(wywolan).toBe(0);
+  });
+
+  it("`413` z kontraktu wraca jako UploadError z komunikatem BE, a `500` jako ApiError", async () => {
+    const zaDuzy = klientPlikow(
+      () =>
+        new Response(
+          JSON.stringify({
+            error: { code: "FILE_TOO_LARGE", message: "Plik przekracza limit rozmiaru." },
+          }),
+          {
+            status: 413,
+            headers: { "content-type": "application/json" },
+          },
+        ),
+    );
+    const awaria = klientPlikow(
+      () =>
+        new Response(JSON.stringify({ error: { code: "INTERNAL", message: "Ups." } }), {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+
+    const odmowa = await uploadSetVideo(zaDuzy, wideo(10)).catch((e: unknown) => e);
+    const blad = await uploadSetVideo(awaria, wideo(10)).catch((e: unknown) => e);
+
+    expect(odmowa).toBeInstanceOf(UploadError);
+    expect((odmowa as UploadError).userMessage).toBe("Plik przekracza limit rozmiaru.");
+    expect(blad).toBeInstanceOf(ApiError);
   });
 });

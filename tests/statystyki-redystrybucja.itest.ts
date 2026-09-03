@@ -6,14 +6,7 @@ import postgres from "postgres";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import * as schema from "~/lib/db/schema";
 import { findTraineeOfTrainer } from "~/lib/progression";
-import {
-  getActivityHeatmap,
-  getEffortBalance,
-  getHealthStats,
-  getHeroStats,
-  getPlateauExercises,
-  getTagDistribution,
-} from "~/lib/stats";
+import { getHealthStats, getPlateauExercises, getTagDistribution } from "~/lib/stats";
 
 // -- redirect loader shims (tested by calling loaders directly; no auth needed) --
 import type { LoaderFunctionArgs } from "react-router";
@@ -283,53 +276,5 @@ describe("trainer client-view stats payload: getHealthStats / getPlateauExercise
   it("getTagDistribution: cudze dane nie wyciekają — podopieczny trenera B ma 0 logów", async () => {
     const tagDist = await getTagDistribution(db, traineePB, 30);
     expect(tagDist.totalExerciseLogs).toBe(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 3. Podopieczny dashboard: hero / heatmap / effort scoped per trainee
-// ---------------------------------------------------------------------------
-describe("podopieczny dashboard: hero / heatmap / effort są powiązane z traineeId", () => {
-  it("getHeroStats: totalSessions >= 1 dla podopiecznego z logami", async () => {
-    const hero = await getHeroStats(db, traineePA);
-    expect(hero).toBeDefined();
-    expect(hero.totalSessions).toBeGreaterThanOrEqual(1);
-  });
-
-  it("getHeroStats: zawiera wymagane klucze", async () => {
-    const hero = await getHeroStats(db, traineePA);
-    expect(hero).toHaveProperty("totalSessions");
-    expect(hero).toHaveProperty("totalReps");
-    expect(hero).toHaveProperty("streakWeeks");
-    expect(hero).toHaveProperty("firstSessionOn");
-  });
-
-  it("getHeroStats: podopieczny trenera B — brak logów → totalSessions = 0", async () => {
-    const hero = await getHeroStats(db, traineePB);
-    expect(hero.totalSessions).toBe(0);
-  });
-
-  it("getActivityHeatmap: zwraca tablicę dni (może być <= 26*7)", async () => {
-    const heatmap = await getActivityHeatmap(db, traineePA, 26);
-    expect(Array.isArray(heatmap)).toBe(true);
-    // Heatmap should have at least 1 entry (one per week for 26 weeks).
-    expect(heatmap.length).toBeGreaterThan(0);
-  });
-
-  it("getEffortBalance: zawiera klucze easy / mid / hard / verdict", async () => {
-    const effort = await getEffortBalance(db, traineePA);
-    expect(effort).toHaveProperty("easy");
-    expect(effort).toHaveProperty("mid");
-    expect(effort).toHaveProperty("hard");
-    expect(effort).toHaveProperty("verdict");
-  });
-
-  it("cudze dane nie wyciekają: getHeroStats dla P_B nie widzi sesji P_A", async () => {
-    const heroB = await getHeroStats(db, traineePB);
-    const heroA = await getHeroStats(db, traineePA);
-    // P_B has no logs — P_A's sessions must not appear.
-    expect(heroB.totalSessions).toBe(0);
-    // P_A should have their own sessions.
-    expect(heroA.totalSessions).toBeGreaterThanOrEqual(1);
   });
 });

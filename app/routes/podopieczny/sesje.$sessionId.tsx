@@ -1,53 +1,33 @@
+import type { SessionBlockView, SessionItemView } from "@kalisthenos/api-client";
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { VideoButton } from "~/components/video-modal";
 import { requireUser } from "~/lib/api/auth";
-import { db } from "~/lib/db/client";
-import { signFileUrl } from "~/lib/files";
-import { loadActivePlanFullForTrainee } from "~/lib/workouts";
+import { loadSessionForLogging } from "~/lib/workouts";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainee" });
-  const sessionId = args.params.sessionId ?? "";
-  const planFull = await loadActivePlanFullForTrainee(db, user.id);
-  if (!planFull) throw new Response("not found", { status: 404 });
-
-  const sessionIdx = planFull.sessions.findIndex((s) => s.session.id === sessionId);
-  if (sessionIdx === -1) throw new Response("not found", { status: 404 });
-  const sessionView = planFull.sessions[sessionIdx]!;
-
-  // Sign demo URLs for items that have a demo file.
-  const blocks = sessionView.blocks.map((b) => ({
-    ...b,
-    items: b.items.map((it) => ({
-      ...it,
-      demoUrl: it.exercise.demoFileId != null ? signFileUrl(it.exercise.demoFileId, user.id) : null,
-    })),
-  }));
-
-  return {
-    plan: planFull.plan,
-    sessionView,
-    sessionIdx,
-    blocks,
-  };
+  const { api } = requireUser(args.context, { role: "trainee" });
+  // Sesja przychodzi z podpisanym demo per pozycja; cudza albo nieistniejąca to
+  // `null` (404), sesja szkicu — `409` z BE do granicy błędu.
+  const session = await loadSessionForLogging(api, args.params.sessionId ?? "");
+  if (!session) throw new Response("not found", { status: 404 });
+  return { session };
 }
 
-type LoaderData = Awaited<ReturnType<typeof loader>>;
-
 export default function TraineeSessionDetail() {
-  const { plan, sessionView, sessionIdx, blocks } = useLoaderData<typeof loader>();
+  const { session } = useLoaderData<typeof loader>();
+  const blocks = session.blocks;
   const totalSets = blocks.reduce((a, b) => {
-    if (b.block.kind === "dropset") return a + (b.block.sets ?? 0);
-    return a + b.items.reduce((aa, it) => aa + (it.item.sets ?? 0), 0);
+    if (b.kind === "dropset") return a + (b.sets ?? 0);
+    return a + b.items.reduce((aa, it) => aa + (it.sets ?? 0), 0);
   }, 0);
 
   return (
     <div>
       <div className="crumbs">
-        <Link to="/podopieczny/sesje">{plan.name}</Link>
+        <Link to="/podopieczny/sesje">Sesje</Link>
         <span className="sep">›</span>
-        <span className="current">{sessionView.session.name}</span>
+        <span className="current">{session.name}</span>
       </div>
 
       <div
@@ -62,9 +42,9 @@ export default function TraineeSessionDetail() {
       >
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Sesja {sessionIdx + 1}
+            Sesja
           </div>
-          <h1 style={{ fontSize: 26 }}>{sessionView.session.name}</h1>
+          <h1 style={{ fontSize: 26 }}>{session.name}</h1>
           <div
             className="row"
             style={{ gap: 14, marginTop: 6, color: "var(--muted)", fontSize: 13.5 }}
@@ -91,23 +71,20 @@ export default function TraineeSessionDetail() {
             </span>
           </div>
         </div>
-        <Link
-          to={`/podopieczny/loguj/${sessionView.session.id}`}
-          className="btn btn-primary btn-lg"
-        >
+        <Link to={`/podopieczny/loguj/${session.id}`} className="btn btn-primary btn-lg">
           <Icons.Plus /> Zarejestruj wykonanie
         </Link>
       </div>
 
       <div className="col" style={{ gap: 14 }}>
         {blocks.map((b, bi) => (
-          <BlockView key={b.block.id} bi={bi} block={b} />
+          <BlockView key={b.id} bi={bi} block={b} />
         ))}
       </div>
 
       <div style={{ marginTop: 32, paddingTop: 24, borderTop: "1px solid var(--line)" }}>
         <Link
-          to={`/podopieczny/loguj/${sessionView.session.id}`}
+          to={`/podopieczny/loguj/${session.id}`}
           className="btn btn-primary btn-lg"
           style={{ width: "100%", justifyContent: "center" }}
         >
@@ -123,7 +100,7 @@ function BlockView({
   block: b,
 }: {
   bi: number;
-  block: LoaderData["blocks"][number];
+  block: SessionBlockView;
 }) {
   return (
     <div className="card card-padless">
@@ -148,12 +125,12 @@ function BlockView({
         >
           Blok {String.fromCharCode(65 + bi)}
         </div>
-        {b.block.kind === "superset" && (
+        {b.kind === "superset" && (
           <span className="badge">
             <Icons.Link /> Superset · naprzemiennie
           </span>
         )}
-        {b.block.kind === "dropset" && (
+        {b.kind === "dropset" && (
           <span
             className="badge"
             style={{
@@ -167,7 +144,7 @@ function BlockView({
         )}
       </div>
 
-      {b.block.kind === "dropset" ? (
+      {b.kind === "dropset" ? (
         <div style={{ padding: 18 }}>
           <div
             className="row"
@@ -186,7 +163,7 @@ function BlockView({
                 Serie
               </div>
               <div className="mono" style={{ fontSize: 18, fontWeight: 600 }}>
-                {b.block.sets ?? 0}
+                {b.sets ?? 0}
               </div>
             </div>
             <div>
@@ -197,21 +174,21 @@ function BlockView({
                 Przerwa po serii
               </div>
               <div className="mono" style={{ fontSize: 18, fontWeight: 600 }}>
-                {b.block.restSeconds != null ? `${b.block.restSeconds}s` : "—"}
+                {b.restSeconds != null ? `${b.restSeconds}s` : "—"}
               </div>
             </div>
           </div>
 
           <div style={{ display: "flex", flexDirection: "column" }}>
             {b.items.map((it, di) => (
-              <DropRow key={it.item.id} it={it} di={di} total={b.items.length} />
+              <DropRow key={it.id} it={it} di={di} total={b.items.length} />
             ))}
           </div>
         </div>
       ) : (
         <div className="col" style={{ padding: 18, gap: 14 }}>
           {b.items.map((it, ei) => (
-            <ExerciseRow key={it.item.id} it={it} ei={ei} kind={b.block.kind} />
+            <ExerciseRow key={it.id} it={it} ei={ei} kind={b.kind} />
           ))}
         </div>
       )}
@@ -224,11 +201,10 @@ function DropRow({
   di,
   total,
 }: {
-  it: LoaderData["blocks"][number]["items"][number];
+  it: SessionItemView;
   di: number;
   total: number;
 }) {
-  const ex = it.exercise;
   return (
     <div>
       <div className="row" style={{ gap: 14, alignItems: "flex-start", padding: "10px 0" }}>
@@ -254,19 +230,14 @@ function DropRow({
             className="row"
             style={{ gap: 10, marginBottom: 4, alignItems: "center", flexWrap: "wrap" }}
           >
-            <h3 style={{ fontSize: 14.5, margin: 0 }}>{ex.name}</h3>
-            <span className={`badge${ex.unit === "REPS" ? " active" : ""}`}>{ex.unit}</span>
-            {it.demoUrl && <VideoButton src={it.demoUrl} title={ex.name} size="sm" />}
+            <h3 style={{ fontSize: 14.5, margin: 0 }}>{it.exerciseName}</h3>
+            <span className={`badge${it.unit === "REPS" ? " active" : ""}`}>{it.unit}</span>
+            {it.demoUrl && <VideoButton src={it.demoUrl} title={it.exerciseName} size="sm" />}
           </div>
           <div className="row" style={{ gap: 14, alignItems: "center" }}>
             <div className="mono" style={{ fontSize: 13, fontWeight: 600 }}>
-              {it.item.reps} {ex.unit === "SEC" ? "sek" : "powt."}
+              {it.reps} {it.unit === "SEC" ? "sek" : "powt."}
             </div>
-            {ex.description.length > 0 && (
-              <div className="text-xs muted" style={{ flex: 1 }}>
-                {ex.description.split(".")[0]}.
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -301,19 +272,18 @@ function ExerciseRow({
   ei,
   kind,
 }: {
-  it: LoaderData["blocks"][number]["items"][number];
+  it: SessionItemView;
   ei: number;
   kind: "single" | "superset" | "dropset";
 }) {
-  const ex = it.exercise;
   return (
     <div style={{ flex: 1 }}>
       <div
         className="row"
         style={{ gap: 10, marginBottom: 6, alignItems: "center", flexWrap: "wrap" }}
       >
-        <h3 style={{ fontSize: 16, margin: 0 }}>{ex.name}</h3>
-        <span className={`badge${ex.unit === "REPS" ? " active" : ""}`}>{ex.unit}</span>
+        <h3 style={{ fontSize: 16, margin: 0 }}>{it.exerciseName}</h3>
+        <span className={`badge${it.unit === "REPS" ? " active" : ""}`}>{it.unit}</span>
         {kind === "superset" && (
           <span
             className="mono muted"
@@ -322,21 +292,15 @@ function ExerciseRow({
             część {ei === 0 ? "A" : "B"}
           </span>
         )}
-        {it.demoUrl && <VideoButton src={it.demoUrl} title={ex.name} />}
+        {it.demoUrl && <VideoButton src={it.demoUrl} title={it.exerciseName} />}
       </div>
       <div style={{ flex: 1 }}>
         <div className="row" style={{ gap: 18, marginBottom: 8 }}>
-          <Stat label="Serie" value={String(it.item.sets ?? 0)} />
-          <Stat
-            label={ex.unit === "REPS" ? "Powtórzenia" : "Sekundy"}
-            value={String(it.item.reps)}
-          />
-          <Stat
-            label="Przerwa"
-            value={it.item.restSeconds != null ? `${it.item.restSeconds}s` : "—"}
-          />
+          <Stat label="Serie" value={String(it.sets ?? 0)} />
+          <Stat label={it.unit === "REPS" ? "Powtórzenia" : "Sekundy"} value={String(it.reps)} />
+          <Stat label="Przerwa" value={it.restSeconds != null ? `${it.restSeconds}s` : "—"} />
         </div>
-        {it.item.note && (
+        {it.note && (
           <div
             className="muted"
             style={{
@@ -347,12 +311,7 @@ function ExerciseRow({
               borderLeft: "2px solid var(--accent)",
             }}
           >
-            „{it.item.note}"
-          </div>
-        )}
-        {ex.description.length > 0 && (
-          <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.5, marginTop: 8 }}>
-            {ex.description}
+            „{it.note}"
           </div>
         )}
       </div>

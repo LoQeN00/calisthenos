@@ -1,3 +1,4 @@
+import type { TraineeWrappedMonthItem } from "@kalisthenos/api-client";
 import { and, eq, gte, sql } from "drizzle-orm";
 import type { Db } from "~/lib/db/client";
 import * as schema from "~/lib/db/schema";
@@ -61,60 +62,23 @@ export function formatYM(year: number, month: number): string {
 }
 
 // ============================================================
-// Available months
+// Available months — lista przychodzi z kontraktu (`GET /v1/me/home`), tu
+// zostaje wyłącznie wybór najświeższego miesiąca pod baner pulpitu.
 // ============================================================
 
-export interface AvailableMonth {
-  year: number;
-  month: number;
-  ym: string; // "YYYY-MM"
-  label: string;
-  sessions: number;
-}
-
 /**
- * Return every past month (≤ last completed month) that has at least one
- * workout log for this trainee, newest first.
+ * Najświeższy miesiąc z listy podsumowań — napędza baner „świeży wrapped".
+ * Porządek `wrappedMonths` z kontraktu nie jest częścią kontraktu, więc wybór
+ * idzie po `ym` (`YYYY-MM` porównuje się leksykograficznie), nie po pozycji.
  */
-export async function getAvailableWrappedMonths(
-  db: Db,
-  traineeId: string,
-): Promise<AvailableMonth[]> {
-  const rows = await db
-    .select({
-      year: sql<number>`EXTRACT(YEAR FROM ${schema.workoutLogs.performedOn})::int`,
-      month: sql<number>`EXTRACT(MONTH FROM ${schema.workoutLogs.performedOn})::int`,
-      c: sql<number>`COUNT(*)::int`,
-    })
-    .from(schema.workoutLogs)
-    .where(eq(schema.workoutLogs.traineeId, traineeId))
-    .groupBy(
-      sql`EXTRACT(YEAR FROM ${schema.workoutLogs.performedOn})`,
-      sql`EXTRACT(MONTH FROM ${schema.workoutLogs.performedOn})`,
-    );
-
-  return rows
-    .map((r) => ({
-      year: Number(r.year),
-      month: Number(r.month),
-      ym: formatYM(Number(r.year), Number(r.month)),
-      label: monthLabel(Number(r.year), Number(r.month)),
-      sessions: Number(r.c),
-    }))
-    .filter((m) => isPastMonth(m.year, m.month))
-    .sort((a, b) => (a.year !== b.year ? b.year - a.year : b.month - a.month));
-}
-
-/**
- * The newest available (= past + has data) month for this trainee, or null.
- * Used to drive the "fresh wrapped" banner on the dashboard.
- */
-export async function getLatestAvailableWrapped(
-  db: Db,
-  traineeId: string,
-): Promise<AvailableMonth | null> {
-  const all = await getAvailableWrappedMonths(db, traineeId);
-  return all[0] ?? null;
+export function latestWrappedMonth(
+  months: readonly TraineeWrappedMonthItem[],
+): TraineeWrappedMonthItem | null {
+  let latest: TraineeWrappedMonthItem | null = null;
+  for (const month of months) {
+    if (latest == null || month.ym > latest.ym) latest = month;
+  }
+  return latest;
 }
 
 // ============================================================

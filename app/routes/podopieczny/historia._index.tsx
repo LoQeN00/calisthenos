@@ -3,12 +3,10 @@ import { ListControls } from "~/components/list-controls";
 import { Icons } from "~/components/icons";
 import { Pagination, parsePage } from "~/components/pagination";
 import { requireUser } from "~/lib/api/auth";
-import { db } from "~/lib/db/client";
 import { fmtDate, pluralizePl, type PlForms } from "~/lib/format";
 import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
-import { countLogsForTrainee, listLogsForTrainee, type LogSort } from "~/lib/workouts";
+import { listMyLogs, type LogSort, type VideoFilter } from "~/lib/workouts";
 
-const PAGE_SIZE = 20;
 const SESJA: PlForms = { one: "sesja", few: "sesje", many: "sesji" };
 
 const spec: ListControlsSpec = {
@@ -36,25 +34,28 @@ const spec: ListControlsSpec = {
 };
 
 export async function loader(args: LoaderFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainee" });
+  const { api } = requireUser(args.context, { role: "trainee" });
   const url = new URL(args.request.url);
   const page = parsePage(url.searchParams);
   const controls = parseListControls(url.searchParams, spec);
 
-  const video = (controls.filters.video ?? "all") as "all" | "with" | "without";
-  const total = await countLogsForTrainee(db, user.id, { q: controls.q, video });
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const offset = (safePage - 1) * PAGE_SIZE;
-
-  const logs = await listLogsForTrainee(db, user.id, {
-    limit: PAGE_SIZE,
-    offset,
+  // Jedno żądanie zamiast dwóch: strona przychodzi razem z `total`, a `page`
+  // spoza zakresu przycina BE — dawne `safePage` nie ma już czego liczyć.
+  const result = await listMyLogs(api, {
+    page,
     sort: controls.sort as LogSort,
     q: controls.q,
-    video,
+    video: (controls.filters.video ?? "all") as VideoFilter,
   });
-  return { logs, spec, controls, page: safePage, totalPages, total };
+
+  return {
+    logs: result.items,
+    spec,
+    controls,
+    page: result.page,
+    totalPages: result.totalPages,
+    total: result.total,
+  };
 }
 
 export default function TraineeHistoryList() {
@@ -98,7 +99,13 @@ export default function TraineeHistoryList() {
                 <div className="text-xs muted" style={{ marginTop: 2 }}>
                   <span className="mono">{log.exerciseCount}</span> ćwiczeń ·{" "}
                   <span className="mono">{log.setCount}</span> serii · śr.{" "}
-                  {log.avgDifficulty == null ? "—" : <><span className="mono">{log.avgDifficulty}</span>/10</>}
+                  {log.avgDifficulty == null ? (
+                    "—"
+                  ) : (
+                    <>
+                      <span className="mono">{log.avgDifficulty}</span>/10
+                    </>
+                  )}
                   {log.hasVideo && " · video"}
                 </div>
               </div>

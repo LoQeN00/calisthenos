@@ -35,7 +35,7 @@ Setup lokalny, deploy na Railway, lista komend i posture bezpieczeństwa:
 | Język | **TypeScript** (strict) |
 | ORM / DB | **Drizzle ORM** + **PostgreSQL 16** |
 | Auth | **Sesja na tokenach z BE** — para dostępowy/odświeżający w ciastku `__Host-kth_api`, rotacja i `GET /v1/me` w middlewarze ([`app/lib/api/`](app/lib/api/README.md)). Hasła i limit prób logowania są po stronie BE. |
-| Pliki | Wolumen na dysku przez interfejs `FileStorage` (lokalnie / Railway volume), URL-e podpisywane HMAC |
+| Pliki | Zdjęcia sylwetki na wolumenie przez `FileStorage`; demo ćwiczeń i nagrania serii w BE (R2), odczyt po podpisanych adresach BE |
 | Płatności | **Stripe Connect** (Express) — subskrypcje (Checkout/Customer Portal, destination charges na konto trenera) + webhook z weryfikacją podpisu; opcjonalne (działa bez kluczy), brak danych kart u nas |
 | PWA | `vite-plugin-pwa` (cache statyków, instalowalność; brak offline-sync) |
 | Wykresy | **visx** (SVG, SSR-friendly, tree-shakeable) |
@@ -110,14 +110,16 @@ w `.gitignore`), `design-system/_src/` (rozpakowany prototyp, read-only).
   `app/routes.ts`. Mapa URL→plik: [`app/routes/README.md`](app/routes/README.md).
 - **Loadery czytają, akcje mutują.** Brak osobnego API — dane lecą przez
   loadery/akcje RR7. Mutacje plikowe to `multipart/form-data`.
-- **Pliki: dwie ścieżki, bo migracja jest w toku.** Nagrania serii (`set_video`)
-  i zdjęcia sylwetki (`body_photo`) zostają na wolumenie: nigdy nie serwuj ścieżek
-  z dysku wprost, używaj `signFileUrl`/`verifyFileUrl` (`app/lib/files.ts`), trasy
-  `files/$fileId` i `uploadFile` z walidacją magic-bytes. **Demo ćwiczeń
-  (`exercise_demo`) chodzi już kontraktem BE:** wysyłka dwufazowa przez
-  `uploadExerciseDemo` (typ sprawdza BE po zawartości, nie FE), a odnośnik
-  podpisuje BE i przychodzi jako ŚCIEŻKA — origin dokłada `publicFileUrl`
-  z `app/lib/api/client.ts` (`API_PUBLIC_URL`), nigdy trasa.
+- **Pliki: dwie ścieżki, bo migracja jest w toku.** Na wolumenie zostały wyłącznie
+  zdjęcia sylwetki (`body_photo`): nigdy nie serwuj ścieżek z dysku wprost, używaj
+  `signFileUrl`/`verifyFileUrl` (`app/lib/files.ts`), trasy `files/$fileId`
+  i `uploadFile` z walidacją magic-bytes. **Demo ćwiczeń (`exercise_demo`)
+  i nagrania serii (`set_video`) chodzą już kontraktem BE:** wysyłka dwufazowa
+  przez `uploadExerciseDemo`/`uploadSetVideo` (typ sprawdza BE po zawartości, nie
+  FE; trasa `/upload/wideo` zostaje jako cienka trasa zasobowa dla XHR z paskiem
+  postępu), a odnośnik podpisuje BE i przychodzi jako ŚCIEŻKA — origin dokłada
+  `publicFileUrl` z `app/lib/api/client.ts` (`API_PUBLIC_URL`) w module, nigdy
+  w trasie.
 - **Schemat to źródło prawdy.** Zmiana modelu danych = edycja
   `app/lib/db/schema.ts`, potem `npm run db:generate` (nowa migracja) — **nigdy
   ręcznie nie edytuj plików w `migrations/`**.

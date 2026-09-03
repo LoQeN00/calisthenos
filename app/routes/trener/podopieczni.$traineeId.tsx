@@ -44,7 +44,7 @@ import {
   getTraineeOfTrainer,
   TraineeDeleteError,
 } from "~/lib/trainees";
-import { countLogsForTrainee, listLogsForTrainee, type LogSort } from "~/lib/workouts";
+import { listTraineeLogs, type LogSort, type VideoFilter } from "~/lib/workouts";
 
 const SESJA: PlForms = { one: "sesja", few: "sesje", many: "sesji" };
 
@@ -72,8 +72,6 @@ const spec: ListControlsSpec = {
   searchable: true,
 };
 
-const LOGS_PAGE_SIZE = 20;
-
 export async function loader(args: LoaderFunctionArgs) {
   const { api, user } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
@@ -93,10 +91,9 @@ export async function loader(args: LoaderFunctionArgs) {
   const activePlan = plans.find((p) => p.status === "active") ?? null;
   const draftPlan = plans.find((p) => p.status === "draft") ?? null;
 
-  const video = (controls.filters.video ?? "all") as "all" | "with" | "without";
+  const video = (controls.filters.video ?? "all") as VideoFilter;
 
   const [
-    totalLogs,
     health,
     heatmap,
     plateau,
@@ -108,7 +105,6 @@ export async function loader(args: LoaderFunctionArgs) {
     nextConsultation,
     pendingConsultations,
   ] = await Promise.all([
-    countLogsForTrainee(db, traineeId, { q: controls.q, video }),
     getHealthStats(db, traineeId),
     getActivityHeatmap(db, traineeId, 12),
     getPlateauExercises(db, traineeId),
@@ -121,12 +117,8 @@ export async function loader(args: LoaderFunctionArgs) {
     countPendingForTrainee(db, traineeId),
   ]);
 
-  const totalLogPages = Math.max(1, Math.ceil(totalLogs / LOGS_PAGE_SIZE));
-  const safeLogsPage = Math.min(logsPage, totalLogPages);
-  const logsOffset = (safeLogsPage - 1) * LOGS_PAGE_SIZE;
-  const logs = await listLogsForTrainee(db, traineeId, {
-    limit: LOGS_PAGE_SIZE,
-    offset: logsOffset,
+  const logPage = await listTraineeLogs(api, traineeId, {
+    page: logsPage,
     sort: controls.sort as LogSort,
     q: controls.q,
     video,
@@ -137,10 +129,10 @@ export async function loader(args: LoaderFunctionArgs) {
     onboardingStatus,
     activePlan,
     draftPlan,
-    logs,
-    logsPage: safeLogsPage,
-    totalLogPages,
-    totalLogs,
+    logs: logPage.items,
+    logsPage: logPage.page,
+    totalLogPages: logPage.totalPages,
+    totalLogs: logPage.total,
     spec,
     controls,
     health,
