@@ -1,5 +1,5 @@
+import type { FeatureRequestView } from "@kalisthenos/api-client";
 import { describe, expect, it } from "vitest";
-import * as schema from "~/lib/db/schema";
 import {
   FEATURE_REQUEST_KINDS,
   FEATURE_REQUEST_STATUSES,
@@ -17,13 +17,28 @@ const validForm = {
   body: "Przydałby się ciemny motyw w aplikacji.",
 };
 
-describe("parzystość z enumami bazy", () => {
-  it("typy zgłoszeń pokrywają się z pgEnum", () => {
-    expect([...FEATURE_REQUEST_KINDS]).toEqual([...schema.featureRequestKind.enumValues]);
+/**
+ * Równość dwóch unii, sprawdzana przez `tsc`, nie w runtime: `true` przestaje
+ * być przypisywalne, gdy któraś strona urośnie albo schudnie.
+ *
+ * Do S6 parzystość badały tu asercje `toEqual` przeciw `pgEnum` ze schematu
+ * Drizzle. Schemat zniknął razem z bazą, a jego rolę źródła prawdy przejął
+ * kontrakt BE — ten jednak niesie wartości WYŁĄCZNIE w typach (`types.gen.d.ts`),
+ * bo generator nie robi z nich stałych. Runtime nie ma więc czego porównać,
+ * i dlatego bramką jest `npm run typecheck`, nie ten przebieg.
+ */
+type Rowne<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
+
+describe("parzystość z kontraktem BE", () => {
+  it("typy zgłoszeń pokrywają się z unią kontraktu (pilnuje tsc)", () => {
+    const zgodne: Rowne<(typeof FEATURE_REQUEST_KINDS)[number], FeatureRequestView["kind"]> = true;
+    expect(zgodne).toBe(true);
   });
 
-  it("statusy pokrywają się z pgEnum", () => {
-    expect([...FEATURE_REQUEST_STATUSES]).toEqual([...schema.featureRequestStatus.enumValues]);
+  it("statusy pokrywają się z unią kontraktu (pilnuje tsc)", () => {
+    const zgodne: Rowne<(typeof FEATURE_REQUEST_STATUSES)[number], FeatureRequestView["status"]> =
+      true;
+    expect(zgodne).toBe(true);
   });
 
   it("każdy typ i status ma polską etykietę", () => {

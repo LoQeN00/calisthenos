@@ -1,2 +1,0 @@
-DROP INDEX IF EXISTS "skills_trainer_name_uniq";--> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS "skills_trainer_name_uniq" ON "skills" USING btree ("trainer_id","name") WHERE "skills"."archived_at" IS NULL;

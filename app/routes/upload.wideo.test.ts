@@ -16,12 +16,6 @@ vi.mock("~/lib/env", () => ({
     MAX_VIDEO_UPLOAD_BYTES: 30_000_000,
   }),
 }));
-// Bramka płatności zostaje w trasie (obszar poza zakresem integracji) — tu
-// przepuszcza, żeby test badał ścieżkę kontraktu, nie Stripe'a.
-vi.mock("~/lib/stripe/gate", () => ({
-  hasTraineeAppAccess: async () => ({ hasAccess: true, sub: null }),
-}));
-vi.mock("~/lib/db/client", () => ({ db: {} }));
 vi.mock("~/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: loggerErrorMock },
   errorMeta: () => ({}),

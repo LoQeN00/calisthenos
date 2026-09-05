@@ -1,1 +1,0 @@
-ALTER TABLE "invites" ADD COLUMN "monthly_amount_grosze" integer;

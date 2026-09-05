@@ -1,10 +1,8 @@
 import type { ActionFunctionArgs } from "react-router";
 import { requireUser } from "~/lib/api/auth";
 import { ApiError } from "~/lib/api/errors";
-import { db } from "~/lib/db/client";
 import { UploadError, uploadSetVideo } from "~/lib/file-uploads";
 import { errorMeta, logger } from "~/lib/logger";
-import { hasTraineeAppAccess } from "~/lib/stripe/gate";
 
 /**
  * Zawsze JAWNY `Response`, nigdy goły obiekt ani `data()`.
@@ -31,17 +29,14 @@ function json(body: unknown, status: number, headers?: Record<string, string>): 
  * (`POST /v1/files/set-video`), bramka formularza startowego (`403
  * ONBOARDING_FORM_PENDING` — `OnboardingGuard` obejmuje wysyłki), limit liczby
  * wysyłek (`429` + `Retry-After`, kluczowany tożsamością — ADR-0031) i własność
- * pliku przy zapisie treningu. Bramka płatności zostaje tu, bo płatności są poza
- * zakresem integracji. Odmowy BE wracają do XHR jako JSON z komunikatem BE
- * i tym samym statusem.
+ * pliku przy zapisie treningu. Odmowy BE wracają do XHR jako JSON z komunikatem
+ * BE i tym samym statusem.
+ *
+ * Bramka płatności zniknęła stąd w S6 razem z całym Stripe'em: BE zdjął ten
+ * kontekst świadomie (ADR-0024), więc nie ma czego pytać o dostęp.
  */
 export async function action(args: ActionFunctionArgs) {
-  const { api, user } = requireUser(args.context, { role: "trainee" });
-
-  const { hasAccess } = await hasTraineeAppAccess(db, user);
-  if (!hasAccess) {
-    return json({ error: "Subskrypcja nieaktywna. Odśwież stronę." }, 402);
-  }
+  const { api } = requireUser(args.context, { role: "trainee" });
 
   const fd = await args.request.formData();
   const file = fd.get("file");

@@ -6,12 +6,11 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
-import { invitesControllerPreview } from "@kalisthenos/api-client";
 import { z } from "zod";
 import { optionalUser } from "~/lib/api/auth";
 import { AuthError, acceptInvite } from "~/lib/api/auth-session";
-import { ApiError } from "~/lib/api/errors";
 import { buildSessionCookie } from "~/lib/api/session";
+import { previewInvite } from "~/lib/auth";
 
 const AcceptSchema = z.object({
   email: z.string().email().max(254),
@@ -23,22 +22,14 @@ export async function loader(args: LoaderFunctionArgs) {
   const { api } = optionalUser(args.context);
   const token = args.params.token ?? "";
 
-  try {
-    const { data } = await invitesControllerPreview({
-      client: api,
-      path: { token },
-      throwOnError: true,
-    });
-    return { displayName: data.displayName, emailHint: data.email };
-  } catch (e) {
-    // Nieistniejące, zużyte i wygasłe zaproszenie dają w BE jeden kod — i tu
-    // też jeden `404`, żeby sonda nie odróżniła „zły token" od „dobry, ale
-    // już użyty". Awaria BE zostaje awarią i leci do granicy błędu.
-    if (e instanceof ApiError && e.status === 404) {
-      throw new Response("invite not found", { status: 404 });
-    }
-    throw e;
-  }
+  // Nieistniejące, zużyte i wygasłe zaproszenie dają w BE jeden kod, a moduł
+  // zamienia go na `null` (reguła D3) — i tu też wychodzi jeden `404`, żeby
+  // sonda nie odróżniła „zły token" od „dobry, ale już użyty". Awaria BE
+  // zostaje awarią i leci do granicy błędu.
+  const invite = await previewInvite(api, token);
+  if (!invite) throw new Response("invite not found", { status: 404 });
+
+  return { displayName: invite.displayName, emailHint: invite.email };
 }
 
 export async function action(args: ActionFunctionArgs) {

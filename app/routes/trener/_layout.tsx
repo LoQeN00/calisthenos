@@ -75,13 +75,6 @@ const NAV_ITEMS = [
     tailKey: "ideas" as const,
   },
   {
-    to: "/trener/integracje/stripe",
-    label: "Płatności",
-    end: false,
-    icon: "Card" as const,
-    tailKey: null,
-  },
-  {
     to: "/trener/integracje/google",
     label: "Integracje",
     end: false,

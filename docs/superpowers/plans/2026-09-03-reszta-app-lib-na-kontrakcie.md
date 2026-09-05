@@ -550,7 +550,7 @@ porównać oba drzewa bajt po bajcie; różnica znaczy, że archiwum BE nie jest
 z G1. Testy odwołujące się do usuwanych rzeczy przycina ta sama grupa, która usuwa. Jeden przebieg
 `npx vitest run app --no-file-parallelism` na końcu, u koordynatora; pełne bramki u Właściciela.
 
-- [ ] S6 wykonane
+- [x] **S6 wykonane** (05.09.2026), pięć grup w kolejności z briefu. Bramka szwu `no-direct-api.test.ts` powstała pierwsza i **zapaliła się na czerwono na `zaproszenie.$token.tsx`**, które wołało `invitesControllerPreview` wprost z SDK — podgląd zaproszenia przeniesiony do `auth/invite.ts` jako `previewInvite` (`| null` na `404`, reguła D3). Płatności: pięć tras, `app/lib/stripe/`, `payments.ts`, cztery itesty, `fmtMoney`, `STRIPE_*` z `env.ts` i dwa odnośniki nawigacyjne. Tożsamość: `users.ts`, `password.ts`, drizzle'owa połowa `invite.ts`, `scripts/seed.ts`, `auth-repo.itest.ts` — **żadna z tych funkcji nie miała już wywołującego**. Baza: `app/lib/db/` (19 migracji, `meta/`), `drizzle.config.ts`, dwa ostatnie itesty, `docker-compose.yml`, `docker-entrypoint.sh`, siedem zależności z `package.json`, cztery zmienne z `env.ts`; przetypowane cztery pliki biorące ze schematu sam typ (trzy komponenty na `BodyPhotoView` z `~/lib/body-photos`, parzystość zgłoszeń z enumów Drizzle na unię kontraktu — dziś pilnuje jej `tsc`, nie runtime). Na koniec `no-direct-db.test.ts` i dokumentacja: `CLAUDE.md`, `README.md`, `.env.example`, `Dockerfile`, `railway.toml`, siedem README katalogów. Weryfikacja koordynatora: `npx vitest run app` — **57 plików, 632 testy, zielone**. Trzy rzeczy zostają Właścicielowi: `npm install` (siedem zależności mniej), pełne bramki i commit.
 
 ---
 

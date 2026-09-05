@@ -16,7 +16,7 @@ w `README.md` podkatalogów.
 |---|---|
 | [`routes/`](routes/README.md) | Trasy (loadery, akcje, komponenty). Podział na [`trener/`](routes/trener/README.md) i [`podopieczny/`](routes/podopieczny/README.md). |
 | [`components/`](components/README.md) | Współdzielone komponenty UI (modale, to'sty, dropzone, ikony, widżety statystyk…). |
-| [`lib/`](lib/README.md) | Logika domenowa + infrastruktura: [`api/`](lib/api/README.md), [`auth/`](lib/auth/README.md), [`db/`](lib/db/README.md) oraz moduły domenowe (plany, treningi, statystyki…). Katalog `storage/` zniknął razem z ostatnim zapisem na wolumen FE. |
+| [`lib/`](lib/README.md) | Logika domenowa + infrastruktura: [`api/`](lib/api/README.md), [`auth/`](lib/auth/README.md) oraz moduły domenowe (plany, treningi, statystyki…). Katalog `storage/` zniknął razem z ostatnim zapisem na wolumen FE, a `db/` — razem z całą bazą w segmencie S6. |
 | [`styles/`](styles/README.md) | Globalne tokeny CSS (`tokens.css`). |
 
 ---

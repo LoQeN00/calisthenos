@@ -1,22 +1,19 @@
-# tests/ — testy integracyjne
+# tests/ — testy przez sieć
 
-Testy integracyjne `*.itest.ts` uruchamiane na realnym PostgreSQL przez
-**testcontainers** (Docker). Pokrywają krytyczne przepływy, których nie da się
-sprawdzić bez bazy (tenant-scope, zapisy transakcyjne, kaskady, autoryzacja).
+**Testy integracyjne `*.itest.ts` zniknęły w segmencie S6** razem z bazą po
+stronie FE: stały na testcontainerach i realnym Postgresie, a FE nie ma już
+czego integrować — dane bierze z kontraktu BE. Ich rolę przejęły dwie rzeczy:
 
-- Uruchamia je właściciel pod Dockerem: `npm run test:itest`
-  (vitest z dłuższym timeoutem; filtr ścieżki `tests`).
-- Testy jednostkowe (bez DB) leżą przy kodzie jako `app/**/*.test.ts` i lecą
-  przez `npm run test:unit` — `tests/` ich nie zawiera.
+- **testy modułów `app/lib/*.test.ts`** przeciw podstawionemu klientowi
+  (`createApiClient` z podstawionym `fetch`) — kontrakt jest typowany, więc
+  atrapa nie rozjedzie się z prawdą w ciszy;
+- **Playwright przeciw prawdziwemu BE** dla przepływów, które muszą przejść
+  przez sieć: logowanie z rotacją tokenu, publikacja planu, zapis treningu,
+  zakres tenanta, bramka formularza startowego (spec integracji §10).
 
-| Plik | Zakres |
-|---|---|
-| `onboarding-payment.itest.ts` | Onboarding płatności (OB-3): po rejestracji z zaproszenia z kwotą `setMonthlyAmount` tworzy wiersz `coaching_subscriptions` (status `none`, `amountGrosze`, `stripePriceId`) dla pary trener↔podopieczny; para bez wywołania → `getSubscriptionForPair` = null; tenant-scope (obcy trener → null). Klient Stripe mockowany. |
-| `feature-requests.itest.ts` | Zgłoszenia podopiecznych (`app/lib/feature-requests.ts`): nowe zgłoszenie dostaje status `new` i trafia do trenera autora; tenant-scope (trener B nie odczyta ani nie odpowie na zgłoszenie trenera A, cudzy podopieczny nie usunie); `respondToFeatureRequest` ustawia status+odpowiedź+`responded_at`, a sama zmiana statusu (odpowiedź `null`) `responded_at` NIE stempluje; autor usuwa własne zgłoszenie tylko dopóki ma status `new`; `countNewForTrainer`/`countForTrainee` liczą wyłącznie własne. |
-| `onboarding-forms.itest.ts` | Formularz startowy (`app/lib/onboarding-forms.ts`) doczepiony do zaproszenia: pełny przepływ — formularz przypięty przy `consumeInvite` blokuje aplikację do wypełnienia (`hasPendingOnboarding`/`getPendingFormForTrainee`), wysyłka zapisuje odpowiedzi i zamyka formularz (`getFormForTrainer`); drugie wysłanie nie nadpisuje odpowiedzi i odbija się `OnboardingFormError`; niekompletny komplet odpowiedzi odrzucony; zaproszenie bez formularza zostawia flow bez zmian. Tenant-scope: `createOnboardingForm` odrzuca cudze ćwiczenie oraz ćwiczenie zarchiwizowane (osobny przypadek — inaczej usunięcie warunku `archived_at IS NULL` przeszłoby na zielono), podopieczny B nie zapisze odpowiedzi na pozycjach formularza podopiecznego A (formularz wybierany po `traineeId` z sesji), obcy trener nie widzi formularza (`getFormForTrainer`/`getFormStatusForTrainee` → `null`), usunięcie podopiecznego (`deleteTraineeFully`) kasuje formularz i pozycje kaskadowo. |
-| `auth-repo.itest.ts` | Odczyty tożsamości (`app/lib/auth/users.ts`, `app/lib/auth/invite.ts`): `findUserByEmail` po dokładnym adresie (`null` gdy brak konta), `findInviteByToken` haszuje surowy token z URL-a i zwraca zaproszenie (`null` dla zmyślonego tokenu), `findDisplayName` zwraca nazwę wyświetlaną trenera (`null` dla nieistniejącego użytkownika). |
-| `stripe-pause.itest.ts` | Pauza/wznowienie subskrypcji (RD-1): `pauseSubscription` ustawia status `paused` i woła Stripe `subscriptions.update` z `pause_collection.behavior === "void"`; `resumeSubscription` ustawia `active` i czyści `pause_collection` (pusta wartość); `applySubscriptionUpdate` z `paused:true` nadpisuje status na `paused`; tenant-scope (obcy trener → `SubscriptionError`). Klient Stripe mockowany. |
-| `stripe-webhook.itest.ts` | Webhook Stripe (`app/lib/stripe/webhook.ts`) na realnym Postgresie: idempotencja księgi płatności (`applyChange(invoice)` dwa razy z tym samym `stripeInvoiceId` → jeden wiersz, upsert last-write-wins; invoice bez pary → pomijane), idempotencja statusu subskrypcji (`applyChange(subscription)` wielokrotnie → ostatni stan wygrywa, bez duplikatu wiersza; też end-to-end przez `mapEvent`), dedup po `event.id` (`processed_webhook_events`, insert-first/on-conflict-skip — odwzorowanie kontraktu trasy `routes/webhooks.stripe.tsx`) oraz bezpośrednio `claimWebhookEvent`/`releaseWebhookEvent`: pierwsze wystąpienie zwraca `true`, powtórka `false`, a po `releaseWebhookEvent` zdarzenie może być przetworzone ponownie (kontrakt retry po błędzie handlera). Klient Stripe mockowany (brak sieci — nie przechodzi przez `verifyAndParse`). |
-| `stripe-subscriptions.itest.ts` | Połączenia i subskrypcje Stripe na realnym Postgresie (`app/lib/stripe/connections.ts`, `subscriptions.ts`): tenant-scope połączeń per `trainerId`, `setMonthlyAmount` (upsert wiersza pary + tenant-scope), `cleanupSubscriptionForTrainee` (anulowanie subskrypcji przy usuwaniu podopiecznego). Klient Stripe mockowany. |
+Katalog `tests/e2e/` (wskazywany przez `playwright.config.ts`, uruchamiany
+przez `npm run e2e`) jest na te testy przygotowany, ale **jeszcze pusty** —
+powstają po cutoverze, gdy będzie przeciw czemu je uruchamiać.
 
+---
 Konwencja i zasady aktualizacji dokumentacji: [`../CLAUDE.md`](../CLAUDE.md).

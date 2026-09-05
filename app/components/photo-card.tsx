@@ -1,4 +1,4 @@
-import type { BodyPhotoView } from "~/lib/db/schema";
+import type { BodyPhotoView } from "~/lib/body-photos";
 import { fmtDate } from "~/lib/format";
 
 export const BODY_VIEW_LABELS: Record<BodyPhotoView, string> = {

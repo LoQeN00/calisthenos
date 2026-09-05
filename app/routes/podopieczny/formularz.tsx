@@ -10,7 +10,6 @@ import {
 } from "react-router";
 import { requireUser } from "~/lib/api/auth";
 import { ApiError, toRouteResponse } from "~/lib/api/errors";
-import { db } from "~/lib/db/client";
 import {
   MAX_ONBOARDING_COMMENT,
   MAX_ONBOARDING_NOTE,
@@ -24,39 +23,32 @@ import {
   submitOnboardingForm,
 } from "~/lib/onboarding-forms";
 import { unitLabelPl } from "~/lib/progression-math";
-import { hasTraineeAppAccess } from "~/lib/stripe/gate";
 
 // ============================================================
 // Ekran formularza startowego żyje POZA layoutem podopiecznego (bez sidenava),
-// żeby bramka w `_layout.tsx` nie wpadała w pętlę redirectów — dokładnie jak
-// `/podopieczny/aktywuj`. Kolejność bramek (najpierw płatność) sprawdzamy TU
-// ponownie, bo na tę trasę można wejść wprost z adresu. Bramka płatnicza zostaje
-// na bazie do S6; sam formularz idzie kontraktem (`/v1/me/onboarding-form` jest
-// na białej liście bramki BE — inaczej nie dałoby się go pobrać).
+// żeby bramka w `_layout.tsx` nie wpadała w pętlę redirectów. Sam formularz idzie
+// kontraktem (`/v1/me/onboarding-form` jest na białej liście bramki BE — inaczej
+// nie dałoby się go pobrać).
+//
+// Do S6 stała tu jeszcze bramka płatnicza, sprawdzana w loaderze I w akcji, bo
+// na tę trasę można wejść wprost z adresu. Zniknęła razem ze Stripe'em
+// (ADR-0024 po stronie BE) — dziś jedyną bramką jest sam formularz.
 // ============================================================
 
 export async function loader({ context }: LoaderFunctionArgs) {
   const { api, user } = requireUser(context, { role: "trainee" });
 
-  const { hasAccess } = await hasTraineeAppAccess(db, user);
-  if (!hasAccess) throw redirect("/podopieczny/aktywuj");
-
   const form = await getPendingFormForTrainee(api);
   if (!form) throw redirect("/podopieczny");
 
   // Nazwa trenera przychodzi z sesji (`MeDto.coach.displayName`), więc osobne
-  // zapytanie o użytkownika (`findDisplayName`) przestało być potrzebne.
+  // zapytanie o użytkownika przestało być potrzebne — a wraz z S6 zniknął
+  // i moduł, który je wykonywał.
   return { form, trainerName: user.trainerName };
 }
 
 export async function action({ request, context }: ActionFunctionArgs) {
-  const { api, user } = requireUser(context, { role: "trainee" });
-
-  // Ta sama kolejność bramek co w loaderze. Bez powtórzenia jej TUTAJ nieopłacony
-  // podopieczny zamknąłby formularz POST-em wprost, z pominięciem ekranu
-  // aktywacji — a to formularz jest bramką dalszą, nie wcześniejszą.
-  const { hasAccess } = await hasTraineeAppAccess(db, user);
-  if (!hasAccess) throw redirect("/podopieczny/aktywuj");
+  const { api } = requireUser(context, { role: "trainee" });
 
   const fd = await request.formData();
 

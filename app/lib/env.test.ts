@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 
+// Po S6 wymagane jest już tylko jedno pole poza adresami BE: cztery zmienne
+// bazy, sesji, podpisu plików i katalogu danych zniknęły ze schematu razem
+// z tym, co je czytało.
 const BAZA = {
-  DATABASE_URL: "postgres://localhost:5432/test",
-  SESSION_SECRET: "x".repeat(32),
-  FILE_SIGNING_SECRET: "x".repeat(32),
   BASE_URL: "https://example.test",
 };
 
@@ -34,9 +34,8 @@ describe("EnvSchema — adresy BE", () => {
     // pustym prefiksem, który kopiuje CAŁY plik do `process.env` — pusta
     // linia `API_PUBLIC_URL=` w `.env.example` trafia tu jako `""`, nie jako
     // nieobecny klucz. `.optional()` reaguje tylko na `undefined`, więc bez
-    // tego przypadku `.url()` odrzuca pusty string i wysypuje `getEnv()` na
-    // starcie (woła go `app/lib/db/client.ts` na poziomie modułu — padają
-    // wszystkie trasy).
+    // tego przypadku `.url()` odrzuca pusty string i wysypuje `getEnv()` —
+    // czyli middleware klienta, a więc każde żądanie.
     const { EnvSchema } = await import("./env");
     const env = EnvSchema.parse({
       ...BAZA,

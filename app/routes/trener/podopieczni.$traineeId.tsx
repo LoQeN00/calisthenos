@@ -20,8 +20,6 @@ import {
 } from "~/components/trainee-health";
 import { requireUser } from "~/lib/api/auth";
 import { loadUpcomingConsultations } from "~/lib/consultations";
-import { cleanupSubscriptionForTrainee } from "~/lib/stripe/subscriptions";
-import { db } from "~/lib/db/client";
 import { daysAgo, fmtDate, fmtDateTime, pluralizePl, type PlForms } from "~/lib/format";
 import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
 import { getFormStatusForTrainee } from "~/lib/onboarding-forms";
@@ -129,7 +127,7 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const { api, user } = requireUser(args.context, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
 
   // Pre-checku przynależności już tu nie ma: każda trasa `/v1/trainees/{id}/…`
@@ -144,11 +142,6 @@ export async function action(args: ActionFunctionArgs) {
       // PRZED usunięciem, bo po nim nie ma już czego pytać. To NIE jest bramka
       // tenanta: cudzy podopieczny odbija się dopiero o `404` z `DELETE`.
       const trainee = await findTraineeRef(api, traineeId);
-
-      // Sprzątanie efektów zewnętrznych PRZED usunięciem — po nim znika
-      // powiązanie pary ze Stripe. Wywołanie jest best-effort (błędy połykane
-      // w środku) i nie blokuje usunięcia konta. Zostaje na Drizzle do S6.
-      await cleanupSubscriptionForTrainee(db, user.id, traineeId);
 
       // Jedno żądanie zamiast kaskady w transakcji plus sprzątania bajtów:
       // BE kasuje przez granice kontekstów wraz z plikami I odwzorowaniami
@@ -270,9 +263,6 @@ export default function TrenerPodopiecznyDetail() {
                 {pendingConsultations}
               </span>
             )}
-          </Link>
-          <Link to={`/trener/podopieczni/${trainee.id}/platnosci`} className="btn">
-            <Icons.Card /> Płatności
           </Link>
           {onboardingStatus != null && (
             <Link to={`/trener/podopieczni/${trainee.id}/formularz`} className="btn">
@@ -514,8 +504,8 @@ export default function TrenerPodopiecznyDetail() {
               </div>
               <div className="text-xs muted">
                 Konto, wszystkie plany, historia treningów, zdjęcia sylwetki i nagrania video
-                zostaną <strong>nieodwracalnie skasowane</strong>. Aktywna subskrypcja Stripe
-                zostanie anulowana, a nadchodzące spotkania usunięte z Twojego Kalendarza Google.
+                zostaną <strong>nieodwracalnie skasowane</strong>, a nadchodzące spotkania usunięte
+                z Twojego Kalendarza Google.
               </div>
             </div>
             <Form method="post" style={{ flexShrink: 0 }}>
@@ -525,7 +515,7 @@ export default function TrenerPodopiecznyDetail() {
                 confirmOptions={{
                   title: `Usunąć podopiecznego „${trainee.displayName}"?`,
                   message:
-                    "Wszystkie dane tej osoby (plany, sesje, video, zdjęcia) zostaną nieodwracalnie skasowane, subskrypcja Stripe anulowana, a nadchodzące spotkania usunięte z Kalendarza Google. Tej operacji nie da się cofnąć.",
+                    "Wszystkie dane tej osoby (plany, sesje, video, zdjęcia) zostaną nieodwracalnie skasowane, a nadchodzące spotkania usunięte z Kalendarza Google. Tej operacji nie da się cofnąć.",
                   destructive: true,
                   confirmText: "Usuń podopiecznego",
                 }}

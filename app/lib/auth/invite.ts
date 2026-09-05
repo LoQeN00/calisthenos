@@ -1,17 +1,20 @@
-import { createHash } from "node:crypto";
-import { invitesControllerCreate } from "@kalisthenos/api-client";
-import type { InviteCreatedResponse } from "@kalisthenos/api-client";
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { invitesControllerCreate, invitesControllerPreview } from "@kalisthenos/api-client";
+import type { InviteCreatedResponse, InvitePreviewResponse } from "@kalisthenos/api-client";
+import { orNull } from "~/lib/api/client";
 import type { Api } from "~/lib/api/client";
 import { ApiError } from "~/lib/api/errors";
-import type { Db } from "../db/client";
-import * as schema from "../db/schema";
 
-// ============================================================
-// Wystawianie zaproszenia — kontrakt BE
-// ============================================================
+/**
+ * Zaproszenia trenera — w całości na kontrakcie BE.
+ *
+ * Do S6 mieszkała tu druga połowa: przyjmowanie zaproszenia na Drizzle
+ * (`consumeInvite` z `SELECT FOR UPDATE`, `hashToken`, `findInviteByToken`).
+ * Zniknęła bez zamiennika po tej stronie — konto zakłada BE jednym
+ * `POST /v1/invites/{token}/accept` (`acceptInvite` w `api/auth-session.ts`),
+ * a skrót tokenu liczy u siebie. FE nie dotyka już ani haseł, ani haszy.
+ */
 
-export type { InviteCreatedResponse } from "@kalisthenos/api-client";
+export type { InviteCreatedResponse, InvitePreviewResponse } from "@kalisthenos/api-client";
 
 /**
  * Własny typ błędu, bo trasa pokazuje `userMessage` w modalu zaproszenia.
@@ -29,7 +32,11 @@ export class InviteError extends Error {
 export interface CreateInviteInput {
   displayName: string;
   email: string | null;
-  /** Kwota subskrypcji ustalona przez trenera; `null` = zaproszenie bez płatności. */
+  /**
+   * Kwota ustaleń w groszach, zapisywana przez BE przy dołączeniu podopiecznego
+   * (zdarzenie `TraineeJoined`); `null` = zaproszenie bez kwoty. Nie jest
+   * płatnością — po S6 nic w FE nie pobiera pieniędzy (D1 specu).
+   */
   monthlyAmountGrosze: number | null;
   /** Szablon formularza startowego; `null` = zaproszenie bez formularza. */
   onboardingForm: { exerciseIds: string[]; note: string | null } | null;
@@ -79,146 +86,23 @@ export async function createInvite(
   }
 }
 
-// ============================================================
-// Przyjmowanie zaproszenia — jeszcze na Drizzle (do kroku 6 / S6)
-// ============================================================
-
-export function hashToken(token: string): string {
-  const buf = Buffer.from(token, "base64url");
-  return createHash("sha256").update(buf).digest("hex");
-}
-
-/** Zaproszenie po SUROWYM tokenie z URL-a — haszowanie siedzi tutaj, nie w trasie. */
-export async function findInviteByToken(db: Db, token: string): Promise<schema.Invite | null> {
-  const rows = await db
-    .select()
-    .from(schema.invites)
-    .where(eq(schema.invites.tokenHash, hashToken(token)))
-    .limit(1);
-  return rows[0] ?? null;
-}
-
-export interface ConsumeInviteInput {
-  token: string;
-  chosenEmail: string;
-  chosenDisplayName: string;
-  newPasswordHash: string;
-}
-
-export type ConsumeInviteResult =
-  | { kind: "created"; user: schema.User }
-  | { kind: "replaced"; user: schema.User };
-
 /**
- * Stempluje `trainee_id` na formularzu należącym do zaproszenia. Wołane
- * WEWNĄTRZ transakcji `consumeInvite` — konto i przypięcie formularza powstają
- * albo oba, albo żadne.
+ * Podgląd zaproszenia po SUROWYM tokenie z URL-a (`GET /v1/invites/{token}`) —
+ * ekran rejestracji wita po imieniu i podpowiada adres, zanim ktokolwiek jest
+ * zalogowany. Jedyne wejście do kontraktu, które biegnie bez tokenu dostępowego.
  *
- * Przeniesione tu z `onboarding-forms.ts` bez zmiany zachowania, gdy tamten
- * moduł przeszedł w całości na kontrakt (S2): jedynym wołającym jest
- * `consumeInvite`, a ten zostaje na Drizzle do S6. Prywatne — poza tą
- * transakcją nie ma czego przypinać.
- *
- * Bierze CAŁY wiersz zaproszenia, nie samo `id`: `consumeInvite` ma go już
- * wczytanego, więc `trainer_id` wchodzi do `WHERE` bez dodatkowego zapytania i
- * formularza nie da się przypiąć w poprzek tenantów.
+ * `| null` w sygnaturze niesie regułę D3: `404` łapie `orNull`. BE oddaje jeden
+ * kod dla zaproszenia nieistniejącego, zużytego i wygasłego, więc rozróżnienia
+ * nie ma czym zrobić — i dobrze, bo sonda odróżniająca „zły token" od „dobry,
+ * ale już użyty" mówiłaby więcej, niż powinna. Trasa zamienia `null` na `404`.
+ * Awaria BE zostaje awarią i leci wyżej.
  */
-async function attachFormToTrainee(
-  db: Db,
-  invite: { id: string; trainerId: string },
-  traineeId: string,
-): Promise<void> {
-  await db
-    .update(schema.onboardingForms)
-    .set({ traineeId })
-    .where(
-      and(
-        eq(schema.onboardingForms.inviteId, invite.id),
-        eq(schema.onboardingForms.trainerId, invite.trainerId),
-        isNull(schema.onboardingForms.traineeId),
-      ),
-    );
-}
-
-// Atomically consume an invite token. Concurrency-safe: SELECT ... FOR UPDATE locks the
-// invite row for the duration of the transaction so two simultaneous accept requests
-// serialize. The final UPDATE additionally re-checks `consumed_at IS NULL` as a belt-
-// and-suspenders guard.
-export async function consumeInvite(
-  db: Db,
-  input: ConsumeInviteInput,
-): Promise<ConsumeInviteResult> {
-  const hash = hashToken(input.token);
-  return await db.transaction(async (tx) => {
-    const rows = await tx
-      .select()
-      .from(schema.invites)
-      .where(
-        and(
-          eq(schema.invites.tokenHash, hash),
-          isNull(schema.invites.consumedAt),
-          gt(schema.invites.expiresAt, new Date()),
-        ),
-      )
-      .limit(1)
-      .for("update");
-    const invite = rows[0];
-    if (!invite) {
-      // Distinguish failure modes for a useful error message.
-      const anyRows = await tx
-        .select()
-        .from(schema.invites)
-        .where(eq(schema.invites.tokenHash, hash))
-        .limit(1);
-      const any = anyRows[0];
-      if (any?.consumedAt) throw new Error("invite already used");
-      if (any && any.expiresAt.getTime() < Date.now()) throw new Error("invite expired");
-      throw new Error("invite not found");
-    }
-
-    let user: schema.User;
-    if (invite.replacesUserId) {
-      const updated = await tx
-        .update(schema.users)
-        .set({ passwordHash: input.newPasswordHash, archivedAt: null })
-        .where(eq(schema.users.id, invite.replacesUserId))
-        .returning();
-      user = updated[0]!;
-    } else {
-      const created = await tx
-        .insert(schema.users)
-        .values({
-          email: input.chosenEmail,
-          displayName: input.chosenDisplayName,
-          role: "trainee",
-          trainerId: invite.trainerId,
-          passwordHash: input.newPasswordHash,
-          joinedOn: new Date().toISOString().slice(0, 10),
-        })
-        .returning();
-      user = created[0]!;
-    }
-
-    // Formularz startowy (jeśli trener go doczepił) dostaje właściciela w tej
-    // samej transakcji co konto — inaczej awaria po utworzeniu użytkownika
-    // zostawiłaby formularz-sierotę bez podopiecznego. Przekazujemy cały wiersz
-    // zaproszenia, żeby jego `trainer_id` trafił do `WHERE` bez dopytywania bazy.
-    await attachFormToTrainee(tx, invite, user.id);
-
-    const consumed = await tx
-      .update(schema.invites)
-      .set({ consumedAt: new Date(), consumedByUser: user.id })
-      .where(and(eq(schema.invites.id, invite.id), isNull(schema.invites.consumedAt)))
-      .returning({ id: schema.invites.id });
-    if (consumed.length !== 1) {
-      // Race: another transaction consumed this invite between our SELECT FOR UPDATE
-      // and the UPDATE. Rolls back the user mutation.
-      throw new Error("invite already used");
-    }
-
-    return {
-      kind: invite.replacesUserId ? ("replaced" as const) : ("created" as const),
-      user,
-    };
-  });
+export async function previewInvite(
+  api: Api,
+  token: string,
+): Promise<InvitePreviewResponse | null> {
+  const preview = await orNull(
+    invitesControllerPreview({ client: api, path: { token }, throwOnError: true }),
+  );
+  return preview?.data ?? null;
 }

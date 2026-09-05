@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createApiClient } from "../api/client";
 import { ApiError } from "../api/errors";
-import { createInvite, InviteError } from "./invite";
+import { createInvite, InviteError, previewInvite } from "./invite";
 
 // `Promise<Response>` w sygnaturze jest konieczne: przypadki niżej czytają ciało
 // żądania (`await req.json()`), więc reguła bywa funkcją asynchroniczną.
@@ -148,5 +148,41 @@ describe("createInvite — zaproszenie przez kontrakt", () => {
 
     expect(blad).toBeInstanceOf(ApiError);
     expect(blad).not.toBeInstanceOf(InviteError);
+  });
+});
+
+describe("previewInvite — podgląd zaproszenia przez kontrakt", () => {
+  it("to `GET /v1/invites/{token}` po SUROWYM tokenie z URL-a", async () => {
+    // Haszowanie tokenu było sprawą FE, dopóki zaproszenia siedziały w bazie.
+    // Dziś skrót liczy BE, a przez sieć idzie token taki, jaki wkleił zapraszany.
+    let sciezka = "";
+    let metoda = "";
+    const api = klient((req) => {
+      sciezka = new URL(req.url).pathname;
+      metoda = req.method;
+      return json(200, { displayName: "Ola", email: "ola@e.pl" });
+    });
+
+    const podglad = await previewInvite(api, "tok-surowy");
+
+    expect(metoda).toBe("GET");
+    expect(sciezka).toBe("/v1/invites/tok-surowy");
+    expect(podglad).toEqual({ displayName: "Ola", email: "ola@e.pl" });
+  });
+
+  it("`404` daje `null` — nieistniejące, zużyte i wygasłe są nieodróżnialne", async () => {
+    const api = klient(() => odmowa(404, "RESOURCE_NOT_FOUND", "Nie znaleziono zasobu."));
+
+    await expect(previewInvite(api, "tok-zly")).resolves.toBeNull();
+  });
+
+  it("`500` przechodzi jako ApiError, nie jako brak zaproszenia", async () => {
+    // Gdyby awaria BE wracała tu jako `null`, ekran rejestracji pokazałby `404`
+    // — czyli „to zaproszenie nie istnieje" komuś, kogo zaproszenie jest ważne.
+    const api = klient(() => odmowa(500, "INTERNAL", "Coś poszło nie tak."));
+
+    const blad = await previewInvite(api, "tok-surowy").catch((e) => e);
+
+    expect(blad).toBeInstanceOf(ApiError);
   });
 });

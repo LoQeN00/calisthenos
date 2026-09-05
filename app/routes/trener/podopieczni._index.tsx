@@ -17,7 +17,7 @@ import { Pagination, parsePage } from "~/components/pagination";
 import { requireUser } from "~/lib/api/auth";
 import { ApiError, toRouteResponse } from "~/lib/api/errors";
 import { InviteError, createInvite } from "~/lib/auth";
-import { getEnv, stripeApiConfigured } from "~/lib/env";
+import { getEnv } from "~/lib/env";
 import { listActiveExercisesForTrainer } from "~/lib/exercises";
 import { parsePlnToGrosze, MonthlyAmountSchema } from "~/lib/money";
 import { daysAgo, pluralizePl, type PlForms } from "~/lib/format";
@@ -93,7 +93,6 @@ export async function loader(args: LoaderFunctionArgs) {
     totalPages: result.totalPages,
     total: result.total,
     deletedName,
-    stripeAvailable: stripeApiConfigured(),
     exercises,
   };
 }
@@ -165,17 +164,8 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function TrenerPodopieczniList() {
-  const {
-    clients,
-    spec,
-    controls,
-    page,
-    totalPages,
-    total,
-    deletedName,
-    stripeAvailable,
-    exercises,
-  } = useLoaderData<typeof loader>();
+  const { clients, spec, controls, page, totalPages, total, deletedName, exercises } =
+    useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [showInviteModal, setShowInviteModal] = useState(false);
 
@@ -262,22 +252,21 @@ export default function TrenerPodopieczniList() {
                 className="input"
               />
             </div>
-            {stripeAvailable && (
-              <div className="field">
-                <label htmlFor="inv-amount">Kwota miesięczna (zł) — opcjonalnie</label>
-                <input
-                  id="inv-amount"
-                  name="monthlyAmount"
-                  type="text"
-                  inputMode="decimal"
-                  placeholder="np. 200"
-                  className="input"
-                />
-                <p className="text-xs muted" style={{ margin: "4px 0 0" }}>
-                  Podopieczny doda kartę przy dołączaniu. Zostaw puste, aby zaprosić bez płatności.
-                </p>
-              </div>
-            )}
+            <div className="field">
+              <label htmlFor="inv-amount">Kwota miesięczna (zł) — opcjonalnie</label>
+              <input
+                id="inv-amount"
+                name="monthlyAmount"
+                type="text"
+                inputMode="decimal"
+                placeholder="np. 200"
+                className="input"
+              />
+              <p className="text-xs muted" style={{ margin: "4px 0 0" }}>
+                Zapis ustalonej kwoty — trafia do BE razem z zaproszeniem. Rozliczenie prowadzisz
+                poza aplikacją; zostaw puste, jeśli nie chcesz jej zapisywać.
+              </p>
+            </div>
             <OnboardingPicker exercises={exercises} />
             {actionData != null && "error" in actionData && actionData.error != null && (
               <p role="alert" style={{ color: "var(--danger)", fontSize: 13, margin: 0 }}>

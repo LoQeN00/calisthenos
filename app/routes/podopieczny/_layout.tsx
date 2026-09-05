@@ -3,19 +3,17 @@ import { Icons } from "~/components/icons";
 import { UserMenu } from "~/components/user-menu";
 import { requireUser } from "~/lib/api/auth";
 import { ApiError, toRouteResponse } from "~/lib/api/errors";
-import { db } from "~/lib/db/client";
 import { hasPendingOnboarding } from "~/lib/onboarding-forms";
-import { hasTraineeAppAccess } from "~/lib/stripe/gate";
 import { loadTraineeNavigation } from "~/lib/views";
 
 export async function loader(args: LoaderFunctionArgs) {
   const { api, user } = requireUser(args.context, { role: "trainee" });
 
-  // Bramki idą PRZED licznikami — podopieczny, którego i tak odsyłamy, nie ma po
-  // co kosztować czterech zapytań. Kolejność: najpierw płatność (drzwi do
-  // aplikacji), potem formularz startowy (już wnętrze relacji).
-  const { hasAccess, sub } = await hasTraineeAppAccess(db, user);
-  if (!hasAccess) throw redirect("/podopieczny/aktywuj");
+  // Bramka idzie PRZED licznikami — podopieczny, którego i tak odsyłamy, nie ma
+  // po co kosztować dodatkowego wywołania. Do S6 stała tu przed nią druga,
+  // płatnicza; zniknęła razem ze Stripe'em (ADR-0024 po stronie BE), więc
+  // formularz startowy jest dziś jedynymi drzwiami do aplikacji.
+  //
   // Jawnie, przez kontrakt (jedno `GET /v1/me/onboarding-form`, na białej liście
   // bramki BE) — ZANIM policzymy cokolwiek, tak jak do integracji.
   if (await hasPendingOnboarding(api)) throw redirect("/podopieczny/formularz");
@@ -36,13 +34,6 @@ export async function loader(args: LoaderFunctionArgs) {
   }
   const sessionsCount = nav.activePlanSessions ?? 0;
 
-  // Odznaka: subskrypcja wymaga uwagi (past_due, unpaid albo brak wiersza, gdy
-  // trener ustawił już cenę). `sub` jest null, gdy trenera nie ma — wtedy 0.
-  const needsAttention =
-    sub?.status === "past_due" ||
-    sub?.status === "unpaid" ||
-    (sub?.status === "none" && sub.stripePriceId != null);
-
   return {
     user,
     tails: {
@@ -59,7 +50,6 @@ export async function loader(args: LoaderFunctionArgs) {
       // Z tego samego `nav` (`TraineeNavView.featureRequests`) — obszar zgłoszeń
       // przeszedł na kontrakt, więc jego licznik wyszedł z bazy razem z nim.
       ideas: nav.featureRequests,
-      payments: needsAttention ? 1 : 0,
     },
   };
 }
@@ -107,13 +97,6 @@ const NAV_ITEMS = [
     end: false,
     icon: "Sparkle" as const,
     tailKey: "ideas" as const,
-  },
-  {
-    to: "/podopieczny/platnosci",
-    label: "Płatności",
-    end: false,
-    icon: "Card" as const,
-    tailKey: "payments" as const,
   },
 ];
 
