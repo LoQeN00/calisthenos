@@ -11,7 +11,7 @@ import { ConfirmSubmitButton } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
 import { TierBadge } from "~/components/tier-badge";
 import { requireUser } from "~/lib/api/auth";
-import { db } from "~/lib/db/client";
+import { ApiError, toRouteResponse } from "~/lib/api/errors";
 import { pluralizePl } from "~/lib/format";
 import { SKILL_TIERS, TIER_LABEL } from "~/lib/skill-tier";
 import {
@@ -20,10 +20,6 @@ import {
   addVariation,
   archiveSkill,
   getSkillWithVariations,
-  listAssignableExercises,
-  listAssignablePrerequisites,
-  listConflictingPrerequisites,
-  listPrerequisitesForSkill,
   removePrerequisite,
   removeVariation,
   reorderVariations,
@@ -32,21 +28,18 @@ import {
 import { PrerequisiteFormSchema, ReorderFormSchema, SkillFormSchema } from "~/lib/skill-types";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const skillId = args.params.skillId ?? "";
-  const skill = await getSkillWithVariations(db, user.id, skillId);
+  // Jedno wywołanie: szczegół niesie warianty, prerekwizyty, kandydatów na
+  // prerekwizyt, konflikty stopni i ćwiczenia wolne do przypięcia — dawne
+  // cztery osobne listy edytora są polami tej odpowiedzi.
+  const skill = await getSkillWithVariations(api, skillId);
   if (!skill) throw new Response("not found", { status: 404 });
-  const assignable = await listAssignableExercises(db, user.id);
-  const [prerequisites, assignablePrereqs, conflicts] = await Promise.all([
-    listPrerequisitesForSkill(db, user.id, skillId),
-    listAssignablePrerequisites(db, user.id, skillId),
-    listConflictingPrerequisites(db, user.id, skillId),
-  ]);
-  return { skill, assignable, prerequisites, assignablePrereqs, conflicts };
+  return { skill };
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const skillId = args.params.skillId ?? "";
   const fd = await args.request.formData();
   const intent = fd.get("intent");
@@ -58,24 +51,17 @@ export async function action(args: ActionFunctionArgs) {
         tier: fd.has("tier") ? String(fd.get("tier")) : undefined,
       });
       if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Niepoprawne dane." };
-      await updateSkill(
-        db,
-        user.id,
-        skillId,
-        parsed.data.name,
-        parsed.data.description,
-        parsed.data.tier,
-      );
+      await updateSkill(api, skillId, parsed.data.name, parsed.data.description, parsed.data.tier);
       return { success: "Zapisano zmiany." };
     }
     if (intent === "add-variation") {
       const exerciseId = String(fd.get("exerciseId") ?? "");
-      if (exerciseId) await addVariation(db, user.id, skillId, exerciseId);
+      if (exerciseId) await addVariation(api, skillId, exerciseId);
       return { ok: true };
     }
     if (intent === "remove-variation") {
       const variationId = String(fd.get("variationId") ?? "");
-      if (variationId) await removeVariation(db, user.id, skillId, variationId);
+      if (variationId) await removeVariation(api, skillId, variationId);
       return { ok: true };
     }
     if (intent === "move") {
@@ -83,11 +69,11 @@ export async function action(args: ActionFunctionArgs) {
         variationIds: fd.getAll("variationIds").map(String),
       });
       if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Niepoprawne dane." };
-      await reorderVariations(db, user.id, skillId, parsed.data.variationIds);
+      await reorderVariations(api, skillId, parsed.data.variationIds);
       return { ok: true };
     }
     if (intent === "archive") {
-      await archiveSkill(db, user.id, skillId);
+      await archiveSkill(api, skillId);
       throw redirect("/trener/umiejetnosci");
     }
     if (intent === "add-prereq") {
@@ -96,25 +82,29 @@ export async function action(args: ActionFunctionArgs) {
         requiresSkillId: String(fd.get("requiresSkillId") ?? ""),
       });
       if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Niepoprawne dane." };
-      await addPrerequisite(db, user.id, skillId, parsed.data.requiresSkillId);
+      // Cykl, wyższy stopień prereka i duplikat odrzuca BE (`409`) — tu nie ma
+      // już pre-checków, więc picker i akcja nie mogą się rozjechać.
+      await addPrerequisite(api, skillId, parsed.data.requiresSkillId);
       return { ok: true };
     }
     if (intent === "remove-prereq") {
       const requiresSkillId = String(fd.get("requiresSkillId") ?? "");
-      if (requiresSkillId) await removePrerequisite(db, user.id, skillId, requiresSkillId);
+      if (requiresSkillId) await removePrerequisite(api, skillId, requiresSkillId);
       return { ok: true };
     }
     return null;
   } catch (e) {
     if (e instanceof Response) throw e;
+    // Odmowy z treścią dla formularza (`400`/`404`/`409`) przychodzą jako
+    // `SkillError`; każda inna odpowiedź BE idzie na granicę błędu z jej kodem.
     if (e instanceof SkillError) return { error: e.userMessage };
+    if (e instanceof ApiError) throw toRouteResponse(e);
     throw e;
   }
 }
 
 export default function EdytorUmiejetnosci() {
-  const { skill, assignable, prerequisites, assignablePrereqs, conflicts } =
-    useLoaderData<typeof loader>();
+  const { skill } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const ids = skill.variations.map((v) => v.id);
 
@@ -161,7 +151,7 @@ export default function EdytorUmiejetnosci() {
           <textarea
             name="description"
             className="input"
-            defaultValue={skill.description ?? ""}
+            defaultValue={skill.description}
             maxLength={2000}
             rows={3}
           />
@@ -248,7 +238,7 @@ export default function EdytorUmiejetnosci() {
           <option value="" disabled>
             Dodaj ćwiczenie jako wariant…
           </option>
-          {assignable.map((ex) => (
+          {skill.assignableExercises.map((ex) => (
             <option key={ex.id} value={ex.id}>
               {ex.name} ({ex.unit})
             </option>
@@ -264,25 +254,27 @@ export default function EdytorUmiejetnosci() {
         <p className="text-sm muted" style={{ marginBottom: 12 }}>
           Umiejętności, które trzeba opanować, zanim odblokuje się ta.
         </p>
-        {conflicts.length > 0 && (
+        {skill.tierConflicts.length > 0 && (
           <div className="alert alert-error" role="alert">
-            {`${conflicts.length} ${pluralizePl(conflicts.length, {
+            {`${skill.tierConflicts.length} ${pluralizePl(skill.tierConflicts.length, {
               one: "prerekwizyt jest trudniejszy",
               few: "prerekwizyty są trudniejsze",
               many: "prerekwizytów jest trudniejszych",
             })} od tej umiejętności:`}{" "}
-            {conflicts.map((c) => `${c.name} (${TIER_LABEL[c.tier].toUpperCase()})`).join(", ")}.{" "}
-            Podnieś tier tej umiejętności albo usuń te połączenia — w drzewie rysują się odwrotnie
+            {skill.tierConflicts
+              .map((c) => `${c.requiresSkillName} (${TIER_LABEL[c.requiresTier].toUpperCase()})`)
+              .join(", ")}
+            . Podnieś tier tej umiejętności albo usuń te połączenia — w drzewie rysują się odwrotnie
             do kierunku piramidy.
           </div>
         )}
-        {prerequisites.length === 0 ? (
+        {skill.prerequisites.length === 0 ? (
           <div className="text-sm muted" style={{ marginBottom: 12 }}>
             Brak prerekwizytów — to korzeń drzewa.
           </div>
         ) : (
           <div className="col" style={{ gap: 8, marginBottom: 16 }}>
-            {prerequisites.map((p) => (
+            {skill.prerequisites.map((p) => (
               <div
                 key={p.id}
                 className="card row between"
@@ -308,7 +300,7 @@ export default function EdytorUmiejetnosci() {
             ))}
           </div>
         )}
-        {assignablePrereqs.length === 0 ? (
+        {skill.assignablePrerequisites.length === 0 ? (
           <div className="text-sm muted" style={{ marginBottom: 16 }}>
             Brak innych umiejętności do dodania.
           </div>
@@ -325,7 +317,7 @@ export default function EdytorUmiejetnosci() {
               <option value="" disabled>
                 Dodaj wymaganą umiejętność…
               </option>
-              {assignablePrereqs.map((s) => (
+              {skill.assignablePrerequisites.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
                 </option>

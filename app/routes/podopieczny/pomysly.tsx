@@ -11,7 +11,7 @@ import { FeatureRequestBadge } from "~/components/feature-request-badge";
 import { ListControls } from "~/components/list-controls";
 import { Pagination, parsePage } from "~/components/pagination";
 import { requireUser } from "~/lib/api/auth";
-import { db } from "~/lib/db/client";
+import { ApiError, toRouteResponse } from "~/lib/api/errors";
 import {
   FEATURE_REQUEST_KINDS,
   FEATURE_REQUEST_STATUSES,
@@ -23,7 +23,7 @@ import {
 import {
   FeatureRequestError,
   type FeatureRequestSort,
-  countForTrainee,
+  type FeatureRequestStatusFilter,
   createFeatureRequest,
   deleteFeatureRequest,
   listForTrainee,
@@ -31,7 +31,6 @@ import {
 import { type PlForms, fmtDate, pluralizePl } from "~/lib/format";
 import { type ListControlsSpec, parseListControls } from "~/lib/list-params";
 
-const PAGE_SIZE = 20;
 const ZGLOSZENIE: PlForms = { one: "zgłoszenie", few: "zgłoszenia", many: "zgłoszeń" };
 
 const spec: ListControlsSpec = {
@@ -55,31 +54,32 @@ const spec: ListControlsSpec = {
 };
 
 export async function loader(args: LoaderFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainee" });
+  const { api } = requireUser(args.context, { role: "trainee" });
   const url = new URL(args.request.url);
   const page = parsePage(url.searchParams);
   const controls = parseListControls(url.searchParams, spec);
-  const status = controls.filters.status as "all" | (typeof FEATURE_REQUEST_STATUSES)[number];
+  const status = controls.filters.status as FeatureRequestStatusFilter;
 
-  const total = await countForTrainee(db, user.id, { status });
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-
-  const requests = await listForTrainee(db, user.id, {
+  // Jedno żądanie zamiast dwóch: strona przychodzi razem z `total`, a `page`
+  // spoza zakresu przycina BE — dawne `safePage` nie ma już czego liczyć.
+  const result = await listForTrainee(api, {
+    page,
     sort: controls.sort as FeatureRequestSort,
     status,
-    limit: PAGE_SIZE,
-    offset: (safePage - 1) * PAGE_SIZE,
   });
 
-  return { requests, spec, controls, page: safePage, totalPages, total };
+  return {
+    requests: result.items,
+    spec,
+    controls,
+    page: result.page,
+    totalPages: result.totalPages,
+    total: result.total,
+  };
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainee" });
-  // CHECK `users_role_check` gwarantuje trenera przy roli trainee — ale typ jest
-  // nullowalny, więc zamiast rzutować, odmawiamy wprost.
-  if (user.trainerId == null) throw new Response("Not Found", { status: 404 });
+  const { api } = requireUser(args.context, { role: "trainee" });
 
   const fd = await args.request.formData();
   const intent = String(fd.get("intent") ?? "");
@@ -87,10 +87,11 @@ export async function action(args: ActionFunctionArgs) {
   if (intent === "delete") {
     const id = String(fd.get("id") ?? "");
     try {
-      await deleteFeatureRequest(db, { traineeId: user.id, id });
+      await deleteFeatureRequest(api, id);
       return { ok: "Zgłoszenie usunięte.", error: null };
     } catch (e) {
       if (e instanceof FeatureRequestError) return { ok: null, error: e.userMessage };
+      if (e instanceof ApiError) throw toRouteResponse(e);
       throw e;
     }
   }
@@ -104,13 +105,19 @@ export async function action(args: ActionFunctionArgs) {
     return { ok: null, error: parsed.error.issues[0]?.message ?? "Niepoprawne dane." };
   }
 
-  await createFeatureRequest(db, {
-    trainerId: user.trainerId,
-    traineeId: user.id,
-    kind: parsed.data.kind,
-    title: parsed.data.title,
-    body: parsed.data.body,
-  });
+  // Trener wynika z konta autora po stronie BE, nigdy z ładunku (`docs/04`) —
+  // dawne sprawdzenie „podopieczny bez trenera → 404" przeszło tam razem z zapisem.
+  try {
+    await createFeatureRequest(api, {
+      kind: parsed.data.kind,
+      title: parsed.data.title,
+      body: parsed.data.body,
+    });
+  } catch (e) {
+    if (e instanceof FeatureRequestError) return { ok: null, error: e.userMessage };
+    if (e instanceof ApiError) throw toRouteResponse(e);
+    throw e;
+  }
   return { ok: "Wysłane. Trener zobaczy to zgłoszenie.", error: null, created: true };
 }
 
@@ -211,7 +218,7 @@ export default function PomyslyPodopiecznego() {
                 <span className="badge">{KIND_LABEL[r.kind]}</span>
                 <FeatureRequestBadge status={r.status} />
                 <span style={{ flex: 1 }} />
-                <span className="text-xs muted mono">{fmtDate(r.createdAtISO)}</span>
+                <span className="text-xs muted mono">{fmtDate(r.createdAt)}</span>
               </div>
               <h3 style={{ margin: 0, fontSize: 15 }}>{r.title}</h3>
               <p style={{ margin: 0, fontSize: 13, whiteSpace: "pre-wrap" }}>{r.body}</p>
@@ -229,7 +236,7 @@ export default function PomyslyPodopiecznego() {
                 >
                   <span className="uppercase-label" style={{ color: "var(--muted)" }}>
                     Odpowiedź trenera
-                    {r.respondedAtISO != null && ` · ${fmtDate(r.respondedAtISO)}`}
+                    {r.respondedAt != null && ` · ${fmtDate(r.respondedAt)}`}
                   </span>
                   <p style={{ margin: 0, fontSize: 13, whiteSpace: "pre-wrap" }}>
                     {r.trainerResponse}

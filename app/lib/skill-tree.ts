@@ -1,128 +1,101 @@
-import { eq } from "drizzle-orm";
-import type { Db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
-import { getSkillMapForTrainee } from "~/lib/skill-progression";
-import { listSkillsForTrainer } from "~/lib/skills";
-import type { SkillTier } from "~/lib/skill-tier";
-import { nodeState, topoOrder, type Edge, type NodeState } from "~/lib/skill-tree-math";
+import {
+  traineeDevelopmentByTrainerControllerForTrainee,
+  traineeDevelopmentControllerOwn,
+} from "@kalisthenos/api-client";
+import type { DevelopmentView, SkillTreeNodeView, SkillTreeView } from "@kalisthenos/api-client";
+import type { Api } from "~/lib/api/client";
 
-export interface TreeNode {
-  skillId: string;
-  name: string;
-  tier: SkillTier;
-  variationCount: number;
-  currentVariationId: string | null;
-  currentExerciseId: string | null;
-  // Ordinal bieżącego wariantu (1..variationCount) gdy przypisana; null gdy nie lub w widoku autora.
-  currentOrdinal: number | null;
-  state?: NodeState; // tylko w widoku per-podopieczny
+// Kształty dla tras i komponentów — bez importu pakietu kontraktu poza `app/lib`
+// (patrz `skills.ts`).
+export type {
+  DevelopmentView,
+  ProgressionListItemView,
+  ProgressionListView,
+  SkillTreeEdgeView,
+  SkillTreeSummaryView,
+} from "@kalisthenos/api-client";
+
+/**
+ * Nazwy, pod którymi `components/skill-tree.tsx` zna drzewo. Kształt jest
+ * kontraktu: `state` węzła jest od teraz WYMAGANE (do integracji było
+ * opcjonalne, bo istniał jeszcze widok autora bez stanów — `getSkillTreeForTrainer`
+ * — którego żadna trasa nie wołała), a krawędź `{ from, requires }` to ta sama
+ * para, którą zna `skill-tree-math`.
+ */
+export type SkillTree = SkillTreeView;
+export type TreeNode = SkillTreeNodeView;
+
+export type DevelopmentSort = "recent" | "attention";
+
+export interface DevelopmentQuery {
+  sort: DevelopmentSort;
+  /** `all` / puste / brak = bez zawężenia; wtedy parametr nie idzie do kontraktu. */
+  tag?: string;
 }
 
-export interface SkillTree {
-  nodes: TreeNode[];
-  edges: Edge[];
+/**
+ * Sortowanie z zakładkowalnego adresu (`?sort=`) na wartość kontraktu, z domyślną
+ * PER ROLĘ — trener domyślnie ogląda „wymaga uwagi", podopieczny „ostatnio
+ * trenowane" — bo kontrakt zna tylko jedną domyślną (`recent`), a trasa musi
+ * wysłać sortowanie JAWNIE zanim zbuduje kontrolki: opcje tagów przychodzą
+ * dopiero z odpowiedzią. Wartości są identyczne z kontraktem, więc bez słownika.
+ */
+export function developmentSortFrom(
+  raw: string | null,
+  fallback: DevelopmentSort,
+): DevelopmentSort {
+  return raw === "recent" || raw === "attention" ? raw : fallback;
 }
 
-/** Aktywne umiejętności trenera + ich krawędzie. Współdzielone przez oba widoki. */
-async function loadGraph(
-  db: Db,
-  trainerId: string,
-): Promise<{
-  skills: Array<{ id: string; name: string; tier: SkillTier; variationCount: number }>;
-  edges: Edge[];
-}> {
-  // Reuse: listSkillsForTrainer daje aktywne umiejętności + variationCount (patrz skills.ts).
-  const skills = await listSkillsForTrainer(db, trainerId);
-  const activeIds = new Set(skills.map((s) => s.id));
-
-  const edgeRows = await db
-    .select({
-      from: schema.skillPrerequisites.skillId,
-      requires: schema.skillPrerequisites.requiresSkillId,
-    })
-    .from(schema.skillPrerequisites)
-    .where(eq(schema.skillPrerequisites.trainerId, trainerId));
-  // Pomijamy krawędzie dotykające zarchiwizowanych umiejętności.
-  const edges = edgeRows.filter((e) => activeIds.has(e.from) && activeIds.has(e.requires));
-
+function developmentQuery(opts: DevelopmentQuery) {
   return {
-    skills: skills.map((s) => ({
-      id: s.id,
-      name: s.name,
-      tier: s.tier,
-      variationCount: s.variationCount,
-    })),
-    edges,
+    sort: opts.sort,
+    // `all` to BRAK parametru (wzorzec `status` w planach): kontrakt zawęża
+    // wyłącznie do jednego tagu, a nieznaną wartość ignoruje sam (`docs/04` §5),
+    // więc to, co BE zastosował, zgadza się z tym, co `parseListControls` pokaże.
+    // Rozłożone warunkowo: klucz z `undefined` i brak klucza to dla serializatora
+    // zapytań dwie różne rzeczy.
+    ...(opts.tag != null && opts.tag !== "" && opts.tag !== "all" ? { tag: opts.tag } : {}),
   };
 }
 
 /**
- * Drzewo dla autora (trener) — sam szkielet, bez stanów per-podopieczny.
- * Nie wołane przez żadną trasę (widok trenera chodzi po `getSkillTreeForTrainee`),
- * ale pokrywa je `tests/skill-tree.itest.ts`: autoring krawędzi, tenant-scope,
- * archiwizacja.
+ * Cały ekran Rozwoju jednym wywołaniem (`GET /v1/me/development`): drzewo ze
+ * stanami węzłów policzonymi po tamtej stronie (porządek topologiczny, `mastered`
+ * prereków — dawne `nodeState`/`topoOrder` w tym module), nagłówek `summary`
+ * oraz lista „pozostałych ćwiczeń" już posortowana i przefiltrowana, z
+ * `tagOptions` do kontrolek. Ćwiczenia będące wariantem AKTYWNEJ umiejętności
+ * nie wchodzą na listę — robi to BE, więc `listExerciseSkillMap` z `skills.ts`
+ * i `excludeByExerciseId` w trasie zniknęły. Bez stronicowania (zasób nie ma
+ * rozmiaru strony w `docs/01`).
  */
-export async function getSkillTreeForTrainer(db: Db, trainerId: string): Promise<SkillTree> {
-  const { skills, edges } = await loadGraph(db, trainerId);
-  const nodes: TreeNode[] = skills.map((s) => ({
-    skillId: s.id,
-    name: s.name,
-    tier: s.tier,
-    variationCount: s.variationCount,
-    currentVariationId: null,
-    currentExerciseId: null,
-    currentOrdinal: null,
-  }));
-  return { nodes, edges };
+export async function loadMyDevelopment(
+  api: Api,
+  opts: DevelopmentQuery,
+): Promise<DevelopmentView> {
+  const { data } = await traineeDevelopmentControllerOwn({
+    client: api,
+    query: developmentQuery(opts),
+    throwOnError: true,
+  });
+  return data;
 }
 
-/** Drzewo dla podopiecznego — ze stanami węzłów liczonymi w porządku topologicznym. */
-export async function getSkillTreeForTrainee(
-  db: Db,
-  trainerId: string,
+/**
+ * To samo dla wskazanego podopiecznego. Cudzy podopieczny to `404`, które leci
+ * dalej jako `ApiError` (bez `| null`) — trasa trenera pyta o parę wcześniej
+ * (`findTraineeRef` z `trainees.ts`) i to ona oddaje `404` z nazwą do nagłówka.
+ */
+export async function loadTraineeDevelopment(
+  api: Api,
   traineeId: string,
-): Promise<SkillTree> {
-  const { skills, edges } = await loadGraph(db, trainerId);
-
-  // Bieżący wariant + czy są zdarzenia + max ordinal → z mapy umiejętności (kierunek A).
-  const map = await getSkillMapForTrainee(db, trainerId, traineeId, { withSuggestions: false });
-  const mapBySkill = new Map(map.map((m) => [m.skillId, m]));
-
-  // Stany w porządku topologicznym, by available/locked zależały od mastered prereków.
-  const adjPrereqs = new Map<string, string[]>();
-  for (const e of edges) {
-    const arr = adjPrereqs.get(e.from) ?? [];
-    arr.push(e.requires);
-    adjPrereqs.set(e.from, arr);
-  }
-  const state = new Map<string, NodeState>();
-  const ordById = new Map<string, number | null>();
-  for (const id of topoOrder(
-    skills.map((s) => s.id),
-    edges,
-  )) {
-    const m = mapBySkill.get(id);
-    const hasEvents = m?.currentVariationId != null;
-    const maxOrd = m ? Math.max(0, ...m.variations.map((v) => v.ordinal)) : 0;
-    const curOrd = m?.variations.find((v) => v.id === m.currentVariationId)?.ordinal ?? 0;
-    const atTop = hasEvents && m!.variations.length > 0 && curOrd === maxOrd;
-    const prereqStates = (adjPrereqs.get(id) ?? []).map((p) => state.get(p) ?? "locked");
-    state.set(id, nodeState({ hasEvents, atTopVariation: atTop, prereqStates }));
-    ordById.set(id, hasEvents ? curOrd : null);
-  }
-
-  const nodes: TreeNode[] = skills.map((s) => {
-    const m = mapBySkill.get(s.id);
-    return {
-      skillId: s.id,
-      name: s.name,
-      tier: s.tier,
-      variationCount: s.variationCount,
-      currentVariationId: m?.currentVariationId ?? null,
-      currentExerciseId: m?.currentExerciseId ?? null,
-      currentOrdinal: ordById.get(s.id) ?? null,
-      state: state.get(s.id) ?? "locked",
-    };
+  opts: DevelopmentQuery,
+): Promise<DevelopmentView> {
+  const { data } = await traineeDevelopmentByTrainerControllerForTrainee({
+    client: api,
+    path: { traineeId },
+    query: developmentQuery(opts),
+    throwOnError: true,
   });
-  return { nodes, edges };
+  return data;
 }

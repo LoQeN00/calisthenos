@@ -4,8 +4,7 @@ import type { MiddlewareFunction } from "react-router";
 import { ConfirmProvider } from "~/components/confirm-provider";
 import { ToastProvider } from "~/components/toast-provider";
 import { apiMiddleware } from "~/lib/api/middleware";
-import { db } from "~/lib/db/client";
-import { maybeSweepOrphanSetVideos } from "~/lib/orphan-files";
+import { getEnv } from "~/lib/env";
 
 // Typ jawny: jedyne miejsce, które sprawdza `apiMiddleware` wobec kontraktu
 // React Routera (`MiddlewareFunction<Response>`) — bez niego niezgodność
@@ -13,13 +12,12 @@ import { maybeSweepOrphanSetVideos } from "~/lib/orphan-files";
 export const middleware: MiddlewareFunction<Response>[] = [apiMiddleware];
 
 export async function loader() {
-  // Sprzątaczka wygasłych sesji zniknęła razem ze starą sesją bazodanową
-  // (krok 2 Etapu 2) — odpalała się przy KAŻDYM żądaniu obsługiwanym przez
-  // router, dla tabeli, z której nic już nie korzysta.
-  //
-  // Leniwe sprzątanie nagrań serii wgranych, ale nigdy niepodpiętych do treningu
-  // (porzucona sesja logowania) — inaczej wolumen rósłby o każdy taki plik.
-  maybeSweepOrphanSetVideos(db);
+  // Pusty CELOWO. Stały tu dwie leniwe sprzątaczki odpalane przy KAŻDYM żądaniu
+  // obsługiwanym przez router: wygasłych sesji (zniknęła ze starą sesją
+  // bazodanową, krok 2 Etapu 2) i nagrań serii wgranych, ale niepodpiętych do
+  // treningu. Tę drugą przejął zamiatacz BE (`orphan-files-sweep`, 24 h
+  // karencji), który widzi też pliki wgrane wprost do magazynu — czego proces
+  // FE z definicji nie mógł.
   return null;
 }
 
@@ -30,27 +28,38 @@ export async function loader() {
  * - `script-src 'self' 'unsafe-inline'`: React Router injects an inline
  *   bootstrap script with hydration data. A nonce-based CSP would be tighter
  *   but requires server plumbing. V1 ships with `unsafe-inline`.
- * - `img-src 'self' data: blob:`: data: for inline SVGs we may add; blob: for
- *   the body-photo crop tools later.
- * - `media-src 'self'`: per-set videos served from our own /files route.
+ * - `img-src` i `media-src` niosą **origin backendu**, nie tylko `'self'`:
+ *   od przejścia plików na kontrakt (ADR-0023) demo ćwiczeń, nagrania serii
+ *   i zdjęcia sylwetki idą do przeglądarki podpisanym adresem BE, a nie przez
+ *   trasę FE. Bez tego origin przeglądarka blokuje je po cichu — puste
+ *   `<img>`/`<video>` wygląda dokładnie jak brak pliku, więc objaw nie
+ *   wskazuje na politykę. Origin bierzemy z `API_PUBLIC_URL` (`env.ts`
+ *   podstawia tam `API_URL`, gdy pusty) i **samego originu**, nie całego
+ *   adresu: CSP dopasowuje źródła po schemacie, hoście i porcie.
+ * - `data:`/`blob:` zostają dla obrazów wbudowanych i podglądu przed wysyłką.
  * - Google Fonts is allow-listed under style-src/font-src.
  */
-const CSP_DIRECTIVES = [
-  "default-src 'self'",
-  "img-src 'self' data: blob:",
-  "media-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
-  "font-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
-  "connect-src 'self'",
-  "frame-ancestors 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-].join("; ");
+function cspDirectives(): string {
+  const be = new URL(getEnv().API_PUBLIC_URL).origin;
+  return [
+    "default-src 'self'",
+    `img-src 'self' data: blob: ${be}`,
+    `media-src 'self' ${be}`,
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self'",
+    "script-src 'self' 'unsafe-inline'",
+    // Przeglądarka nie woła BE sama — robi to serwer FE (D3 specu). Gdyby
+    // kiedykolwiek zaczęła, tu trzeba dołożyć ten sam origin.
+    "connect-src 'self'",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join("; ");
+}
 
 export function headers(): Record<string, string> {
   return {
-    "Content-Security-Policy": CSP_DIRECTIVES,
+    "Content-Security-Policy": cspDirectives(),
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Permissions-Policy": "camera=(self), microphone=(), geolocation=()",

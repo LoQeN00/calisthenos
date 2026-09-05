@@ -178,9 +178,7 @@ export function SkillTreeView({
               className="pyramid-summit"
               style={{ top: Math.max(0, summitBand.y - Math.round(DEFAULT_METRICS.bandGap / 2)) }}
             >
-              <span className="pyramid-summit-tag mono">
-                Twój szczyt · {TIER_LABEL[topTier]}
-              </span>
+              <span className="pyramid-summit-tag mono">Twój szczyt · {TIER_LABEL[topTier]}</span>
             </div>
           ) : null}
 
@@ -211,7 +209,9 @@ export function SkillTreeView({
                 <path
                   key={`${e.requires}->${e.from}`}
                   className="pyramid-edge"
-                  data-dim={hovered && hovered !== e.from && hovered !== e.requires ? "1" : undefined}
+                  data-dim={
+                    hovered && hovered !== e.from && hovered !== e.requires ? "1" : undefined
+                  }
                   d={edgePathD(e.points, cornerX, CORNER_PX)}
                   fill="none"
                   stroke={stroke}
@@ -526,13 +526,18 @@ function ladderStepColor(state: LadderState): string {
 
 export function VariationLadder({
   variations,
+  currentVariationId,
 }: {
   variations: Array<{
     id: string;
     ordinal: number;
     exerciseName: string;
-    isCurrent: boolean;
   }>;
+  /**
+   * Bieżący poziom podopiecznego. Kontrakt trzyma go na wpisie mapy, nie flagą
+   * per wariant — drabina dostaje więc identyfikator i sama rozstrzyga kroki.
+   */
+  currentVariationId: string | null;
 }): React.JSX.Element {
   if (variations.length === 0) {
     return (
@@ -540,7 +545,7 @@ export function VariationLadder({
     );
   }
 
-  const currentOrdinal = variations.find((v) => v.isCurrent)?.ordinal ?? null;
+  const currentOrdinal = variations.find((v) => v.id === currentVariationId)?.ordinal ?? null;
   const steps = [...variations].sort((a, b) => a.ordinal - b.ordinal);
 
   return (
@@ -555,11 +560,12 @@ export function VariationLadder({
       }}
     >
       {steps.map((v, i) => {
-        const state: LadderState = v.isCurrent
-          ? "current"
-          : currentOrdinal != null && v.ordinal < currentOrdinal
-            ? "done"
-            : "locked";
+        const state: LadderState =
+          v.id === currentVariationId
+            ? "current"
+            : currentOrdinal != null && v.ordinal < currentOrdinal
+              ? "done"
+              : "locked";
         const color = ladderStepColor(state);
         const isLast = i === steps.length - 1;
         return (

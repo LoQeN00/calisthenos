@@ -4,20 +4,17 @@ import { ConsultationRow } from "~/components/consultation-row";
 import { type DaySummary, MonthCalendar } from "~/components/month-calendar";
 import { requireUser } from "~/lib/api/auth";
 import { consultationPresentation, mostUrgentTone } from "~/lib/consultation-status";
-import { type TrainerCalendarItem, listTrainerOccurrencesInRange } from "~/lib/consultations";
-import { db } from "~/lib/db/client";
+import { type ConsultationView, listOccurrencesInRange } from "~/lib/consultations";
 import { fmtTime, monthRangeUTC, shiftMonth, todayISO } from "~/lib/format";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const url = new URL(args.request.url);
   const m = url.searchParams.get("m") ?? todayISO().slice(0, 7);
   const range = monthRangeUTC(m);
-  const occurrences = await listTrainerOccurrencesInRange(db, {
-    trainerId: user.id,
-    fromISO: range.fromISO,
-    toISO: range.toISO,
-  });
+  // Ten sam `GET /v1/consultations` co u podopiecznego: trener dostaje z niego
+  // terminy WSZYSTKICH swoich podopiecznych (nazwa w `trainee`), bez odwołanych.
+  const occurrences = await listOccurrencesInRange(api, range);
   return { occurrences, m, year: range.year, month0: range.month0, today: todayISO() };
 }
 
@@ -26,7 +23,7 @@ export default function TrenerKonsultacjeKalendarz() {
   const now = Date.now();
 
   // Grupuj po dniu miesiąca (UTC).
-  const byDay = new Map<number, TrainerCalendarItem[]>();
+  const byDay = new Map<number, ConsultationView[]>();
   for (const o of occurrences) {
     const day = new Date(o.scheduledAt).getUTCDate();
     const arr = byDay.get(day) ?? [];
@@ -94,10 +91,10 @@ export default function TrenerKonsultacjeKalendarz() {
                 return (
                   <ConsultationRow
                     key={o.id}
-                    to={`/trener/podopieczni/${o.traineeId}/konsultacje/${o.id}`}
+                    to={`/trener/podopieczni/${o.trainee.id}/konsultacje/${o.id}`}
                     lead={fmtTime(o.scheduledAt)}
-                    title={o.traineeName}
-                    sub={`${o.title} · ${o.durationMin} min`}
+                    title={o.trainee.displayName}
+                    sub={`${o.durationMin} min`}
                     label={meta.label}
                     tone={meta.tone}
                   />

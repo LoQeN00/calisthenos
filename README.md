@@ -307,7 +307,6 @@ app/                  # React Router v7 framework-mode source
     storage/          # FileStorage interface + LocalVolumeStorage
     body-photos.ts
     file-uploads.ts
-    files.ts
     plans.ts
     plan-types.ts
     workouts.ts

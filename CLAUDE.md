@@ -35,7 +35,7 @@ Setup lokalny, deploy na Railway, lista komend i posture bezpieczeństwa:
 | Język | **TypeScript** (strict) |
 | ORM / DB | **Drizzle ORM** + **PostgreSQL 16** |
 | Auth | **Sesja na tokenach z BE** — para dostępowy/odświeżający w ciastku `__Host-kth_api`, rotacja i `GET /v1/me` w middlewarze ([`app/lib/api/`](app/lib/api/README.md)). Hasła i limit prób logowania są po stronie BE. |
-| Pliki | Zdjęcia sylwetki na wolumenie przez `FileStorage`; demo ćwiczeń i nagrania serii w BE (R2), odczyt po podpisanych adresach BE |
+| Pliki | **W całości w BE (R2)** — demo ćwiczeń, nagrania serii i zdjęcia sylwetki; wysyłka dwufazowa, odczyt po podpisanych adresach BE. FE nie ma już własnego magazynu; na wolumenie zostały bajty sprzed migracji, których nic nie sprząta |
 | Płatności | **Stripe Connect** (Express) — subskrypcje (Checkout/Customer Portal, destination charges na konto trenera) + webhook z weryfikacją podpisu; opcjonalne (działa bez kluczy), brak danych kart u nas |
 | PWA | `vite-plugin-pwa` (cache statyków, instalowalność; brak offline-sync) |
 | Wykresy | **visx** (SVG, SSR-friendly, tree-shakeable) |
@@ -63,7 +63,6 @@ Każdy wpis linkuje do `README.md` danego katalogu — tam jest opis plików.
     - [`app/lib/db/migrations/`](app/lib/db/migrations/README.md) — migracje SQL (generowane)
   - [`app/lib/google/`](app/lib/google/README.md) — OAuth2 + Google Calendar/Meet sync (wychodząca, best-effort, opcjonalna)
   - [`app/lib/stripe/`](app/lib/stripe/README.md) — płatności Stripe Connect (klient, połączenia konta, status subskrypcji; opcjonalna)
-  - [`app/lib/storage/`](app/lib/storage/README.md) — interfejs `FileStorage` + impl. lokalna
 - [`app/styles/`](app/styles/README.md) — globalne tokeny CSS
 
 ### Pozostałe katalogi
@@ -110,16 +109,19 @@ w `.gitignore`), `design-system/_src/` (rozpakowany prototyp, read-only).
   `app/routes.ts`. Mapa URL→plik: [`app/routes/README.md`](app/routes/README.md).
 - **Loadery czytają, akcje mutują.** Brak osobnego API — dane lecą przez
   loadery/akcje RR7. Mutacje plikowe to `multipart/form-data`.
-- **Pliki: dwie ścieżki, bo migracja jest w toku.** Na wolumenie zostały wyłącznie
-  zdjęcia sylwetki (`body_photo`): nigdy nie serwuj ścieżek z dysku wprost, używaj
-  `signFileUrl`/`verifyFileUrl` (`app/lib/files.ts`), trasy `files/$fileId`
-  i `uploadFile` z walidacją magic-bytes. **Demo ćwiczeń (`exercise_demo`)
-  i nagrania serii (`set_video`) chodzą już kontraktem BE:** wysyłka dwufazowa
-  przez `uploadExerciseDemo`/`uploadSetVideo` (typ sprawdza BE po zawartości, nie
-  FE; trasa `/upload/wideo` zostaje jako cienka trasa zasobowa dla XHR z paskiem
-  postępu), a odnośnik podpisuje BE i przychodzi jako ŚCIEŻKA — origin dokłada
-  `publicFileUrl` z `app/lib/api/client.ts` (`API_PUBLIC_URL`) w module, nigdy
-  w trasie.
+- **Pliki: jedna ścieżka — kontrakt BE.** Wszystkie trzy rodzaje (`exercise_demo`,
+  `set_video`, `body_photo`) idą **wysyłką dwufazową** przez
+  `uploadExerciseDemo`/`uploadSetVideo`/`uploadBodyPhoto` z `app/lib/file-uploads.ts`
+  (`POST /v1/files/{rodzaj}` → `POST /v1/files/{id}/confirm`); typ sprawdza BE po
+  ZAWARTOŚCI, nie FE po `file.type`, a plik, którego nic nie podpięło, zabiera
+  zamiatacz BE po 24 h. Trasa `/upload/wideo` zostaje jako cienka trasa zasobowa
+  dla XHR z paskiem postępu. **FE nie podpisuje, nie serwuje i nie zapisuje na
+  dysk niczego** — odnośnik podpisuje BE i przychodzi jako ŚCIEŻKA, więc origin
+  dokłada `publicFileUrl` z `app/lib/api/client.ts` (`API_PUBLIC_URL`) **w module**,
+  nigdy w trasie ani w komponencie. Bajty sprzed migracji zostały na wolumenie
+  FE i **nie sprząta ich już żaden kod** — `app/lib/storage/` zniknęło razem
+  z kaskadą usuwania podopiecznego, którą przejął `DELETE /v1/trainees/{id}`
+  (kasuje pliki po swojej stronie). Sam wolumen zdejmuje z `railway.toml` S6.
 - **Schemat to źródło prawdy.** Zmiana modelu danych = edycja
   `app/lib/db/schema.ts`, potem `npm run db:generate` (nowa migracja) — **nigdy
   ręcznie nie edytuj plików w `migrations/`**.

@@ -15,14 +15,13 @@ import { Modal } from "~/components/modal";
 import { OnboardingPicker } from "~/components/onboarding-picker";
 import { Pagination, parsePage } from "~/components/pagination";
 import { requireUser } from "~/lib/api/auth";
-import { createInviteWithOnboarding } from "~/lib/auth";
-import { db } from "~/lib/db/client";
+import { ApiError, toRouteResponse } from "~/lib/api/errors";
+import { InviteError, createInvite } from "~/lib/auth";
 import { getEnv, stripeApiConfigured } from "~/lib/env";
 import { listActiveExercisesForTrainer } from "~/lib/exercises";
 import { parsePlnToGrosze, MonthlyAmountSchema } from "~/lib/money";
 import { daysAgo, pluralizePl, type PlForms } from "~/lib/format";
 import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
-import { OnboardingFormError } from "~/lib/onboarding-forms";
 import { OnboardingTemplateSchema } from "~/lib/onboarding-form-types";
 import { listClientsForTrainer, type ClientSort, type PlanFilter } from "~/lib/trainees";
 
@@ -100,7 +99,7 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const fd = await args.request.formData();
 
   const parsed = InviteSchema.safeParse({
@@ -137,19 +136,23 @@ export async function action(args: ActionFunctionArgs) {
 
   let token: string;
   try {
-    // Zaproszenie Z formularzem albo nic — transakcja siedzi w `createInviteWithOnboarding`.
-    ({ token } = await createInviteWithOnboarding(db, {
-      trainerId: user.id,
+    // Zaproszenie Z formularzem albo nic — atomowo po stronie BE, jednym
+    // `POST /v1/invites`. Trener wynika z tokenu, nie z ciała.
+    ({ token } = await createInvite(api, {
       displayName: parsed.data.displayName,
       email: parsed.data.email,
       monthlyAmountGrosze,
-      template,
+      onboardingForm: template,
     }));
   } catch (e) {
-    if (e instanceof OnboardingFormError) return { error: e.userMessage };
+    if (e instanceof InviteError) return { error: e.userMessage };
+    if (e instanceof ApiError) throw toRouteResponse(e);
     throw e;
   }
 
+  // Odnośnik składany z `token`, nie z `url` odpowiedzi: BE buduje
+  // `{APP_PUBLIC_URL}/join/{token}`, a FE przyjmuje zaproszenia pod
+  // `/zaproszenie/:token` (luka L S2-1 — do rozstrzygnięcia poza tą trasą).
   const inviteUrl = `${getEnv().BASE_URL}/zaproszenie/${token}`;
   return {
     invite: {

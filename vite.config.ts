@@ -22,16 +22,11 @@ export default defineConfig({
         globPatterns: ["**/*.{js,css,svg,ico,woff,woff2}"],
         // Don't try to precache SSR HTML — it's per-user and per-request.
         navigateFallback: null,
-        // Service worker nie cache'uje plików (podpisane URL-e, treść prywatna).
-        // Cache HTTP przeglądarki owszem — `files/$fileId` wysyła
-        // `private, max-age=3600`, a adres jest stabilny dzięki kubełkowaniu `exp`
-        // w `lib/files.ts`. To dwie różne warstwy; ta reguła dotyczy wyłącznie SW.
-        runtimeCaching: [
-          {
-            urlPattern: ({ url }) => url.pathname.startsWith("/files/"),
-            handler: "NetworkOnly",
-          },
-        ],
+        // Reguły `runtimeCaching` nie ma i to jest decyzja, nie przeoczenie:
+        // pliki serwuje dziś BE spod własnego origin (ADR-0023), a `globPatterns`
+        // wyżej obejmuje wyłącznie zasoby statyczne tego origin. Dawna reguła
+        // wyłączała cache SW dla trasy `/files/`, której już nie ma — zostawiona
+        // sugerowałaby, że FE nadal cokolwiek serwuje.
         // RR7 routes are SSR'd; static asset cache shouldn't take over.
         cleanupOutdatedCaches: true,
         skipWaiting: true,

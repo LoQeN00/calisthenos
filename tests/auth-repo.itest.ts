@@ -1,11 +1,12 @@
 // Integration test — run under Docker via testcontainers (owner runs; NOT run in the inner dev loop).
+import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import * as schema from "~/lib/db/schema";
-import { createInvite, findInviteByToken } from "~/lib/auth/invite";
+import { findInviteByToken, hashToken } from "~/lib/auth/invite";
 import { findDisplayName, findUserByEmail } from "~/lib/auth/users";
 
 let container: StartedPostgreSqlContainer;
@@ -30,12 +31,18 @@ beforeAll(async () => {
     .returning({ id: schema.users.id });
   trainerA = tA!.id;
 
-  const created = await createInvite(db, {
+  // Wystawianie zaproszeń przeszło na kontrakt BE (`createInvite(api)`, S2), więc
+  // wiersz pod `findInviteByToken` wstawiamy wprost — z haszem liczonym przez
+  // `hashToken`, bo to zgodność tej pary (surowy token ↔ hasz w bazie) jest
+  // przedmiotem przypadku niżej. Przyjmowanie zaproszeń zostaje na Drizzle do S6.
+  plainToken = randomBytes(32).toString("base64url");
+  await db.insert(schema.invites).values({
     trainerId: trainerA,
     displayName: "Nowy podopieczny",
     email: "nowy@example.com",
+    tokenHash: hashToken(plainToken),
+    expiresAt: new Date(Date.now() + 14 * 24 * 3600 * 1000),
   });
-  plainToken = created.token;
 }, 120000);
 
 afterAll(async () => {

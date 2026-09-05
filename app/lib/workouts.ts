@@ -174,7 +174,7 @@ export async function listMyLogs(api: Api, opts: LogListOpts): Promise<WorkoutLo
 /**
  * Historia podopiecznego oglądana przez trenera — te same filtry. Cudzy
  * podopieczny daje PUSTĄ stronę, nie `404` (tak zdecydował kontrakt), więc
- * o `404` decyduje wcześniejsze `getTraineeOfTrainer` w tej samej trasie.
+ * o `404` decyduje wcześniejsze `findTraineeRef` (`trainees.ts`) w tej samej trasie.
  */
 export async function listTraineeLogs(
   api: Api,
@@ -226,7 +226,7 @@ export async function loadMyLog(api: Api, logId: string): Promise<WorkoutLogDeta
 /**
  * Trening podopiecznego oglądany przez trenera. Parę (podopieczny, log) sprawdza
  * BE — niezgodna albo spoza tenanta to `404`, tu `null`. Nazwy podopiecznego ten
- * widok nie niesie; trasa bierze ją jeszcze z bazy (`getTraineeOfTrainer`).
+ * widok nie niesie; trasa bierze ją z `findTraineeRef` (`trainees.ts`, luka L S5-2).
  */
 export async function loadTraineeLog(
   api: Api,

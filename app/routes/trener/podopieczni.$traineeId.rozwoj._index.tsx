@@ -2,51 +2,44 @@ import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { ProgressionList } from "~/components/progression-list";
 import { SkillTreeView } from "~/components/skill-tree";
 import { requireUser } from "~/lib/api/auth";
-import { db } from "~/lib/db/client";
 import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
-import { findTraineeOfTrainer, listProgressionExercises } from "~/lib/progression";
-import {
-  excludeByExerciseId,
-  sortProgressionRows,
-  summarizeStatuses,
-} from "~/lib/progression-math";
-import { getSkillTreeForTrainee } from "~/lib/skill-tree";
-import { listExerciseSkillMap } from "~/lib/skills";
+import { developmentSortFrom, loadTraineeDevelopment } from "~/lib/skill-tree";
+import { findTraineeRef } from "~/lib/trainees";
+
+// Trener domyślnie ogląda „wymaga uwagi" — kontrakt domyślnie sortuje po
+// „ostatnio trenowane", więc sortowanie idzie do BE zawsze jawnie.
+const DEFAULT_SORT = "attention";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
-  const trainee = await findTraineeOfTrainer(db, user.id, traineeId);
+  // Nazwa do nagłówka i `404` dla cudzego podopiecznego. Widok rozwoju nazwy nie
+  // niesie, a kontrakt nie ma trasy „jeden podopieczny" — moduł składa ją ze
+  // sklejonych stron listy (luka L S5-2).
+  const trainee = await findTraineeRef(api, traineeId);
   if (!trainee) throw new Response("not found", { status: 404 });
   const url = new URL(args.request.url);
 
-  const [tree, allRows, skillMap] = await Promise.all([
-    getSkillTreeForTrainee(db, user.id, traineeId),
-    listProgressionExercises(db, traineeId),
-    listExerciseSkillMap(db, user.id),
-  ]);
-
-  const variantIds = new Set(skillMap.map((s) => s.exerciseId));
-  const rows = excludeByExerciseId(allRows, variantIds);
-  const summary = summarizeStatuses(rows);
-
-  const tagSet = new Set<string>();
-  for (const r of rows) for (const t of r.tags) tagSet.add(t);
-  const tagOptions = [...tagSet].sort((a, b) => a.localeCompare(b, "pl"));
+  // Sort i tag idą do BE PRZED zbudowaniem kontrolek, bo opcje tagów przychodzą
+  // dopiero z odpowiedzią. Nieznaną wartość obu BE ignoruje (`docs/04` §5), więc
+  // `parseListControls` niżej pokaże dokładnie ten stan, który BE zastosował.
+  const sort = developmentSortFrom(url.searchParams.get("sort"), DEFAULT_SORT);
+  const tag = url.searchParams.get("tag") ?? "all";
+  const development = await loadTraineeDevelopment(api, traineeId, { sort, tag });
 
   const spec: ListControlsSpec = {
     sortOptions: [
       { key: "recent", label: "Ostatnio trenowane" },
       { key: "attention", label: "Wymaga uwagi" },
     ],
-    defaultSort: "attention",
+    defaultSort: DEFAULT_SORT,
     filterGroups: [
       {
         param: "tag",
         label: "Kategoria",
         options: [
           { value: "all", label: "Wszystkie" },
-          ...tagOptions.map((t) => ({ value: t, label: t })),
+          ...development.exercises.tagOptions.map((t) => ({ value: t, label: t })),
         ],
         defaultValue: "all",
       },
@@ -54,11 +47,15 @@ export async function loader(args: LoaderFunctionArgs) {
     searchable: false,
   };
   const controls = parseListControls(url.searchParams, spec);
-  const tag = controls.filters.tag ?? "all";
-  const filtered = tag === "all" ? rows : rows.filter((r) => r.tags.includes(tag));
-  const visible = sortProgressionRows(filtered, controls.sort as "recent" | "attention");
 
-  return { trainee, tree, rows: visible, summary, spec, controls };
+  return {
+    trainee,
+    tree: development.tree,
+    rows: development.exercises.items,
+    summary: development.exercises.summary,
+    spec,
+    controls,
+  };
 }
 
 export default function TrenerRozwoj() {

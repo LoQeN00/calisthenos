@@ -93,7 +93,11 @@ export async function getAuthedClient(db: Db, trainerId: string): Promise<Authed
   if (!row) return null;
 
   const e = getEnv();
-  const client = new OAuth2Client(e.GOOGLE_CLIENT_ID, e.GOOGLE_CLIENT_SECRET, e.GOOGLE_REDIRECT_URI);
+  const client = new OAuth2Client(
+    e.GOOGLE_CLIENT_ID,
+    e.GOOGLE_CLIENT_SECRET,
+    e.GOOGLE_REDIRECT_URI,
+  );
   client.setCredentials({
     access_token: decryptToken(row.accessTokenEnc),
     refresh_token: decryptToken(row.refreshTokenEnc),
@@ -103,7 +107,13 @@ export async function getAuthedClient(db: Db, trainerId: string): Promise<Authed
 
   // Persystuj odświeżony access_token (i ewentualnie rotowany refresh_token).
   client.on("tokens", (tokens) => {
-    void persistRefreshed(db, trainerId, tokens.access_token, tokens.expiry_date, tokens.refresh_token);
+    void persistRefreshed(
+      db,
+      trainerId,
+      tokens.access_token,
+      tokens.expiry_date,
+      tokens.refresh_token,
+    );
   });
 
   return { client, calendarId: row.calendarId };
@@ -119,7 +129,9 @@ async function persistRefreshed(
   try {
     // Szyfrowanie WEWNĄTRZ try — błąd encryptToken nie może uciec jako unhandled
     // rejection z listenera 'tokens' (który woła tę funkcję jako fire-and-forget).
-    const set: Partial<typeof schema.googleCalendarConnections.$inferInsert> = { updatedAt: new Date() };
+    const set: Partial<typeof schema.googleCalendarConnections.$inferInsert> = {
+      updatedAt: new Date(),
+    };
     if (accessToken) set.accessTokenEnc = encryptToken(accessToken);
     if (expiryDate) set.tokenExpiry = new Date(expiryDate);
     if (refreshToken) set.refreshTokenEnc = encryptToken(refreshToken);
@@ -130,4 +142,15 @@ async function persistRefreshed(
   } catch {
     // best-effort: błąd szyfrowania/zapisu odświeżonego tokenu nie może wywrócić żądania.
   }
+}
+
+/**
+ * Czy integracja jest dostępna dla trenera (do UI — gate przycisku „Synchronizuj
+ * z Google”). Przeniesione z `sync.ts`, który zniknął razem z synchronizacją po
+ * stronie FE, BEZ zmiany zachowania: pyta o wiersz połączenia w bazie FE, bo
+ * przepływ „Połącz z Google” zostaje tu do decyzji ponad planem (luka LK1).
+ * Samą synchronizację robi BE — `runConsultationSync` w `~/lib/consultations`.
+ */
+export async function isGoogleSyncActive(db: Db, trainerId: string): Promise<boolean> {
+  return (await getConnectionStatus(db, trainerId)).connected;
 }

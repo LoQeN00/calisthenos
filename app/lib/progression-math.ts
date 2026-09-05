@@ -148,7 +148,11 @@ export interface StatusSummary {
   new: number;
 }
 
-/** Mirrors stats.ts getExerciseProgress thresholds: <5 sessions → "new"; ±5% band. */
+/**
+ * Progi statusu: <5 sesji → "new"; pasmo ±5%. Lustrzanym odbiciem był dawny
+ * `getExerciseProgress` ze `stats.ts` — ta funkcja zniknęła razem z resztą
+ * agregacji, więc progi żyją już tylko tutaj.
+ */
 export function classifyStatus(
   recentAvg: number,
   priorAvg: number,

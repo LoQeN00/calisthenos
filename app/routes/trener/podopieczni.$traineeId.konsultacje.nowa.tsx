@@ -11,22 +11,24 @@ import { ConsultationForm } from "~/components/consultation-form";
 import { requireUser } from "~/lib/api/auth";
 import { parseConsultationDocFormData } from "~/lib/consultation-form.server";
 import { ConsultationDocFormSchema } from "~/lib/consultation-types";
+import { ApiError, toRouteResponse } from "~/lib/api/errors";
 import { ConsultationError, createAdhocConsultation } from "~/lib/consultations";
-import { syncUpsertOne } from "~/lib/google/sync";
-import { db } from "~/lib/db/client";
 import { todayISO } from "~/lib/format";
-import { findTraineeOfTrainer } from "~/lib/trainees";
+import { findTraineeRef } from "~/lib/trainees";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
-  const trainee = await findTraineeOfTrainer(db, user.id, traineeId);
+  // Formularz nowego terminu nie pobiera żadnego widoku, z którego dałoby się
+  // wziąć nazwę — jedyne wywołanie tej trasy jest po nią (luka L S5-2). Ono też
+  // daje `404` dla cudzego podopiecznego, zanim formularz się pokaże.
+  const trainee = await findTraineeRef(api, traineeId);
   if (!trainee) throw new Response("not found", { status: 404 });
   return { trainee, defaultScheduledAt: `${todayISO()}T18:00` };
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
   const fd = await args.request.formData();
   const documented = fd.get("intent") === "save-documented";
@@ -34,20 +36,16 @@ export async function action(args: ActionFunctionArgs) {
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Niepoprawne dane." };
   }
-  let id: string;
   try {
-    id = await createAdhocConsultation(db, {
-      trainerId: user.id,
-      traineeId,
-      form: parsed.data,
-      documented,
-    });
+    // Zaplanowany termin trafia do kalendarza zewnętrznego sam — BE wypycha go
+    // przez outbox po zapisie, więc dawne `syncUpsertOne` zniknęło stąd bez
+    // zamiennika. Wynik (identyfikator terminu) nie jest już do niczego
+    // potrzebny: przekierowanie idzie na listę, nie na szczegół.
+    await createAdhocConsultation(api, { traineeId, form: parsed.data, documented });
   } catch (e) {
     if (e instanceof ConsultationError) return { error: e.userMessage };
+    if (e instanceof ApiError) throw toRouteResponse(e);
     throw e;
-  }
-  if (!documented) {
-    await syncUpsertOne(db, { trainerId: user.id, consultationId: id });
   }
   throw redirect(`/trener/podopieczni/${traineeId}/konsultacje`);
 }

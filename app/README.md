@@ -7,8 +7,8 @@ w `README.md` podkatalogów.
 
 | Plik | Rola |
 |---|---|
-| `root.tsx` | Powłoka dokumentu HTML (locale `pl`, motyw z cookie), globalne providery `ToastProvider` + `ConfirmProvider`, nagłówki bezpieczeństwa (CSP, HSTS, X-Content-Type-Options, Referrer-Policy, Permissions-Policy), root loader (leniwe czyszczenie wygasłych sesji), `ErrorBoundary`. |
-| `routes.ts` | Drzewo tras RR7: top-level (`/`, `login`, `wyloguj`, `zaproszenie/:token`, `files/:fileId`) + prefiksy `trener/*` i `podopieczny/*` z layoutami. Każda nowa trasa musi tu trafić. |
+| `root.tsx` | Powłoka dokumentu HTML (locale `pl`, motyw z cookie), globalne providery `ToastProvider` + `ConfirmProvider`, nagłówki bezpieczeństwa (CSP, HSTS, X-Content-Type-Options, Referrer-Policy, Permissions-Policy), middleware sesji (`apiMiddleware`), `ErrorBoundary`. Root loader jest pusty — obie leniwe sprzątaczki (sesje, nagrania-sieroty) przeszły na drugą stronę kontraktu. |
+| `routes.ts` | Drzewo tras RR7: top-level (`/`, `login`, `wyloguj`, `zaproszenie/:token`, `upload/wideo`) + prefiksy `trener/*` i `podopieczny/*` z layoutami. Każda nowa trasa musi tu trafić. |
 
 ## Podkatalogi
 
@@ -16,7 +16,7 @@ w `README.md` podkatalogów.
 |---|---|
 | [`routes/`](routes/README.md) | Trasy (loadery, akcje, komponenty). Podział na [`trener/`](routes/trener/README.md) i [`podopieczny/`](routes/podopieczny/README.md). |
 | [`components/`](components/README.md) | Współdzielone komponenty UI (modale, to'sty, dropzone, ikony, widżety statystyk…). |
-| [`lib/`](lib/README.md) | Logika domenowa + infrastruktura: [`auth/`](lib/auth/README.md), [`db/`](lib/db/README.md), [`storage/`](lib/storage/README.md) oraz moduły domenowe (plany, treningi, statystyki…). |
+| [`lib/`](lib/README.md) | Logika domenowa + infrastruktura: [`api/`](lib/api/README.md), [`auth/`](lib/auth/README.md), [`db/`](lib/db/README.md) oraz moduły domenowe (plany, treningi, statystyki…). Katalog `storage/` zniknął razem z ostatnim zapisem na wolumen FE. |
 | [`styles/`](styles/README.md) | Globalne tokeny CSS (`tokens.css`). |
 
 ---

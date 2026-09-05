@@ -1,89 +1,91 @@
-import { createHash, randomBytes } from "node:crypto";
-import { and, eq, isNull, gt } from "drizzle-orm";
+import { createHash } from "node:crypto";
+import { invitesControllerCreate } from "@kalisthenos/api-client";
+import type { InviteCreatedResponse } from "@kalisthenos/api-client";
+import { and, eq, gt, isNull } from "drizzle-orm";
+import type { Api } from "~/lib/api/client";
+import { ApiError } from "~/lib/api/errors";
 import type { Db } from "../db/client";
 import * as schema from "../db/schema";
-import { attachFormToTrainee, createOnboardingForm } from "../onboarding-forms";
 
-const TOKEN_BYTES = 32;
-const INVITE_DURATION_DAYS = 14;
+// ============================================================
+// Wystawianie zaproszenia — kontrakt BE
+// ============================================================
 
-function newToken(): { token: string; hash: string } {
-  const buf = randomBytes(TOKEN_BYTES);
-  const token = buf.toString("base64url");
-  const hash = createHash("sha256").update(buf).digest("hex");
-  return { token, hash };
+export type { InviteCreatedResponse } from "@kalisthenos/api-client";
+
+/**
+ * Własny typ błędu, bo trasa pokazuje `userMessage` w modalu zaproszenia.
+ * Źródłem `userMessage` jest `message` z koperty BE.
+ */
+export class InviteError extends Error {
+  constructor(
+    message: string,
+    public readonly userMessage: string,
+  ) {
+    super(message);
+  }
 }
+
+export interface CreateInviteInput {
+  displayName: string;
+  email: string | null;
+  /** Kwota subskrypcji ustalona przez trenera; `null` = zaproszenie bez płatności. */
+  monthlyAmountGrosze: number | null;
+  /** Szablon formularza startowego; `null` = zaproszenie bez formularza. */
+  onboardingForm: { exerciseIds: string[]; note: string | null } | null;
+}
+
+/**
+ * Zaproszenie + opcjonalny formularz startowy JEDNYM żądaniem (`POST /v1/invites`).
+ * Atomowość, która do integracji siedziała tu w `db.transaction` (dawne
+ * `createInviteWithOnboarding`), jest teraz sprawą BE: „zaproszenie i formularz
+ * powstają atomowo" (`docs/04` §Zaproszenia), więc nigdy nie powstaje odnośnik do
+ * zaproszenia, któremu formularz nie doszedł. Token generuje i haszuje BE —
+ * w odpowiedzi jest jedyna chwila, w której surowy token opuszcza serwer.
+ *
+ * Ciało składane jawnie pole po polu: BE odrzuca pola spoza DTO, a `trainerId`
+ * wynika z tokenu. Bez `replacesTraineeId` (odnowienie dostępu) — żadna trasa
+ * FE dziś tego nie wystawia.
+ *
+ * Wąsko, do modalu: `404` (ćwiczenie z szablonu spoza biblioteki albo
+ * zarchiwizowane — BE sprawdza to PRZED wstawieniem czegokolwiek), `409`
+ * (`ONBOARDING_FORM_ALREADY_PENDING` przy odnowieniu) i `400` (walidacja BE
+ * ostrzejsza niż Zod). Reszta leci dalej — awaria BE ma zostać awarią.
+ */
+export async function createInvite(
+  api: Api,
+  input: CreateInviteInput,
+): Promise<InviteCreatedResponse> {
+  try {
+    const { data } = await invitesControllerCreate({
+      client: api,
+      body: {
+        displayName: input.displayName,
+        email: input.email,
+        monthlyAmountGrosze: input.monthlyAmountGrosze,
+        onboardingForm:
+          input.onboardingForm == null
+            ? null
+            : { exerciseIds: input.onboardingForm.exerciseIds, note: input.onboardingForm.note },
+      },
+      throwOnError: true,
+    });
+    return data;
+  } catch (e) {
+    if (e instanceof ApiError && (e.status === 400 || e.status === 404 || e.status === 409)) {
+      throw new InviteError(e.code, e.message);
+    }
+    throw e;
+  }
+}
+
+// ============================================================
+// Przyjmowanie zaproszenia — jeszcze na Drizzle (do kroku 6 / S6)
+// ============================================================
 
 export function hashToken(token: string): string {
   const buf = Buffer.from(token, "base64url");
   return createHash("sha256").update(buf).digest("hex");
-}
-
-export interface CreateInviteInput {
-  trainerId: string;
-  displayName: string;
-  email?: string | null;
-  replacesUserId?: string | null;
-  monthlyAmountGrosze?: number | null;
-}
-
-export async function createInvite(db: Db, input: CreateInviteInput) {
-  const { token, hash } = newToken();
-  const expiresAt = new Date(Date.now() + INVITE_DURATION_DAYS * 24 * 3600 * 1000);
-  const [invite] = await db
-    .insert(schema.invites)
-    .values({
-      trainerId: input.trainerId,
-      displayName: input.displayName,
-      email: input.email ?? null,
-      tokenHash: hash,
-      replacesUserId: input.replacesUserId ?? null,
-      monthlyAmountGrosze: input.monthlyAmountGrosze ?? null,
-      expiresAt,
-    })
-    .returning();
-  return { token, invite };
-}
-
-/**
- * Zaproszenie + opcjonalny formularz startowy w JEDNEJ transakcji: albo jedno i drugie,
- * albo nic. Inaczej dałoby się wysłać link do zaproszenia, któremu formularz nie doszedł.
- * `inviteId` bierze się WYŁĄCZNIE z wiersza utworzonego w tej transakcji — nigdy z requestu.
- *
- * Mieszka tutaj, a nie w `onboarding-forms.ts`, bo ten moduł już importuje formularze
- * (`attachFormToTrainee` w `consumeInvite`) — odwrotny import zamknąłby cykl. Zaproszenie
- * jest korzeniem tego agregatu, formularz mu towarzyszy.
- *
- * `OnboardingFormError` przechodzi na zewnątrz — mapuje go trasa.
- */
-export async function createInviteWithOnboarding(
-  db: Db,
-  input: {
-    trainerId: string;
-    displayName: string;
-    email: string | null;
-    monthlyAmountGrosze: number | null;
-    template: { exerciseIds: string[]; note: string | null } | null;
-  },
-): Promise<{ token: string }> {
-  const token = await db.transaction(async (tx) => {
-    const created = await createInvite(tx, {
-      trainerId: input.trainerId,
-      displayName: input.displayName,
-      email: input.email,
-      monthlyAmountGrosze: input.monthlyAmountGrosze,
-    });
-    if (input.template) {
-      await createOnboardingForm(tx, {
-        trainerId: input.trainerId,
-        inviteId: created.invite!.id,
-        exerciseIds: input.template.exerciseIds,
-        note: input.template.note,
-      });
-    }
-    return created.token;
-  });
-  return { token };
 }
 
 /** Zaproszenie po SUROWYM tokenie z URL-a — haszowanie siedzi tutaj, nie w trasie. */
@@ -106,6 +108,37 @@ export interface ConsumeInviteInput {
 export type ConsumeInviteResult =
   | { kind: "created"; user: schema.User }
   | { kind: "replaced"; user: schema.User };
+
+/**
+ * Stempluje `trainee_id` na formularzu należącym do zaproszenia. Wołane
+ * WEWNĄTRZ transakcji `consumeInvite` — konto i przypięcie formularza powstają
+ * albo oba, albo żadne.
+ *
+ * Przeniesione tu z `onboarding-forms.ts` bez zmiany zachowania, gdy tamten
+ * moduł przeszedł w całości na kontrakt (S2): jedynym wołającym jest
+ * `consumeInvite`, a ten zostaje na Drizzle do S6. Prywatne — poza tą
+ * transakcją nie ma czego przypinać.
+ *
+ * Bierze CAŁY wiersz zaproszenia, nie samo `id`: `consumeInvite` ma go już
+ * wczytanego, więc `trainer_id` wchodzi do `WHERE` bez dodatkowego zapytania i
+ * formularza nie da się przypiąć w poprzek tenantów.
+ */
+async function attachFormToTrainee(
+  db: Db,
+  invite: { id: string; trainerId: string },
+  traineeId: string,
+): Promise<void> {
+  await db
+    .update(schema.onboardingForms)
+    .set({ traineeId })
+    .where(
+      and(
+        eq(schema.onboardingForms.inviteId, invite.id),
+        eq(schema.onboardingForms.trainerId, invite.trainerId),
+        isNull(schema.onboardingForms.traineeId),
+      ),
+    );
+}
 
 // Atomically consume an invite token. Concurrency-safe: SELECT ... FOR UPDATE locks the
 // invite row for the duration of the transaction so two simultaneous accept requests

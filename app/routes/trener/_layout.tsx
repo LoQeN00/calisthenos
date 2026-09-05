@@ -2,29 +2,30 @@ import { NavLink, Outlet, useLoaderData, type LoaderFunctionArgs } from "react-r
 import { Icons } from "~/components/icons";
 import { UserMenu } from "~/components/user-menu";
 import { requireUser } from "~/lib/api/auth";
-import { db } from "~/lib/db/client";
-import { countNewForTrainer } from "~/lib/feature-requests";
-import { countTraineesOfTrainer } from "~/lib/trainees";
 import { loadTrainerNavigation } from "~/lib/views";
 
 export async function loader(args: LoaderFunctionArgs) {
   const { api, user } = requireUser(args.context, { role: "trainer" });
 
-  // Jedno wywołanie na ekran. `trainees` i `ideas` zostają na bazie do swoich
-  // obszarów — tam migracja to usunięcie funkcji i wzięcie pola z `nav`.
+  // Jedno wywołanie na CAŁĄ powłokę — `countTraineesOfTrainer` zniknęło razem
+  // z resztą obszaru podopiecznych.
   const nav = await loadTrainerNavigation(api);
-  const traineeCount = await countTraineesOfTrainer(db, user.id);
-  const newIdeas = await countNewForTrainer(db, user.id);
 
   return {
     user,
     tails: {
-      trainees: traineeCount,
+      // Podopieczni z AKTYWNĄ relacją prowadzenia. Do integracji licznik celowo
+      // liczył także zarchiwizowanych; decyzja D3 specu odwróciła tę regułę —
+      // w nawigacji trener chce wiedzieć, ilu prowadzi TERAZ.
+      trainees: nav.trainees,
       exercises: nav.activeExercises,
       // Bez zarchiwizowanych — tak liczy BE (`docs/03`: licznik powłoki liczy
       // jak zakładka „wszystkie" na liście). Do integracji liczył także archiwum.
       plans: nav.plans,
-      ideas: newIdeas,
+      // Wyłącznie zgłoszenia w stanie `new` — tak liczy BE
+      // (`TrainerNavView.newFeatureRequests`): sygnał „przyszło coś nowego",
+      // dlatego NIE liczy wszystkich.
+      ideas: nav.newFeatureRequests,
     },
   };
 }

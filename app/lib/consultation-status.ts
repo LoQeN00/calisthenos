@@ -1,4 +1,7 @@
-import type { ConsultationStatus } from "~/lib/db/schema";
+import type { ConsultationView } from "@kalisthenos/api-client";
+
+// Status z kontraktu, nie ze schematu Drizzle — źródłem zbioru wartości jest BE.
+type ConsultationStatus = ConsultationView["status"];
 
 /**
  * Jedno źródło prawdy dla prezentacji statusu terminu konsultacji — etykieta +

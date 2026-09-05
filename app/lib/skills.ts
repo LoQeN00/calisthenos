@@ -1,9 +1,46 @@
-import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
-import type { Db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
-import { TIER_LABEL, canBePrerequisite, type SkillTier } from "~/lib/skill-tier";
-import { wouldCreateCycle, type Edge } from "~/lib/skill-tree-math";
+import {
+  skillsControllerArchive,
+  skillsControllerById,
+  skillsControllerCreate,
+  skillsControllerCreatePrerequisite,
+  skillsControllerCreateVariation,
+  skillsControllerDeletePrerequisite,
+  skillsControllerDeleteVariation,
+  skillsControllerList,
+  skillsControllerPutOrder,
+  skillsControllerUpdate,
+} from "@kalisthenos/api-client";
+import type {
+  CreatedSkillView,
+  SkillDetailView,
+  SkillListGroup,
+  UpdatedSkillView,
+} from "@kalisthenos/api-client";
+import { orNull } from "~/lib/api/client";
+import type { Api } from "~/lib/api/client";
+import { ApiError } from "~/lib/api/errors";
+import type { SkillTier } from "~/lib/skill-tier";
 
+// Kształty, które czytają trasy i komponenty, wychodzą stąd, nie z pakietu
+// kontraktu: trasa nie ma wiedzieć, skąd biorą się dane (ten sam szew, który
+// pilnuje `no-direct-db`), więc nie importuje `@kalisthenos/api-client` wprost.
+export type {
+  AssignableExerciseView,
+  SkillDetailView,
+  SkillListGroup,
+  SkillListItem,
+  SkillRefView,
+  SkillVariationView,
+  TierConflictView,
+} from "@kalisthenos/api-client";
+
+/**
+ * Własny typ błędu obszaru, bo trasy pokazują `userMessage` w formularzu edytora
+ * i przy awansach (precedens: `PlanError`, `ExerciseError`). Źródłem
+ * `userMessage` jest `message` z koperty BE — po polsku i dla użytkownika.
+ * Dawne zdania składane w FE („Umiejętność o tej nazwie już istnieje.",
+ * „To połączenie utworzyłoby cykl w drzewie.") należą teraz do BE.
+ */
 export class SkillError extends Error {
   constructor(
     message: string,
@@ -13,556 +50,229 @@ export class SkillError extends Error {
   }
 }
 
-export interface SkillListRow {
-  id: string;
-  name: string;
-  description: string;
-  tier: SkillTier;
-  variationCount: number;
+/**
+ * Wąski `catch` zapisów edytora i awansów — wspólny dla `skills.ts`
+ * i `skill-progression.ts`. Trasa pokazuje `userMessage` w formularzu, więc
+ * własny typ dostają: `400` (DTO — Zod stoi pierwszy, ale reguły BE bywają
+ * ostrzejsze, np. lista kolejności niezgodna z drabiną), `404` (umiejętność,
+ * wariant, prerekwizyt albo ćwiczenie z ciała spoza tenanta — §2 `docs/04`
+ * rozciąga „cudzy = nieistniejący" na identyfikatory w ciele; do integracji
+ * te przypadki były zdaniem w formularzu, nie ekranem błędu) oraz `409`
+ * (niezmienniki: cykl, prerekwizyt o wyższym stopniu, ćwiczenie już wariantem
+ * albo zarchiwizowane, wariant użyty w historii awansów, drugi poziom startowy,
+ * awans na poziom bieżący). Reszta leci dalej — awaria BE ma zostać awarią.
+ */
+export function toSkillError(e: unknown): never {
+  if (e instanceof ApiError && (e.status === 400 || e.status === 404 || e.status === 409)) {
+    throw new SkillError(e.code, e.message);
+  }
+  throw e;
 }
 
-/** Aktywne umiejętności trenera + liczba wariantów. */
-export async function listSkillsForTrainer(db: Db, trainerId: string): Promise<SkillListRow[]> {
-  const rows = await db
-    .select({
-      id: schema.skills.id,
-      name: schema.skills.name,
-      description: schema.skills.description,
-      tier: schema.skills.tier,
-      variationCount: sql<number>`COUNT(${schema.skillVariations.id})::int`,
-    })
-    .from(schema.skills)
-    .leftJoin(schema.skillVariations, eq(schema.skillVariations.skillId, schema.skills.id))
-    .where(and(eq(schema.skills.trainerId, trainerId), isNull(schema.skills.archivedAt)))
-    .groupBy(schema.skills.id)
-    .orderBy(asc(schema.skills.name));
-  return rows.map((r) => ({ ...r, variationCount: Number(r.variationCount) }));
+// ---------------- Reads ----------------
+
+/**
+ * Aktywne umiejętności trenera POGRUPOWANE po stopniu (`docs/04` §Umiejętności —
+ * definicje), bez stronicowania, każda z liczbą wariantów. Kontrakt nie ma
+ * sortowania ani filtra stopnia, więc obie kontrolki listy zostają w trasie —
+ * lista i tak przychodzi w całości, a słownik „dla symetrii" byłby zmyślony.
+ * `tier` stoi na grupie, nie na pozycji: dawny płaski `SkillListRow` zniknął.
+ */
+export async function listSkillsForTrainer(api: Api): Promise<SkillListGroup[]> {
+  const { data } = await skillsControllerList({ client: api, throwOnError: true });
+  return data;
 }
 
-export interface VariationRow {
-  id: string;
-  exerciseId: string;
-  ordinal: number;
-  exerciseName: string;
-  unit: "REPS" | "SEC";
-}
-
-export interface SkillDetail {
-  id: string;
-  name: string;
-  description: string;
-  tier: SkillTier;
-  variations: VariationRow[]; // posortowane rosnąco po ordinal
-}
-
-/** Umiejętność trenera z wariantami. null gdy nie istnieje / nie jego (→ 404). */
+/**
+ * Szczegół do edytora — RAZEM z listami pomocniczymi: prerekwizyty, kandydaci
+ * na prerekwizyt (liczeni po tamtej stronie „tą samą regułą, którą waliduje
+ * dodanie" — docblok kontraktu, więc picker nie proponuje niczego, co akcja
+ * odrzuci), konflikty stopni powstałe przez późniejszą zmianę stopnia oraz
+ * ćwiczenia wolne do przypięcia jako wariant. Cztery dawne funkcje
+ * (`listPrerequisitesForSkill`, `listAssignablePrerequisites`,
+ * `listConflictingPrerequisites`, `listAssignableExercises`) są polami tej
+ * odpowiedzi — jedno wywołanie zamiast pięciu. Nazwa została dla wołających;
+ * `| null` w sygnaturze mapuje `404` przez `orNull` (cudza umiejętność jest
+ * nieodróżnialna od nieistniejącej).
+ */
 export async function getSkillWithVariations(
-  db: Db,
-  trainerId: string,
+  api: Api,
   skillId: string,
-): Promise<SkillDetail | null> {
-  const [skill] = await db
-    .select()
-    .from(schema.skills)
-    .where(and(eq(schema.skills.id, skillId), eq(schema.skills.trainerId, trainerId)))
-    .limit(1);
-  if (!skill) return null;
-
-  const variations = await db
-    .select({
-      id: schema.skillVariations.id,
-      exerciseId: schema.skillVariations.exerciseId,
-      ordinal: schema.skillVariations.ordinal,
-      exerciseName: schema.exercises.name,
-      unit: schema.exercises.unit,
-    })
-    .from(schema.skillVariations)
-    .innerJoin(schema.exercises, eq(schema.exercises.id, schema.skillVariations.exerciseId))
-    .where(eq(schema.skillVariations.skillId, skillId))
-    .orderBy(asc(schema.skillVariations.ordinal));
-
-  return {
-    id: skill.id,
-    name: skill.name,
-    description: skill.description,
-    tier: skill.tier,
-    variations,
-  };
-}
-
-export async function createSkill(
-  db: Db,
-  trainerId: string,
-  name: string,
-  description: string,
-  tier: SkillTier,
-): Promise<schema.Skill> {
-  try {
-    const [row] = await db
-      .insert(schema.skills)
-      .values({ trainerId, name, description, tier })
-      .returning();
-    return row!;
-  } catch (e) {
-    if (e instanceof Error && e.message.includes("skills_trainer_name_uniq")) {
-      throw new SkillError("duplicate", "Umiejętność o tej nazwie już istnieje.");
-    }
-    throw e;
-  }
-}
-
-/**
- * Uwaga: celowo NIE waliduje kolizji tieru z istniejącymi krawędziami prerekwizytów —
- * zmiana tieru zawsze przechodzi (spec §6.2). Ostrzeżenie o kolizji pokazuje edytor
- * (Task 6) na podstawie `listConflictingPrerequisites`.
- */
-export async function updateSkill(
-  db: Db,
-  trainerId: string,
-  skillId: string,
-  name: string,
-  description: string,
-  tier: SkillTier,
-): Promise<void> {
-  try {
-    await db
-      .update(schema.skills)
-      .set({ name, description, tier })
-      .where(and(eq(schema.skills.id, skillId), eq(schema.skills.trainerId, trainerId)));
-  } catch (e) {
-    if (e instanceof Error && e.message.includes("skills_trainer_name_uniq")) {
-      throw new SkillError("duplicate", "Umiejętność o tej nazwie już istnieje.");
-    }
-    throw e;
-  }
-}
-
-export async function archiveSkill(db: Db, trainerId: string, skillId: string): Promise<void> {
-  await db.transaction(async (tx) => {
-    await tx
-      .update(schema.skills)
-      .set({ archivedAt: sql`now()` })
-      .where(and(eq(schema.skills.id, skillId), eq(schema.skills.trainerId, trainerId)));
-    // Usuń krawędzie prerekwizytów dotyczące tej umiejętności (jako zależnej i jako
-    // prereka). Inaczej zostałyby osierocone w DB — niewidoczne dziś (drzewo pomija
-    // krawędzie zarchiwizowanych, skill-tree.ts), ale wróciłyby przy ewentualnym
-    // odarchiwizowaniu i rosłyby jako martwe dane.
-    await tx
-      .delete(schema.skillPrerequisites)
-      .where(
-        and(
-          eq(schema.skillPrerequisites.trainerId, trainerId),
-          or(
-            eq(schema.skillPrerequisites.skillId, skillId),
-            eq(schema.skillPrerequisites.requiresSkillId, skillId),
-          ),
-        ),
-      );
-  });
-}
-
-/**
- * Jeśli ćwiczenie jest wariantem AKTYWNEJ umiejętności trenera — zwraca jej nazwę;
- * inaczej null. Używane, by zablokować archiwizację ćwiczenia, które wisi w drzewie
- * umiejętności (inwariant: wariant aktywnej umiejętności nigdy nie wskazuje
- * zarchiwizowanego ćwiczenia → drzewo/mapa pozostają spójne z biblioteką).
- */
-export async function findSkillForExercise(
-  db: Db,
-  trainerId: string,
-  exerciseId: string,
-): Promise<{ skillId: string; skillName: string } | null> {
-  const [row] = await db
-    .select({ skillId: schema.skills.id, skillName: schema.skills.name })
-    .from(schema.skillVariations)
-    .innerJoin(schema.skills, eq(schema.skills.id, schema.skillVariations.skillId))
-    .where(
-      and(
-        eq(schema.skillVariations.exerciseId, exerciseId),
-        eq(schema.skills.trainerId, trainerId),
-        isNull(schema.skills.archivedAt),
-      ),
-    )
-    .limit(1);
-  return row ?? null;
-}
-
-/**
- * Dodaje wariant na koniec drabiny (ordinal = max+1). Weryfikuje, że i umiejętność,
- * i ćwiczenie należą do trenera. Łamie UNIQUE(exercise_id) → przyjazny błąd.
- */
-export async function addVariation(
-  db: Db,
-  trainerId: string,
-  skillId: string,
-  exerciseId: string,
-): Promise<void> {
-  const [skill] = await db
-    .select({ id: schema.skills.id })
-    .from(schema.skills)
-    .where(and(eq(schema.skills.id, skillId), eq(schema.skills.trainerId, trainerId)))
-    .limit(1);
-  if (!skill) throw new SkillError("not found", "Nie znaleziono umiejętności.");
-
-  const [exercise] = await db
-    .select({ id: schema.exercises.id, archivedAt: schema.exercises.archivedAt })
-    .from(schema.exercises)
-    .where(and(eq(schema.exercises.id, exerciseId), eq(schema.exercises.trainerId, trainerId)))
-    .limit(1);
-  if (!exercise) throw new SkillError("not found", "Nie znaleziono ćwiczenia.");
-  // Picker `listAssignableExercises` już odfiltrowuje zarchiwizowane, ale akcja musi
-  // walidować samodzielnie (bezpośredni POST mógłby ominąć picker).
-  if (exercise.archivedAt != null) {
-    throw new SkillError("archived", "Nie można dodać zarchiwizowanego ćwiczenia jako wariantu.");
-  }
-
-  const [maxRow] = await db
-    .select({ m: sql<number>`COALESCE(MAX(${schema.skillVariations.ordinal}), 0)::int` })
-    .from(schema.skillVariations)
-    .where(eq(schema.skillVariations.skillId, skillId));
-  const nextOrdinal = Number(maxRow?.m ?? 0) + 1;
-
-  try {
-    await db.insert(schema.skillVariations).values({ skillId, exerciseId, ordinal: nextOrdinal });
-  } catch (e) {
-    // Postgres unique-violation (23505) wraca jako zwykły Error z postgres-js; klasyfikujemy po nazwie indeksu.
-    if (e instanceof Error && e.message.includes("skill_variations_exercise_uniq")) {
-      throw new SkillError("exercise taken", "To ćwiczenie jest już wariantem innej umiejętności.");
-    }
-    // Wyścig: dwa równoległe addVariation policzyły ten sam max(ordinal)+1 → kolizja na (skill_id, ordinal).
-    if (e instanceof Error && e.message.includes("skill_variations_skill_ordinal_uniq")) {
-      throw new SkillError("ordinal race", "Nie udało się dodać wariantu — spróbuj ponownie.");
-    }
-    throw e;
-  }
-}
-
-/** Usuwa wariant (jeśli należy do umiejętności trenera). RESTRICT z awansów → przyjazny błąd. */
-export async function removeVariation(
-  db: Db,
-  trainerId: string,
-  skillId: string,
-  variationId: string,
-): Promise<void> {
-  const [v] = await db
-    .select({ id: schema.skillVariations.id })
-    .from(schema.skillVariations)
-    .innerJoin(schema.skills, eq(schema.skills.id, schema.skillVariations.skillId))
-    .where(
-      and(
-        eq(schema.skillVariations.id, variationId),
-        eq(schema.skillVariations.skillId, skillId),
-        eq(schema.skills.trainerId, trainerId),
-      ),
-    )
-    .limit(1);
-  if (!v) throw new SkillError("not found", "Nie znaleziono wariantu.");
-
-  try {
-    await db.transaction(async (tx) => {
-      await tx.delete(schema.skillVariations).where(eq(schema.skillVariations.id, variationId));
-      // Przepakuj ordinale pozostałych wariantów do 1..n (bez dziur). Dwufazowo
-      // przez wartości ujemne, by nie złamać UNIQUE(skill_id, ordinal) — jak w
-      // reorderVariations.
-      const remaining = await tx
-        .select({ id: schema.skillVariations.id })
-        .from(schema.skillVariations)
-        .where(eq(schema.skillVariations.skillId, skillId))
-        .orderBy(asc(schema.skillVariations.ordinal));
-      for (let i = 0; i < remaining.length; i++) {
-        await tx
-          .update(schema.skillVariations)
-          .set({ ordinal: -(i + 1) })
-          .where(eq(schema.skillVariations.id, remaining[i]!.id));
-      }
-      for (let i = 0; i < remaining.length; i++) {
-        await tx
-          .update(schema.skillVariations)
-          .set({ ordinal: i + 1 })
-          .where(eq(schema.skillVariations.id, remaining[i]!.id));
-      }
-    });
-  } catch (e) {
-    // 23503 = foreign_key_violation: awans (RESTRICT) wskazuje ten wariant. Komunikat PG
-    // zawiera nazwę tabeli odnoszącej się — "skill_advancements" — stąd dopasowanie po podłańcuchu.
-    if (e instanceof Error && e.message.includes("skill_advancements")) {
-      throw new SkillError(
-        "referenced",
-        "Nie można usunąć — ten wariant jest użyty w historii awansów. Zarchiwizuj umiejętność zamiast tego.",
-      );
-    }
-    throw e;
-  }
-}
-
-/**
- * Ustawia kolejność wariantów wg podanej listy id. W transakcji, dwufazowo,
- * by nie złamać UNIQUE(skill_id, ordinal): najpierw ordinale ujemne, potem docelowe.
- * Lista musi zawierać DOKŁADNIE bieżące warianty umiejętności.
- */
-export async function reorderVariations(
-  db: Db,
-  trainerId: string,
-  skillId: string,
-  variationIds: string[],
-): Promise<void> {
-  await db.transaction(async (tx) => {
-    // Jawna weryfikacja własności umiejętności — także dla przypadku pustej listy
-    // wariantów, gdzie sama porównawcza bramka niżej przeszłaby pusto (no-op).
-    const [skill] = await tx
-      .select({ id: schema.skills.id })
-      .from(schema.skills)
-      .where(and(eq(schema.skills.id, skillId), eq(schema.skills.trainerId, trainerId)))
-      .limit(1);
-    if (!skill) throw new SkillError("not found", "Nie znaleziono umiejętności.");
-
-    const current = await tx
-      .select({ id: schema.skillVariations.id })
-      .from(schema.skillVariations)
-      .innerJoin(schema.skills, eq(schema.skills.id, schema.skillVariations.skillId))
-      .where(
-        and(eq(schema.skillVariations.skillId, skillId), eq(schema.skills.trainerId, trainerId)),
-      );
-    const currentIds = new Set(current.map((c) => c.id));
-    // Porównanie rozmiaru + sprawdzenie nieznanych id odrzuca też duplikaty w wejściu
-    // (duplikat nie powiększa zbioru, więc rozmiary się rozjadą).
-    if (currentIds.size !== variationIds.length || variationIds.some((id) => !currentIds.has(id))) {
-      throw new SkillError("mismatch", "Lista wariantów nie zgadza się z umiejętnością.");
-    }
-    for (let i = 0; i < variationIds.length; i++) {
-      await tx
-        .update(schema.skillVariations)
-        .set({ ordinal: -(i + 1) })
-        .where(eq(schema.skillVariations.id, variationIds[i]!));
-    }
-    for (let i = 0; i < variationIds.length; i++) {
-      await tx
-        .update(schema.skillVariations)
-        .set({ ordinal: i + 1 })
-        .where(eq(schema.skillVariations.id, variationIds[i]!));
-    }
-  });
-}
-
-/**
- * Ćwiczenia trenera, które NIE są jeszcze wariantem żadnej umiejętności (do pickera).
- * Pojedynczy LEFT JOIN + `skill_variations.id IS NULL` — bez ładowania listy id do pamięci.
- * (UNIQUE(exercise_id) gwarantuje co najwyżej jeden join na ćwiczenie, więc brak duplikatów.)
- */
-export async function listAssignableExercises(
-  db: Db,
-  trainerId: string,
-): Promise<Array<{ id: string; name: string; unit: "REPS" | "SEC" }>> {
-  return await db
-    .select({ id: schema.exercises.id, name: schema.exercises.name, unit: schema.exercises.unit })
-    .from(schema.exercises)
-    .leftJoin(schema.skillVariations, eq(schema.skillVariations.exerciseId, schema.exercises.id))
-    .where(
-      and(
-        eq(schema.exercises.trainerId, trainerId),
-        isNull(schema.exercises.archivedAt),
-        isNull(schema.skillVariations.id),
-      ),
-    )
-    .orderBy(asc(schema.exercises.name));
-}
-
-/**
- * Mapa: ćwiczenie → umiejętność, do której należy (aktywne umiejętności trenera).
- * Używane przez listę Progresji, by pokazać chip „część umiejętności: …" linkujący
- * do drabiny. Jeden wiersz na wariant (UNIQUE(exercise_id) → brak duplikatów).
- */
-export async function listExerciseSkillMap(
-  db: Db,
-  trainerId: string,
-): Promise<Array<{ exerciseId: string; skillId: string; skillName: string }>> {
-  return await db
-    .select({
-      exerciseId: schema.skillVariations.exerciseId,
-      skillId: schema.skills.id,
-      skillName: schema.skills.name,
-    })
-    .from(schema.skillVariations)
-    .innerJoin(schema.skills, eq(schema.skills.id, schema.skillVariations.skillId))
-    .innerJoin(schema.exercises, eq(schema.exercises.id, schema.skillVariations.exerciseId))
-    .where(
-      and(
-        eq(schema.skills.trainerId, trainerId),
-        isNull(schema.skills.archivedAt),
-        isNull(schema.exercises.archivedAt),
-      ),
-    );
-}
-
-/** Wszystkie krawędzie prerekwizytów trenera (do wykrywania cykli i budowy drzewa). */
-async function listEdgesForTrainer(db: Db, trainerId: string): Promise<Edge[]> {
-  const rows = await db
-    .select({
-      from: schema.skillPrerequisites.skillId,
-      requires: schema.skillPrerequisites.requiresSkillId,
-    })
-    .from(schema.skillPrerequisites)
-    .where(eq(schema.skillPrerequisites.trainerId, trainerId));
-  return rows.map((r) => ({ from: r.from, requires: r.requires }));
-}
-
-interface OwnedSkillRow {
-  id: string;
-  name: string;
-  tier: SkillTier;
-}
-
-/**
- * Zwraca obie umiejętności, gdy OBIE należą do trenera i są aktywne; inaczej null.
- * Musi być wołane PRZED porównaniem tierów — inaczej komunikat błędu zdradzałby
- * tier cudzej umiejętności.
- */
-async function loadPairForPrerequisite(
-  db: Db,
-  trainerId: string,
-  skillId: string,
-  requiresSkillId: string,
-): Promise<{ skill: OwnedSkillRow; requires: OwnedSkillRow } | null> {
-  const rows = await db
-    .select({ id: schema.skills.id, name: schema.skills.name, tier: schema.skills.tier })
-    .from(schema.skills)
-    .where(
-      and(
-        eq(schema.skills.trainerId, trainerId),
-        isNull(schema.skills.archivedAt),
-        inArray(schema.skills.id, [skillId, requiresSkillId]),
-      ),
-    );
-  const byId = new Map(rows.map((r) => [r.id, r]));
-  const skill = byId.get(skillId);
-  const requires = byId.get(requiresSkillId);
-  if (!skill || !requires) return null;
-  return { skill, requires };
-}
-
-/** Dodaje krawędź „skillId wymaga requiresSkillId". Odrzuca obce, samopętlę, wyższy tier, cykl, duplikat. */
-export async function addPrerequisite(
-  db: Db,
-  trainerId: string,
-  skillId: string,
-  requiresSkillId: string,
-): Promise<void> {
-  if (skillId === requiresSkillId) {
-    throw new SkillError("self loop", "Umiejętność nie może wymagać samej siebie.");
-  }
-  const pair = await loadPairForPrerequisite(db, trainerId, skillId, requiresSkillId);
-  if (!pair) {
-    throw new SkillError("not found", "Nie znaleziono umiejętności.");
-  }
-  // Reguła piramidy: prerekwizyt nie może być trudniejszy od tego, co odblokowuje.
-  if (!canBePrerequisite(pair.requires.tier, pair.skill.tier)) {
-    throw new SkillError(
-      "tier order",
-      `Prerekwizyt nie może być trudniejszy od umiejętności, która go wymaga: „${pair.requires.name}” to ${TIER_LABEL[pair.requires.tier].toUpperCase()}, a „${pair.skill.name}” to ${TIER_LABEL[pair.skill.tier].toUpperCase()}.`,
-    );
-  }
-  const edges = await listEdgesForTrainer(db, trainerId);
-  if (wouldCreateCycle(edges, skillId, requiresSkillId)) {
-    throw new SkillError("cycle", "To połączenie utworzyłoby cykl w drzewie.");
-  }
-  try {
-    await db.insert(schema.skillPrerequisites).values({ trainerId, skillId, requiresSkillId });
-  } catch (e) {
-    if (e instanceof Error && e.message.includes("skill_prerequisites_edge_uniq")) {
-      throw new SkillError("duplicate", "Ten prerekwizyt jest już dodany.");
-    }
-    throw e;
-  }
-}
-
-/** Usuwa krawędź (jeśli należy do trenera). */
-export async function removePrerequisite(
-  db: Db,
-  trainerId: string,
-  skillId: string,
-  requiresSkillId: string,
-): Promise<void> {
-  await db
-    .delete(schema.skillPrerequisites)
-    .where(
-      and(
-        eq(schema.skillPrerequisites.trainerId, trainerId),
-        eq(schema.skillPrerequisites.skillId, skillId),
-        eq(schema.skillPrerequisites.requiresSkillId, requiresSkillId),
-      ),
-    );
-}
-
-/** Prerekwizyty danej umiejętności (do edytora „Wymaga:"). */
-export async function listPrerequisitesForSkill(
-  db: Db,
-  trainerId: string,
-  skillId: string,
-): Promise<Array<{ id: string; name: string; tier: SkillTier }>> {
-  return await db
-    .select({
-      id: schema.skills.id,
-      name: schema.skills.name,
-      tier: schema.skills.tier,
-    })
-    .from(schema.skillPrerequisites)
-    .innerJoin(schema.skills, eq(schema.skills.id, schema.skillPrerequisites.requiresSkillId))
-    .where(
-      and(
-        eq(schema.skillPrerequisites.trainerId, trainerId),
-        eq(schema.skillPrerequisites.skillId, skillId),
-        eq(schema.skills.trainerId, trainerId),
-      ),
-    )
-    .orderBy(asc(schema.skills.name));
-}
-
-/**
- * Umiejętności trenera, które MOŻNA dodać jako prereq danej: bez siebie, bez już
- * dodanych, bez wyższego tieru i bez tych, które domknęłyby cykl. Aktywne.
- * Picker musi zgadzać się z walidacją w `addPrerequisite` — inaczej UI proponuje
- * coś, co akcja odrzuci.
- */
-export async function listAssignablePrerequisites(
-  db: Db,
-  trainerId: string,
-  skillId: string,
-): Promise<Array<{ id: string; name: string; tier: SkillTier }>> {
-  const all = await db
-    .select({ id: schema.skills.id, name: schema.skills.name, tier: schema.skills.tier })
-    .from(schema.skills)
-    .where(and(eq(schema.skills.trainerId, trainerId), isNull(schema.skills.archivedAt)))
-    .orderBy(asc(schema.skills.name));
-  const self = all.find((s) => s.id === skillId);
-  // Nie nasza / zarchiwizowana umiejętność — nie proponujemy niczego.
-  if (!self) return [];
-  const edges = await listEdgesForTrainer(db, trainerId);
-  const existing = new Set(edges.filter((e) => e.from === skillId).map((e) => e.requires));
-  return all.filter(
-    (s) =>
-      s.id !== skillId &&
-      !existing.has(s.id) &&
-      canBePrerequisite(s.tier, self.tier) &&
-      !wouldCreateCycle(edges, skillId, s.id),
+): Promise<SkillDetailView | null> {
+  return await orNull(
+    skillsControllerById({ client: api, path: { id: skillId }, throwOnError: true }).then(
+      (r) => r.data,
+    ),
   );
 }
 
+// ---------------- Writes ----------------
+
 /**
- * Prereki danej umiejętności o WYŻSZYM tierze. Niemożliwe do utworzenia przez
- * `addPrerequisite`, ale osiągalne przez późniejszą zmianę tieru (spec §6.2) —
- * edytor pokazuje je jako ostrzeżenie, drzewo rysuje wyróżnionym stylem.
+ * Unikat nazwy w obrębie trenera pilnuje BE — do integracji był to kod
+ * Postgresa łapany po nazwie indeksu `skills_trainer_name_uniq`; teraz to `409`
+ * z komunikatem z koperty. Ciało składane jawnie pole po polu: BE odrzuca pola
+ * spoza DTO, a `trainerId` nie jest już żadnym z nich.
  */
-export async function listConflictingPrerequisites(
-  db: Db,
-  trainerId: string,
+export async function createSkill(
+  api: Api,
+  name: string,
+  description: string,
+  tier: SkillTier,
+): Promise<CreatedSkillView> {
+  try {
+    const { data } = await skillsControllerCreate({
+      client: api,
+      body: { name, description, tier },
+      throwOnError: true,
+    });
+    return data;
+  } catch (e) {
+    return toSkillError(e);
+  }
+}
+
+/**
+ * `PATCH` jest tu PEŁNYM zastąpieniem: wszystkie trzy pola wymagane, pominięte
+ * daje `400` (`docs/04`) — inaczej niż `PATCH /v1/exercises/{id}`. Zmiana stopnia
+ * celowo nie jest blokowana przy istniejących krawędziach (spec §6.2 — tak samo
+ * jak dotychczas); konflikty wracają w odpowiedzi i tak samo w szczególe, skąd
+ * czyta je ostrzeżenie edytora.
+ */
+export async function updateSkill(
+  api: Api,
   skillId: string,
-): Promise<Array<{ id: string; name: string; tier: SkillTier }>> {
-  const [skill] = await db
-    .select({ tier: schema.skills.tier })
-    .from(schema.skills)
-    .where(and(eq(schema.skills.id, skillId), eq(schema.skills.trainerId, trainerId)))
-    .limit(1);
-  if (!skill) return [];
-  const prereqs = await listPrerequisitesForSkill(db, trainerId, skillId);
-  return prereqs.filter((p) => !canBePrerequisite(p.tier, skill.tier));
+  name: string,
+  description: string,
+  tier: SkillTier,
+): Promise<UpdatedSkillView> {
+  try {
+    const { data } = await skillsControllerUpdate({
+      client: api,
+      path: { id: skillId },
+      body: { name, description, tier },
+      throwOnError: true,
+    });
+    return data;
+  } catch (e) {
+    return toSkillError(e);
+  }
+}
+
+/**
+ * Archiwizacja czyści krawędzie prerekwizytów po stronie BE (docblok kontraktu)
+ * — dawna transakcja z `DELETE skill_prerequisites` w tym module zniknęła.
+ * Historia awansów podopiecznych zostaje.
+ */
+export async function archiveSkill(api: Api, skillId: string): Promise<void> {
+  try {
+    await skillsControllerArchive({ client: api, path: { id: skillId }, throwOnError: true });
+  } catch (e) {
+    toSkillError(e);
+  }
+}
+
+/**
+ * Dołącza ćwiczenie na koniec drabiny. Własność ćwiczenia, jego stan
+ * (zarchiwizowane → `409`) i unikat „ćwiczenie jest wariantem jednej
+ * umiejętności" (`409`) są regułami BE — picker w szczególe pokazuje wyłącznie
+ * wolne i aktywne, ale POST wprost trafia na te same sprawdzenia. Wyścig na
+ * `ordinal` przestał być sprawą FE.
+ */
+export async function addVariation(api: Api, skillId: string, exerciseId: string): Promise<void> {
+  try {
+    await skillsControllerCreateVariation({
+      client: api,
+      path: { id: skillId },
+      body: { exerciseId },
+      throwOnError: true,
+    });
+  } catch (e) {
+    toSkillError(e);
+  }
+}
+
+/**
+ * Usuwa wariant; przepakowanie kolejności bez dziur robi BE. `409`, gdy istnieją
+ * zdarzenia awansu wskazujące ten wariant — dawniej FE dopisywał do tego zdania
+ * „Zarchiwizuj umiejętność zamiast tego", teraz treść należy do koperty BE.
+ */
+export async function removeVariation(
+  api: Api,
+  skillId: string,
+  variationId: string,
+): Promise<void> {
+  try {
+    await skillsControllerDeleteVariation({
+      client: api,
+      path: { id: skillId, variationId },
+      throwOnError: true,
+    });
+  } catch (e) {
+    toSkillError(e);
+  }
+}
+
+/**
+ * Ustala kolejność drabiny wg listy identyfikatorów. Lista musi zawierać
+ * DOKŁADNIE bieżące warianty — porównanie zbiorów i dwufazową zmianę ordinali
+ * (obejście `UNIQUE(skill_id, ordinal)`) trzyma teraz BE.
+ */
+export async function reorderVariations(
+  api: Api,
+  skillId: string,
+  variationIds: string[],
+): Promise<void> {
+  try {
+    await skillsControllerPutOrder({
+      client: api,
+      path: { id: skillId },
+      body: { order: variationIds },
+      throwOnError: true,
+    });
+  } catch (e) {
+    toSkillError(e);
+  }
+}
+
+/**
+ * Dodaje krawędź „skillId wymaga requiresSkillId". BEZ pre-checków: samopętla,
+ * cykl, prerekwizyt o wyższym stopniu i duplikat wracają jako `409` z BE
+ * (docblok: „409 przy cyklu oraz przy prerekwizycie o wyższym stopniu").
+ * Dawne `wouldCreateCycle` i `canBePrerequisite` w tym module zniknęły —
+ * kandydatów w pickerze liczy BE tą samą regułą, więc obie strony nie mogą
+ * się rozjechać.
+ */
+export async function addPrerequisite(
+  api: Api,
+  skillId: string,
+  requiresSkillId: string,
+): Promise<void> {
+  try {
+    await skillsControllerCreatePrerequisite({
+      client: api,
+      path: { id: skillId },
+      body: { requiresSkillId },
+      throwOnError: true,
+    });
+  } catch (e) {
+    toSkillError(e);
+  }
+}
+
+/** Usuwa krawędź prerekwizytu. Cudza umiejętność to `404`, tu `SkillError` do formularza. */
+export async function removePrerequisite(
+  api: Api,
+  skillId: string,
+  requiresSkillId: string,
+): Promise<void> {
+  try {
+    await skillsControllerDeletePrerequisite({
+      client: api,
+      path: { id: skillId, requiresSkillId },
+      throwOnError: true,
+    });
+  } catch (e) {
+    toSkillError(e);
+  }
 }

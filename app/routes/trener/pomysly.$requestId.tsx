@@ -9,7 +9,7 @@ import {
 } from "react-router";
 import { FeatureRequestBadge } from "~/components/feature-request-badge";
 import { requireUser } from "~/lib/api/auth";
-import { db } from "~/lib/db/client";
+import { ApiError, toRouteResponse } from "~/lib/api/errors";
 import {
   FEATURE_REQUEST_STATUSES,
   FeatureRequestResponseSchema,
@@ -24,15 +24,16 @@ import {
 import { fmtDate } from "~/lib/format";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainer" });
-  const request = await getForTrainer(db, user.id, args.params.requestId ?? "");
-  // Cudze zgłoszenie = 404, nie 403 — nie potwierdzamy, że taki wiersz istnieje.
+  const { api } = requireUser(args.context, { role: "trainer" });
+  const request = await getForTrainer(api, args.params.requestId ?? "");
+  // Cudze zgłoszenie = 404, nie 403 — po stronie BE jest nieodróżnialne od
+  // nieistniejącego, a moduł oddaje to jako `null`.
   if (request == null) throw new Response("Not Found", { status: 404 });
   return { request };
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const fd = await args.request.formData();
   const parsed = FeatureRequestResponseSchema.safeParse({
     status: String(fd.get("status") ?? ""),
@@ -43,15 +44,17 @@ export async function action(args: ActionFunctionArgs) {
   }
 
   try {
-    await respondToFeatureRequest(db, {
-      trainerId: user.id,
+    await respondToFeatureRequest(api, {
       id: args.params.requestId ?? "",
       status: parsed.data.status,
       response: parsed.data.response,
     });
     return { ok: "Zapisano.", error: null };
   } catch (e) {
-    if (e instanceof FeatureRequestError) throw new Response("Not Found", { status: 404 });
+    if (e instanceof FeatureRequestError) return { ok: null, error: e.userMessage };
+    // Obcy identyfikator kończy się `404` z BE — `toRouteResponse` robi z niego
+    // odpowiedź 404, nie komunikat, tak jak do integracji.
+    if (e instanceof ApiError) throw toRouteResponse(e);
     throw e;
   }
 }
@@ -67,7 +70,7 @@ export default function ZgloszenieTrenera() {
       <div className="crumbs">
         <Link to="/trener/pomysly">Pomysły</Link>
         <span>·</span>
-        <span>{request.traineeName}</span>
+        <span>{request.authorName}</span>
       </div>
 
       <div className="pagehead">
@@ -76,7 +79,7 @@ export default function ZgloszenieTrenera() {
           <div className="sub row wrap" style={{ gap: 8, alignItems: "center" }}>
             <span className="badge">{KIND_LABEL[request.kind]}</span>
             <FeatureRequestBadge status={request.status} />
-            <span className="text-xs muted mono">{fmtDate(request.createdAtISO)}</span>
+            <span className="text-xs muted mono">{fmtDate(request.createdAt)}</span>
           </div>
         </div>
       </div>

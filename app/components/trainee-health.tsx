@@ -1,21 +1,18 @@
 import { Link } from "react-router";
 import { Icons } from "~/components/icons";
-import {
-  Heatmap,
-  SegmentedBar,
-  SegmentedBarLegend,
-  type BarSegment,
-} from "~/components/stat-widgets";
+import { SegmentedBar, SegmentedBarLegend, type BarSegment } from "~/components/stat-widgets";
 import { daysAgo } from "~/lib/format";
+// Kształty przeglądu klienta przychodzą z kontraktu (`stats.ts` je re-eksportuje).
+// Karta mapy aktywności zniknęła stąd razem z `getActivityHeatmap` — mapy nie ma
+// w `TraineeOverviewView` (luka L S5-1), a wersja z pulpitu podopiecznego żyje
+// w `trainee-stats.tsx`.
 import type {
-  BodyPhotoCoverage,
-  CurrentPlanTotals,
-  HeatmapDay,
-  HealthStats,
-  PlateauExercise,
-  PlanSessionUsage,
-  TagShare,
-  VideoCoverage,
+  ActivePlanUsageView,
+  BodyPhotoCoverageView,
+  HealthView,
+  PlateauItemView,
+  TagShareView,
+  VideoCoverageView,
 } from "~/lib/stats";
 
 // ============================================================
@@ -42,7 +39,7 @@ function Section({
   );
 }
 
-function trendArrow(trend: HealthStats["rpeTrend"]): string {
+function trendArrow(trend: HealthView["rpeTrend"]): string {
   if (trend === "up") return "↑";
   if (trend === "down") return "↓";
   return "→";
@@ -99,7 +96,7 @@ function Tile({
   );
 }
 
-export function HealthTilesCard({ health }: { health: HealthStats }) {
+export function HealthTilesCard({ health }: { health: HealthView }) {
   const activityTone =
     health.daysSinceLastSession == null
       ? "var(--muted)"
@@ -186,7 +183,7 @@ export function HealthTilesCard({ health }: { health: HealthStats }) {
 // PlateauCard
 // ============================================================
 
-export function PlateauCard({ plateau }: { plateau: PlateauExercise[] }) {
+export function PlateauCard({ plateau }: { plateau: PlateauItemView[] }) {
   if (plateau.length === 0) return null;
   return (
     <Section title="Plateau — uważne oko" icon={<Icons.Sparkle />}>
@@ -210,7 +207,7 @@ export function PlateauCard({ plateau }: { plateau: PlateauExercise[] }) {
               }}
             >
               <div style={{ flex: 1, minWidth: 200 }}>
-                <div style={{ fontSize: 14, fontWeight: 500 }}>{p.exerciseName}</div>
+                <div style={{ fontSize: 14, fontWeight: 500 }}>{p.name}</div>
                 <div className="text-xs muted" style={{ marginTop: 2 }}>
                   {p.sessionsConsidered} sesji obserwacji · PR <span className="mono">{p.pr}</span>{" "}
                   · {p.unit}
@@ -218,9 +215,14 @@ export function PlateauCard({ plateau }: { plateau: PlateauExercise[] }) {
               </div>
               <div className="row" style={{ gap: 12 }}>
                 <div style={{ textAlign: "right" }}>
-                  <div className="mono muted text-xs">śr. reps</div>
+                  {/*
+                    Kontrakt oddaje `recentBest` — NAJLEPSZY wynik z okna obserwacji,
+                    nie średnią, którą liczył dawny `getPlateauExercises`. Etykieta
+                    idzie za nim, żeby liczba nie kłamała o tym, czym jest.
+                  */}
+                  <div className="mono muted text-xs">ost. best</div>
                   <div className="mono" style={{ fontWeight: 600 }}>
-                    {p.recentAvgReps}
+                    {p.recentBest}
                   </div>
                 </div>
                 <div style={{ textAlign: "right" }}>
@@ -253,19 +255,14 @@ function PlanRow({ label, value }: { label: string; value: number }) {
   );
 }
 
-export function PlanUsageCard({
-  usage,
-  totals,
-}: {
-  usage: { planName: string | null; sessions: PlanSessionUsage[] };
-  totals: CurrentPlanTotals;
-}) {
-  if (!usage.planName && !totals.planName) return null;
+export function PlanUsageCard({ plan }: { plan: ActivePlanUsageView | null }) {
+  if (plan == null) return null;
+  // Liczba sesji odbytych na planie nie ma osobnego pola: `PlanTotals` niesie
+  // wyłącznie serie, powtórzenia i sekundy (luka L S5-3). Sumujemy `doneCount`
+  // z tej samej odpowiedzi — bez dodatkowego żądania i bez zmyślania danych.
+  const sessionsDone = plan.sessions.reduce((sum, s) => sum + s.doneCount, 0);
   return (
-    <Section
-      title={`Aktywny plan${totals.planName ? ` — ${totals.planName}` : ""}`}
-      icon={<Icons.Plans />}
-    >
+    <Section title={`Aktywny plan — ${plan.name}`} icon={<Icons.Plans />}>
       <div className="grid" style={{ gridTemplateColumns: "1.2fr 1fr", gap: 14 }}>
         <div className="card" style={{ padding: 14 }}>
           <div
@@ -280,11 +277,11 @@ export function PlanUsageCard({
           >
             Wykorzystanie sesji
           </div>
-          {usage.sessions.length === 0 ? (
+          {plan.sessions.length === 0 ? (
             <div className="text-xs muted">Plan bez sesji.</div>
           ) : (
             <div className="col" style={{ gap: 6 }}>
-              {usage.sessions.map((s) => (
+              {plan.sessions.map((s) => (
                 <div key={s.sessionId} className="row" style={{ gap: 10, alignItems: "center" }}>
                   <span
                     className="mono muted"
@@ -292,7 +289,7 @@ export function PlanUsageCard({
                   >
                     #{String(s.ordinal + 1).padStart(2, "0")}
                   </span>
-                  <div style={{ flex: 1, fontSize: 13 }}>{s.sessionName}</div>
+                  <div style={{ flex: 1, fontSize: 13 }}>{s.name}</div>
                   <span
                     className="mono"
                     style={{
@@ -325,11 +322,11 @@ export function PlanUsageCard({
             Łącznie na tym planie
           </div>
           <div className="col" style={{ gap: 6 }}>
-            <PlanRow label="Sesji" value={totals.totalSessionsOnPlan} />
-            <PlanRow label="Serii" value={totals.totalSets} />
-            <PlanRow label="Powtórzeń" value={totals.totalReps} />
-            {totals.totalSeconds > 0 && (
-              <PlanRow label="Sekund pod tension" value={totals.totalSeconds} />
+            <PlanRow label="Sesji" value={sessionsDone} />
+            <PlanRow label="Serii" value={plan.totals.sets} />
+            <PlanRow label="Powtórzeń" value={plan.totals.reps} />
+            {plan.totals.seconds > 0 && (
+              <PlanRow label="Sekund pod tension" value={plan.totals.seconds} />
             )}
           </div>
         </div>
@@ -362,8 +359,8 @@ export function CoverageCard({
   photos,
   traineeId,
 }: {
-  video: VideoCoverage;
-  photos: BodyPhotoCoverage;
+  video: VideoCoverageView;
+  photos: BodyPhotoCoverageView;
   traineeId: string;
 }) {
   return (
@@ -438,7 +435,7 @@ export function TagDistributionCard({
   untagged,
   total,
 }: {
-  shares: TagShare[];
+  shares: TagShareView[];
   untagged: number;
   total: number;
 }) {
@@ -469,20 +466,6 @@ export function TagDistributionCard({
             <SegmentedBarLegend segments={segments} />
           </>
         )}
-      </div>
-    </Section>
-  );
-}
-
-// ============================================================
-// ActivityHeatmapCard (trainer variant)
-// ============================================================
-
-export function ActivityHeatmapCard({ days }: { days: HeatmapDay[] }) {
-  return (
-    <Section title="Aktywność" icon={<Icons.Calendar />}>
-      <div className="card" style={{ padding: 14 }}>
-        <Heatmap days={days} />
       </div>
     </Section>
   );

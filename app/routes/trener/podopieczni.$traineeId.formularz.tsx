@@ -1,32 +1,32 @@
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { requireUser } from "~/lib/api/auth";
-import { db } from "~/lib/db/client";
 import { fmtDateTime } from "~/lib/format";
 import { answerLabel } from "~/lib/onboarding-form-types";
 import { getFormForTrainer } from "~/lib/onboarding-forms";
-import { assertTraineeOwnedBy, findTraineeOfTrainer } from "~/lib/trainees";
+import { findTraineeRef } from "~/lib/trainees";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
-  // Rzuca 404, gdy podopieczny nie jest nasz — zanim w ogóle zapytamy o formularz.
-  await assertTraineeOwnedBy(db, user.id, traineeId);
 
-  const form = await getFormForTrainer(db, user.id, traineeId);
+  // Pre-checku przynależności już nie ma: cudzy podopieczny i formularz nigdy
+  // niedoczepiony dają po stronie BE to samo `404`, tu `null` — oba kończą się
+  // tak, jak do integracji.
+  const form = await getFormForTrainer(api, traineeId);
   if (!form) throw new Response("not found", { status: 404 });
 
   // Nazwa podopiecznego w nagłówku — trener otwierający tę stronę wprost (zakładka,
-  // przycisk „wstecz") musi wiedzieć, czyj to formularz. Tak samo robią sąsiednie
-  // widoki `sylwetka` i `platnosci`.
-  const trainee = await findTraineeOfTrainer(db, user.id, traineeId);
+  // przycisk „wstecz") musi wiedzieć, czyj to formularz. Kontrakt nie ma trasy
+  // „jeden podopieczny", więc idzie ze sklejonych stron listy (luka L S5-2).
+  const trainee = await findTraineeRef(api, traineeId);
 
   return { form, traineeId, traineeName: trainee?.displayName ?? null };
 }
 
 export default function FormularzStartowyTrenera() {
   const { form, traineeId, traineeName } = useLoaderData<typeof loader>();
-  const done = form.completedAtISO != null;
+  const done = form.completedAt != null;
 
   return (
     <div>
@@ -41,8 +41,8 @@ export default function FormularzStartowyTrenera() {
           </div>
           <h1>Formularz startowy</h1>
           <div className="sub">
-            {done
-              ? `Wypełniony ${fmtDateTime(form.completedAtISO!)}.`
+            {form.completedAt != null
+              ? `Wypełniony ${fmtDateTime(form.completedAt)}.`
               : "Czeka na wypełnienie przez podopiecznego."}
           </div>
         </div>

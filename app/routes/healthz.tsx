@@ -10,8 +10,9 @@
  * gotowości zależności. Gdyby odpytywała Postgresa, każde mrugnięcie bazy
  * kładłoby kontener przez `restartPolicyType = "ON_FAILURE"` zamiast pozwolić
  * mu przeczekać. Brak eksportu `default` sprawia dodatkowo, że RR7 nie odpala
- * loaderów rodziców (`root.tsx`) — sonda nie budzi więc sprzątaczek sesji
- * (`maybePruneExpiredSessions`) ani plików (`maybeSweepOrphanSetVideos`).
+ * loaderów rodziców (`root.tsx`) — co znaczyło kiedyś, że sonda nie budzi
+ * leniwych sprzątaczek sesji i plików. Obie przeszły do BE, więc nie ma już
+ * czego nie budzić; sam fakt o loaderach rodziców zostaje prawdziwy.
  *
  * **Middleware jednak biegnie**, i loaderów rodziców to nie dotyczy: RR7
  * przepuszcza przez potok middleware'u także trasy zasobowe. Sonda woła więc

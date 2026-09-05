@@ -9,7 +9,7 @@ import {
   type LoaderFunctionArgs,
 } from "react-router";
 import { requireUser } from "~/lib/api/auth";
-import { findDisplayName } from "~/lib/auth";
+import { ApiError, toRouteResponse } from "~/lib/api/errors";
 import { db } from "~/lib/db/client";
 import {
   MAX_ONBOARDING_COMMENT,
@@ -30,25 +30,27 @@ import { hasTraineeAppAccess } from "~/lib/stripe/gate";
 // Ekran formularza startowego żyje POZA layoutem podopiecznego (bez sidenava),
 // żeby bramka w `_layout.tsx` nie wpadała w pętlę redirectów — dokładnie jak
 // `/podopieczny/aktywuj`. Kolejność bramek (najpierw płatność) sprawdzamy TU
-// ponownie, bo na tę trasę można wejść wprost z adresu.
+// ponownie, bo na tę trasę można wejść wprost z adresu. Bramka płatnicza zostaje
+// na bazie do S6; sam formularz idzie kontraktem (`/v1/me/onboarding-form` jest
+// na białej liście bramki BE — inaczej nie dałoby się go pobrać).
 // ============================================================
 
 export async function loader({ context }: LoaderFunctionArgs) {
-  const { user } = requireUser(context, { role: "trainee" });
+  const { api, user } = requireUser(context, { role: "trainee" });
 
   const { hasAccess } = await hasTraineeAppAccess(db, user);
   if (!hasAccess) throw redirect("/podopieczny/aktywuj");
 
-  const form = await getPendingFormForTrainee(db, user.id);
+  const form = await getPendingFormForTrainee(api);
   if (!form) throw redirect("/podopieczny");
 
-  const trainerName = user.trainerId != null ? await findDisplayName(db, user.trainerId) : null;
-
-  return { form, trainerName };
+  // Nazwa trenera przychodzi z sesji (`MeDto.coach.displayName`), więc osobne
+  // zapytanie o użytkownika (`findDisplayName`) przestało być potrzebne.
+  return { form, trainerName: user.trainerName };
 }
 
 export async function action({ request, context }: ActionFunctionArgs) {
-  const { user } = requireUser(context, { role: "trainee" });
+  const { api, user } = requireUser(context, { role: "trainee" });
 
   // Ta sama kolejność bramek co w loaderze. Bez powtórzenia jej TUTAJ nieopłacony
   // podopieczny zamknąłby formularz POST-em wprost, z pominięciem ekranu
@@ -71,9 +73,10 @@ export async function action({ request, context }: ActionFunctionArgs) {
   }
 
   try {
-    await submitOnboardingForm(db, user.id, parsed.data);
+    await submitOnboardingForm(api, parsed.data);
   } catch (e) {
     if (e instanceof OnboardingFormError) return { error: e.userMessage };
+    if (e instanceof ApiError) throw toRouteResponse(e);
     throw e;
   }
   return redirect("/podopieczny");

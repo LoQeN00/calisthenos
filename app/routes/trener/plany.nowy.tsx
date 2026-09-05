@@ -9,7 +9,6 @@ import {
 } from "react-router";
 import { z } from "zod";
 import { requireUser } from "~/lib/api/auth";
-import { db } from "~/lib/db/client";
 import {
   createBlankPlan,
   type CreatePlanResult,
@@ -24,11 +23,14 @@ const NewPlanSchema = z.object({
 });
 
 export async function loader(args: LoaderFunctionArgs) {
-  const { api, user } = requireUser(args.context, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const url = new URL(args.request.url);
   const preselectId = url.searchParams.get("traineeId");
 
-  const trainees = await listTraineesOfTrainer(db, user.id);
+  // Picker potrzebuje KOMPLETU, a kontrakt stronicuje po 30 — moduł skleja
+  // strony w jedną listę. Zarchiwizowanych odfiltrowuje sam zasób: `GET /v1/trainees`
+  // to podopieczni z aktywną relacją prowadzenia.
+  const trainees = await listTraineesOfTrainer(api);
 
   // Preselect the trainee from the query string when it points at one of ours.
   const preselected =

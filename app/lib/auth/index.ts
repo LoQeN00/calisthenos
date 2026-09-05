@@ -1,9 +1,11 @@
 // Sesja i tożsamość użytkownika mieszkają w `app/lib/api/` (spec rozbicia
 // FE/BE, kroki 1 i 2 Etapu 2): `requireUser`/`optionalUser` czytają `context`
 // wypełniony przez `apiMiddleware`, a `startSession`/`endSession`/`acceptInvite`
-// wystawiają i gaszą sesję na tokenach BE. Ten moduł zostaje wyłącznie jako
-// fasada nad zaproszeniami trenera i odczytami użytkowników — jedno i drugie
-// znika w krokach 3 i 6 Etapu 2.
+// wystawiają i gaszą sesję na tokenach BE. Wystawianie zaproszenia przeszło na
+// kontrakt (`createInvite(api)`, `POST /v1/invites`). Ten moduł zostaje jako
+// fasada nad tym jednym wywołaniem oraz nad resztą, która czeka na S6:
+// przyjmowanie zaproszenia na Drizzle (bez wywołującego w `app/`) i odczyty
+// użytkowników.
 //
 // `password.ts` nie jest tu re-eksportowany, choć plik istnieje: jedynym jego
 // konsumentem został `scripts/seed.ts`, który sięga po `ARGON2_OPTS` głęboką
@@ -14,11 +16,12 @@
 // outside the auth module legitimately use.
 export {
   createInvite,
-  createInviteWithOnboarding,
+  InviteError,
   consumeInvite,
   findInviteByToken,
   hashToken,
   type CreateInviteInput,
+  type InviteCreatedResponse,
   type ConsumeInviteInput,
   type ConsumeInviteResult,
 } from "./invite";

@@ -3,19 +3,19 @@ import { ExerciseProgressionPanel } from "~/components/exercise-progression-pane
 import { VariationLadder } from "~/components/skill-tree";
 import { TierBadge } from "~/components/tier-badge";
 import { requireUser } from "~/lib/api/auth";
-import { db } from "~/lib/db/client";
 import { fmtDate } from "~/lib/format";
-import { getExerciseProgression } from "~/lib/progression";
+import { loadMyExerciseProgression } from "~/lib/progression";
 import type { ProgressionRange } from "~/lib/progression-math";
-import { getSkillMapForTrainee } from "~/lib/skill-progression";
+import { currentVariationOf, loadMySkillMap } from "~/lib/skill-progression";
 
 const RANGES: ProgressionRange[] = ["4w", "3m", "6m", "all"];
 
 export async function loader(args: LoaderFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainee" });
-  if (!user.trainerId) throw new Response("Konto bez przypisanego trenera.", { status: 400 });
+  const { api } = requireUser(args.context, { role: "trainee" });
   const skillId = args.params.skillId ?? "";
-  const map = await getSkillMapForTrainee(db, user.trainerId, user.id, { withSuggestions: false });
+  // Własna mapa (`/v1/me/skill-progress`) — trenera wyprowadza BE z tokenu, więc
+  // dawne sprawdzenie `user.trainerId` w tej trasie zniknęło.
+  const map = await loadMySkillMap(api);
   const entry = map.find((m) => m.skillId === skillId);
   if (!entry) throw new Response("not found", { status: 404 });
 
@@ -24,10 +24,10 @@ export async function loader(args: LoaderFunctionArgs) {
   const range: ProgressionRange = (RANGES as string[]).includes(raw ?? "")
     ? (raw as ProgressionRange)
     : "3m";
-  const view =
-    entry.currentHasLogs && entry.currentExerciseId
-      ? await getExerciseProgression(db, user.id, entry.currentExerciseId, range)
-      : null;
+  // Brak logów na bieżącym wariancie to po stronie BE `404`, tu `null` — dawna
+  // flaga `currentHasLogs` z mapy przestała być potrzebna.
+  const current = currentVariationOf(entry);
+  const view = current ? await loadMyExerciseProgression(api, current.exerciseId, range) : null;
 
   return { entry, view, range };
 }
@@ -56,7 +56,10 @@ export default function PodopiecznyRozwojWezel() {
       </div>
 
       <div className="card" style={{ padding: 16, marginBottom: 22 }}>
-        <VariationLadder variations={entry.variations} />
+        <VariationLadder
+          variations={entry.variations}
+          currentVariationId={entry.currentVariationId}
+        />
         {entry.lastAdvancedOn && (
           <div className="text-xs muted" style={{ marginTop: 10 }}>
             Ostatni awans: {fmtDate(entry.lastAdvancedOn)}

@@ -5,7 +5,6 @@ export default [
   route("login", "routes/login.tsx"),
   route("wyloguj", "routes/wyloguj.tsx"),
   route("zaproszenie/:token", "routes/zaproszenie.$token.tsx"),
-  route("files/:fileId", "routes/files.$fileId.tsx"),
   route("upload/wideo", "routes/upload.wideo.tsx"),
   route("webhooks/stripe", "routes/webhooks.stripe.tsx"),
   // Sonda dla healthchecka platformy — MUSI zwracać 200. NIE podmieniaj na "/":

@@ -2,26 +2,25 @@ import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { VideoButton } from "~/components/video-modal";
 import { requireUser } from "~/lib/api/auth";
-import { db } from "~/lib/db/client";
 import { daysAgo, fmtDate } from "~/lib/format";
-import { getTraineeOfTrainer } from "~/lib/trainees";
+import { findTraineeRef } from "~/lib/trainees";
 import { loadTraineeLog } from "~/lib/workouts";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const { api, user } = requireUser(args.context, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
 
-  // Nazwa podopiecznego: kontrakt nie niesie jej ani w szczególe logu, ani
-  // w przeglądzie klienta — do przepięcia obszaru „podopieczni" idzie z bazy.
-  // To JEDYNY powód, dla którego `db` zostaje w tej trasie.
-  const trainee = await getTraineeOfTrainer(db, user.id, traineeId);
+  // Nazwa podopiecznego do okruszków: kontrakt nie niesie jej ani w szczególe
+  // logu, ani w przeglądzie klienta i nie ma trasy „jeden podopieczny" —
+  // moduł składa ją ze sklejonych stron listy (luka L S5-2).
+  const trainee = await findTraineeRef(api, traineeId);
   if (!trainee) throw new Response("not found", { status: 404 });
 
   // Parę (podopieczny, log) sprawdza BE — niezgodna to `404`, tu `null`.
   const log = await loadTraineeLog(api, traineeId, args.params.logId ?? "");
   if (!log) throw new Response("not found", { status: 404 });
 
-  return { log, trainee: { id: trainee.id, displayName: trainee.displayName } };
+  return { log, trainee };
 }
 
 function tone(diff: number | null): string {

@@ -1,5 +1,10 @@
+import type { ConsultationView } from "@kalisthenos/api-client";
 import { z } from "zod";
-import type { ConsultationStatus } from "~/lib/db/schema";
+
+// Status z kontraktu, nie ze schematu Drizzle — od przepięcia konsultacji na BE
+// to kontrakt jest źródłem zbioru wartości. Nazwa zostaje, żeby guardy i testy
+// nie zauważyły zmiany.
+type ConsultationStatus = ConsultationView["status"];
 
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Niepoprawna data.");
 // datetime-local z <input type="datetime-local"> ma format "YYYY-MM-DDTHH:MM".

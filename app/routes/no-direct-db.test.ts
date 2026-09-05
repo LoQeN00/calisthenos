@@ -5,10 +5,10 @@ import { describe, expect, it } from "vitest";
 const APP_DIR = join(process.cwd(), "app");
 const ROUTES_DIR = join(APP_DIR, "routes");
 
-// Poza katalogiem tras sprawdzamy też te dwa pliki wejściowe. `root.tsx` już
-// legalnie importuje `db` jako wartość — wyłącznie po to, by przekazać go dalej
-// do `maybePruneExpiredSessions`/`maybeSweepOrphanSetVideos` z `lib/` (konwencja
-// wstrzykiwania) — więc obie asercje niżej muszą przechodzić i dla niego.
+// Poza katalogiem tras sprawdzamy też te dwa pliki wejściowe. `root.tsx` nie
+// dotyka już bazy w ogóle: obie leniwe sprzątaczki, dla których trzymał `db`,
+// przeszły do BE (sesje w kroku 2 Etapu 2, pliki-sieroty w S4 fali 2). Asercje
+// niżej mają dla niego przechodzić tak samo jak dla tras.
 const EXTRA_FILES = [join(APP_DIR, "root.tsx"), join(APP_DIR, "entry.server.tsx")];
 
 function routeFiles(dir: string): string[] {

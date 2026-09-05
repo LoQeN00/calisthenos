@@ -12,91 +12,82 @@ import { ConsultationRow } from "~/components/consultation-row";
 import { Icons } from "~/components/icons";
 import { ScheduleForm } from "~/components/schedule-form";
 import { requireUser } from "~/lib/api/auth";
+import { ApiError, toRouteResponse } from "~/lib/api/errors";
 import { parseScheduleFormData } from "~/lib/consultation-form.server";
-import { isGoogleSyncActive, syncBackfillPair, syncCancelStaleSchedule } from "~/lib/google/sync";
+import { isGoogleSyncActive } from "~/lib/google/connections";
 import {
+  type ConsultationCadence,
   ScheduleError,
   deactivateSchedule,
-  ensureOccurrences,
+  defaultTitle,
   getActiveSchedule,
   upsertSchedule,
 } from "~/lib/consultation-schedules";
 import { consultationPresentation } from "~/lib/consultation-status";
 import { ScheduleFormSchema } from "~/lib/consultation-types";
-import { listOccurrencesForTrainer } from "~/lib/consultations";
+import {
+  ConsultationError,
+  listOccurrencesForTrainer,
+  runConsultationSync,
+} from "~/lib/consultations";
 import { db } from "~/lib/db/client";
-import type * as schema from "~/lib/db/schema";
 import { fmtDateTime, todayISO } from "~/lib/format";
-import { findTraineeOfTrainer } from "~/lib/trainees";
+import { findTraineeRef } from "~/lib/trainees";
 
-const CADENCE_LABEL: Record<schema.ConsultationCadence, string> = {
+const CADENCE_LABEL: Record<ConsultationCadence, string> = {
   weekly: "co tydzień",
   biweekly: "co 2 tygodnie",
   monthly: "co miesiąc",
 };
 
 export async function loader(args: LoaderFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainer" });
+  const { api, user } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
-  const trainee = await findTraineeOfTrainer(db, user.id, traineeId);
+  // Nazwa do nagłówka i `404` dla cudzego podopiecznego. Z listy terminów jej
+  // wziąć nie można — para bez ani jednego terminu daje pustą listę, a nagłówek
+  // ma się wtedy wyrenderować tak samo (luka L S5-2).
+  const trainee = await findTraineeRef(api, traineeId);
   if (!trainee) throw new Response("not found", { status: 404 });
 
-  const schedule = await getActiveSchedule(db, { trainerId: user.id, traineeId });
-  if (schedule) await ensureOccurrences(db, schedule.id, todayISO());
-  const raw = await listOccurrencesForTrainer(db, { trainerId: user.id, traineeId });
-  // Normalizujemy timestamptz → ISO string (komponent operuje na stringach UTC).
-  const occurrences = raw.map((o) => ({
-    id: o.id,
-    scheduledAt: o.scheduledAt.toISOString(),
-    durationMin: o.durationMin,
-    status: o.status,
-    title: o.title,
-  }));
+  // Materializacji terminów nikt już stąd nie wywołuje: siatkę utrzymuje BE
+  // (zapis harmonogramu plus praca cykliczna workera), więc dawne
+  // `ensureOccurrences` zniknęło razem z horyzontem po stronie FE.
+  const schedule = await getActiveSchedule(api, traineeId);
+  const occurrences = await listOccurrencesForTrainer(api, traineeId, {
+    nowISO: new Date().toISOString(),
+  });
   const googleActive = await isGoogleSyncActive(db, user.id);
   return { trainee, schedule, occurrences, googleActive };
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
   const fd = await args.request.formData();
   const intent = fd.get("intent");
   try {
     if (intent === "deactivate-schedule") {
-      await deactivateSchedule(db, { trainerId: user.id, traineeId, fromISO: todayISO() });
-      // Posprzątaj zdarzenia Google odwołanych terminów (best-effort).
-      await syncCancelStaleSchedule(db, { trainerId: user.id, traineeId, fromISO: todayISO() });
+      // Odwołanie przyszłych niepotwierdzonych terminów i zdjęcie ich zdarzeń
+      // z kalendarza zewnętrznego robi BE — dawne `syncCancelStaleSchedule`
+      // zniknęło stąd bez zamiennika.
+      await deactivateSchedule(api, traineeId);
       return { success: "Harmonogram wyłączony." };
     }
     if (intent === "save-schedule") {
       const parsed = ScheduleFormSchema.safeParse(parseScheduleFormData(fd));
       if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Niepoprawne dane." };
-      await upsertSchedule(db, {
-        trainerId: user.id,
-        traineeId,
-        form: parsed.data,
-        fromISO: todayISO(),
-      });
-      // Skasuj zdarzenia Google terminów odwołanych przez zmianę harmonogramu,
-      // zanim zsynchronizujemy nowe (oba zbiory są rozłączne). Best-effort.
-      await syncCancelStaleSchedule(db, { trainerId: user.id, traineeId, fromISO: todayISO() });
-      const r = await syncBackfillPair(db, {
-        trainerId: user.id,
-        traineeId,
-        nowISO: new Date().toISOString(),
-      });
-      return {
-        success: `Harmonogram zapisany.${r.attempted ? ` Zsynchronizowano z Google: ${r.synced}/${r.attempted}.` : ""}`,
-      };
+      // Zapis jest różnicowy po stronie BE: bez zmian nie rusza niczego,
+      // a zmieniona reguła sama odtwarza siatkę i wypycha ją do kalendarza
+      // przez outbox. Stąd komunikat bez liczby zsynchronizowanych terminów —
+      // synchronizacja nie dzieje się już w tym żądaniu.
+      await upsertSchedule(api, { traineeId, form: parsed.data });
+      return { success: "Harmonogram zapisany." };
     }
     if (intent === "sync-google") {
-      const r = await syncBackfillPair(db, {
-        trainerId: user.id,
-        traineeId,
-        nowISO: new Date().toISOString(),
-      });
-      // Bez tego „0/0" wyglądałoby jak sukces także wtedy, gdy połączenie jest martwe
-      // (np. cofnięta zgoda w Google) — a wtedy nic się nie synchronizuje po cichu.
+      const r = await runConsultationSync(api, traineeId);
+      // Bez tego „0/0" wyglądałoby jak sukces także wtedy, gdy połączenia nie ma
+      // albo jest martwe (np. cofnięta zgoda w Google) — a wtedy nic się nie
+      // synchronizuje po cichu. Wyłączona integracja odpowiada tym samym.
       if (!r.connected) {
         return {
           error: "Nie udało się połączyć z kontem Google. Sprawdź integrację w ustawieniach.",
@@ -110,7 +101,10 @@ export async function action(args: ActionFunctionArgs) {
     }
     return null;
   } catch (e) {
-    if (e instanceof ScheduleError) return { error: e.userMessage };
+    if (e instanceof ScheduleError || e instanceof ConsultationError) {
+      return { error: e.userMessage };
+    }
+    if (e instanceof ApiError) throw toRouteResponse(e);
     throw e;
   }
 }
@@ -151,7 +145,9 @@ export default function TrenerKonsultacjeIndex() {
               key={o.id}
               to={`${listUrl}/${o.id}`}
               lead={fmtDateTime(o.scheduledAt)}
-              title={o.title}
+              // Kontrakt nie niesie tytułu (`title` nie istnieje w `/v1`) —
+              // nagłówek liczy się z terminu, tak samo po obu stronach.
+              title={defaultTitle(o.scheduledAt)}
               label={meta.label}
               tone={meta.tone}
             />

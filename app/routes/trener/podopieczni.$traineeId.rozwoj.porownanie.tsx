@@ -1,28 +1,38 @@
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { ComparisonChart, ComparisonChartLegend } from "~/components/progression-charts";
 import { requireUser } from "~/lib/api/auth";
-import { db } from "~/lib/db/client";
-import { findTraineeOfTrainer, getProgressionComparison } from "~/lib/progression";
+import { comparisonSkipReasonLabel, loadTraineeProgressionComparison } from "~/lib/progression";
 import type { ProgressionRange } from "~/lib/progression-math";
+import { findTraineeRef } from "~/lib/trainees";
 
 const RANGES: ProgressionRange[] = ["4w", "3m", "6m", "all"];
 
 export async function loader(args: LoaderFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
-  const trainee = await findTraineeOfTrainer(db, user.id, traineeId);
+  // Nazwa do nagłówka i `404` dla cudzego podopiecznego — ze sklejonych stron
+  // listy, bo kontrakt nie ma trasy „jeden podopieczny" (luka L S5-2).
+  const trainee = await findTraineeRef(api, traineeId);
   if (!trainee) throw new Response("not found", { status: 404 });
   const url = new URL(args.request.url);
-  const ids = (url.searchParams.get("ex") ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .slice(0, 8); // cap the comparison set — bounds DB work and keeps the chart legible
+  // Kontrakt przyjmuje 2–8 ćwiczeń i odrzuca duplikat (`400`): zestaw jest
+  // deduplikowany i przycięty do ośmiu PRZED wywołaniem, a poniżej dwóch nie ma
+  // czego pytać — ręcznie zedytowany adres ma skończyć się podpowiedzią, nie
+  // ekranem błędu.
+  const ids = [
+    ...new Set(
+      (url.searchParams.get("ex") ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    ),
+  ].slice(0, 8);
   const raw = url.searchParams.get("zakres");
   const range: ProgressionRange = (RANGES as string[]).includes(raw ?? "")
     ? (raw as ProgressionRange)
     : "3m";
-  const comparison = await getProgressionComparison(db, traineeId, ids, range);
+  const comparison =
+    ids.length >= 2 ? await loadTraineeProgressionComparison(api, traineeId, ids, range) : null;
   return { trainee, comparison, range, ids };
 }
 
@@ -39,8 +49,8 @@ export default function TrenerRozwojPorownanie() {
   const rozwojPath = `/trener/podopieczni/${trainee.id}/rozwoj`;
 
   // Defense in depth: the list disables Compare under 2, but a hand-edited URL
-  // could land here with too few exercises.
-  if (ids.length < 2) {
+  // could land here with too few exercises — the loader then skips the call.
+  if (ids.length < 2 || comparison == null) {
     return (
       <div>
         <div className="crumbs">
@@ -191,8 +201,10 @@ export default function TrenerRozwojPorownanie() {
           </div>
           <ul className="text-xs muted" style={{ margin: 0, paddingLeft: 18 }}>
             {comparison.skipped.map((s) => (
+              // `name` jest `null` przy `NO_DATA` (cudze albo nieistniejące ma być
+              // nieodróżnialne) — wtedy, jak dotąd, pokazujemy identyfikator z adresu.
               <li key={s.exerciseId}>
-                {s.name}: {s.reason}
+                {s.name ?? s.exerciseId}: {comparisonSkipReasonLabel(s.reason)}
               </li>
             ))}
           </ul>

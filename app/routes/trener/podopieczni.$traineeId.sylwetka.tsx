@@ -4,48 +4,43 @@ import { SideBySideSection, type ResolvedPair } from "~/components/body-photo-co
 import { PhotoCard } from "~/components/photo-card";
 import { PhotoLightbox, type LightboxPhoto } from "~/components/photo-lightbox";
 import { requireUser } from "~/lib/api/auth";
-import { listBodyPhotosForTrainee } from "~/lib/body-photos";
-import { db } from "~/lib/db/client";
-import type { BodyPhotoView } from "~/lib/db/schema";
-import { signFileUrl } from "~/lib/files";
-import { getSideBySidePhotoPairs } from "~/lib/stats";
-import { findTraineeOfTrainer } from "~/lib/trainees";
+import {
+  getSideBySidePhotoPairs,
+  listAllTraineeBodyPhotos,
+  type BodyPhotoView,
+} from "~/lib/body-photos";
+import { findTraineeRef } from "~/lib/trainees";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
 
-  const trainee = await findTraineeOfTrainer(db, user.id, traineeId);
+  // Nagłówek potrzebuje nazwy podopiecznego, a widok galerii jej nie niesie —
+  // kontrakt nie ma też trasy „jeden podopieczny", więc moduł składa ją ze
+  // sklejonych stron listy (luka L S5-2). `null` to cudzy albo nieistniejący.
+  const trainee = await findTraineeRef(api, traineeId);
   if (!trainee) throw new Response("not found", { status: 404 });
 
-  const [photos, pairs] = await Promise.all([
-    listBodyPhotosForTrainee(db, traineeId, { limit: 500 }),
-    getSideBySidePhotoPairs(db, traineeId),
-  ]);
+  // Jedna sklejona lista karmi i siatkę, i porównanie: ten ekran nigdy nie miał
+  // stronicowania, a porównanie „przed / po" i tak potrzebuje kompletu zdjęć.
+  // Pola `pairs` z odpowiedzi świadomie nie czytamy — patrz komentarz przy
+  // `traineeBodyPhotoPage` w module.
+  const photos = await listAllTraineeBodyPhotos(api, traineeId);
 
-  const resolvedPairs: ResolvedPair[] = pairs.map((p) => ({
-    view: p.view,
-    hasPair: p.hasPair,
-    daysBetween: p.daysBetween,
-    first: p.first
-      ? {
-          id: p.first.id,
-          url: signFileUrl(p.first.fileId, user.id),
-          takenOn: p.first.takenOn,
-        }
-      : null,
-    latest: p.latest
-      ? {
-          id: p.latest.id,
-          url: signFileUrl(p.latest.fileId, user.id),
-          takenOn: p.latest.takenOn,
-        }
-      : null,
-  }));
+  // Adnotacja typem komponentu jest bramką: pilnuje, że kształt pary z modułu
+  // nadal pasuje do `SideBySideSection`.
+  const resolvedPairs: ResolvedPair[] = getSideBySidePhotoPairs(photos);
 
   return {
     trainee,
-    photos: photos.map((p) => ({ ...p, url: signFileUrl(p.fileId, user.id) })),
+    // Adresy są już gotowe — origin dołożył moduł; trasa tylko przemianowuje pole.
+    photos: photos.map((p) => ({
+      id: p.id,
+      view: p.view,
+      takenOn: p.takenOn,
+      note: p.note,
+      url: p.photoUrl,
+    })),
     resolvedPairs,
   };
 }
@@ -78,7 +73,10 @@ export default function TrenerSylwetkaPodopiecznego() {
         view: p.view,
         takenOn: p.takenOn,
         note: p.note,
-        mimeType: p.mimeType,
+        // Kontrakt nie niesie typu zawartości zdjęcia; lightbox używał go
+        // wyłącznie do rozszerzenia w nazwie pobieranego pliku i bez wartości
+        // schodzi do domyślnego `.jpg` — luka L S4-1.
+        mimeType: "",
       }));
   }, [lightboxId, photos]);
 

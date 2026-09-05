@@ -1,19 +1,17 @@
-import { describe, expect, it, vi } from "vitest";
-
-// `trainees.ts` importuje `file-uploads.ts` (`deleteFileBlob`), a ten czyta `getEnv()`
-// w `maxUploadBytesFor`. Bez mocka test wysadza się na braku zmiennych środowiskowych.
-vi.mock("~/lib/env", () => ({
-  getEnv: () => ({
-    MAX_UPLOAD_BYTES: 250_000_000,
-    MAX_VIDEO_UPLOAD_BYTES: 30_000_000,
-    API_URL: "http://be.internal",
-    API_PUBLIC_URL: "https://api.kalisthenos.test",
-  }),
-}));
-
+import { describe, expect, it } from "vitest";
 import { createApiClient } from "./api/client";
-import { listClientsForTrainer } from "./trainees";
+import { ApiError } from "./api/errors";
+import {
+  deleteTraineeFully,
+  findTraineeRef,
+  listClientsForTrainer,
+  listTraineesOfTrainer,
+  TraineeDeleteError,
+} from "./trainees";
 
+// Mocka `~/lib/env` tu już nie ma: `trainees.ts` przestał importować
+// `file-uploads.ts` (kaskada `deleteFileBlob` zniknęła), a `createApiClient`
+// z jawnym `baseUrl` nie czyta konfiguracji.
 function klient(reguly: (req: Request) => Response | Promise<Response>) {
   return createApiClient({
     baseUrl: "http://be.test",
@@ -27,6 +25,10 @@ function json(status: number, cialo: unknown): Response {
     status,
     headers: { "content-type": "application/json" },
   });
+}
+
+function odmowa(status: number, code: string, message: string, details?: unknown): Response {
+  return json(status, { error: { code, message, details } });
 }
 
 const PODOPIECZNY = {
@@ -89,5 +91,148 @@ describe("listClientsForTrainer — lista podopiecznych na kontrakcie", () => {
     expect(wynik.totalPages).toBe(2);
     expect(wynik.total).toBe(31);
     expect(wynik.items[0]?.hasActivePlan).toBe(true);
+  });
+});
+
+const DRUGI = { ...PODOPIECZNY, id: "t-2", displayName: "Bartek Nowak" };
+const TRZECI = { ...PODOPIECZNY, id: "t-3", displayName: "Cezary Wolny" };
+
+describe("listTraineesOfTrainer — komplet do pickera ze sklejonych stron", () => {
+  it("dobiera kolejne strony aż do `totalPages` z PIERWSZEJ odpowiedzi", async () => {
+    // Picker planu potrzebuje kompletu, a kontrakt stronicuje po 30 i nie ma
+    // parametru „wszystko". Granicą pętli jest `totalPages` z pierwszej
+    // odpowiedzi — inaczej dopisanie podopiecznego między żądaniami mogłoby
+    // ją przesuwać w nieskończoność.
+    const zapytania: string[] = [];
+    const api = klient((req) => {
+      const zapytanie = new URL(req.url).search;
+      zapytania.push(zapytanie);
+      return json(
+        200,
+        zapytanie.includes("page=1")
+          ? strona([PODOPIECZNY, DRUGI], 1, 2, 3)
+          : strona([TRZECI], 2, 2, 3),
+      );
+    });
+
+    const wynik = await listTraineesOfTrainer(api);
+
+    expect(zapytania).toHaveLength(2);
+    expect(zapytania[0]).toContain("page=1");
+    expect(zapytania[1]).toContain("page=2");
+    expect(wynik).toEqual([
+      { id: "t-1", displayName: "Anna Kowalska" },
+      { id: "t-2", displayName: "Bartek Nowak" },
+      { id: "t-3", displayName: "Cezary Wolny" },
+    ]);
+  });
+
+  it("sortowanie idzie JAWNIE, choć `name_asc` jest domyślne w kontrakcie", async () => {
+    // Sklejanie stron ma sens tylko przy porządku stabilnym między żądaniami,
+    // a domyślna wartość jest cudzą decyzją, która może się zmienić bez naszego
+    // udziału — wtedy strony skleiłyby się w losowej kolejności.
+    const zapytania: string[] = [];
+    const api = klient((req) => {
+      zapytania.push(new URL(req.url).search);
+      return json(200, strona([PODOPIECZNY], 1, 1, 1));
+    });
+
+    await listTraineesOfTrainer(api);
+
+    expect(zapytania[0]).toContain("sort=name_asc");
+  });
+
+  it("jedna strona to jedno żądanie", async () => {
+    const zapytania: string[] = [];
+    const api = klient((req) => {
+      zapytania.push(new URL(req.url).search);
+      return json(200, strona([PODOPIECZNY], 1, 1, 1));
+    });
+
+    expect(await listTraineesOfTrainer(api)).toHaveLength(1);
+    expect(zapytania).toHaveLength(1);
+  });
+});
+
+describe("findTraineeRef — nazwa podopiecznego do nagłówka (obejście L S5-2)", () => {
+  it("znajduje podopiecznego także na dalszej stronie", async () => {
+    // Kontrakt nie ma `GET /v1/trainees/{id}`, a `q` szuka po nazwie i e-mailu,
+    // nie po identyfikatorze — więc szukanego trzeba znaleźć w sklejonej liście,
+    // a nie tylko na pierwszej stronie.
+    const api = klient((req) =>
+      json(
+        200,
+        new URL(req.url).search.includes("page=1")
+          ? strona([PODOPIECZNY], 1, 2, 2)
+          : strona([DRUGI], 2, 2, 2),
+      ),
+    );
+
+    expect(await findTraineeRef(api, "t-2")).toEqual({ id: "t-2", displayName: "Bartek Nowak" });
+  });
+
+  it("cudzy albo nieistniejący daje `null` — tak samo, jak dawny `findTraineeOfTrainer`", async () => {
+    // `null` prowadzi w trasach do `404`, więc gałąź zachowania nie zmieniła się
+    // ani o krok mimo zmiany źródła danych. Zakresu tenanta ta funkcja NIE stanowi
+    // — lista przychodzi już zawężona przez BE.
+    const api = klient(() => json(200, strona([PODOPIECZNY], 1, 1, 1)));
+
+    expect(await findTraineeRef(api, "t-obcy")).toBeNull();
+  });
+});
+
+describe("deleteTraineeFully — usunięcie przez kontrakt", () => {
+  it("wysyła `DELETE /v1/trainees/{id}` bez ciała i nie oczekuje odpowiedzi", async () => {
+    // `204` bez treści: nazwy do komunikatu trasa NIE bierze z odpowiedzi (ma ją
+    // z nagłówka), a liczba skasowanych plików zniknęła razem z kaskadą.
+    let sciezka = "";
+    let metoda = "";
+    const api = klient((req) => {
+      sciezka = new URL(req.url).pathname;
+      metoda = req.method;
+      return new Response(null, { status: 204 });
+    });
+
+    await expect(deleteTraineeFully(api, "t-1")).resolves.toBeUndefined();
+
+    expect(metoda).toBe("DELETE");
+    expect(sciezka).toBe("/v1/trainees/t-1");
+  });
+
+  it("`409 TRAINEE_HAS_OTHER_TIES` zamienia na TraineeDeleteError z komunikatem BE", async () => {
+    // Podmiot prowadzi kogoś innego albo ma rolę spoza `trainee` — odmowa
+    // z treścią dla trenera, do paska akcji, nie ekran błędu.
+    const api = klient(() =>
+      odmowa(
+        409,
+        "TRAINEE_HAS_OTHER_TIES",
+        "Ta osoba prowadzi innych podopiecznych — usunięcie zabrałoby ich dane.",
+      ),
+    );
+
+    const blad = await deleteTraineeFully(api, "t-1").catch((e) => e);
+
+    expect(blad).toBeInstanceOf(TraineeDeleteError);
+    expect((blad as TraineeDeleteError).userMessage).toBe(
+      "Ta osoba prowadzi innych podopiecznych — usunięcie zabrałoby ich dane.",
+    );
+  });
+
+  it("`404` (cudzy, były, nieistniejący) też idzie do paska akcji", async () => {
+    const api = klient(() => odmowa(404, "RESOURCE_NOT_FOUND", "Nie znaleziono podopiecznego."));
+
+    const blad = await deleteTraineeFully(api, "t-obcy").catch((e) => e);
+
+    expect(blad).toBeInstanceOf(TraineeDeleteError);
+    expect((blad as TraineeDeleteError).userMessage).toBe("Nie znaleziono podopiecznego.");
+  });
+
+  it("`500` przechodzi jako ApiError — awaria BE ma zostać awarią", async () => {
+    const api = klient(() => odmowa(500, "INTERNAL", "Coś poszło nie tak."));
+
+    const blad = await deleteTraineeFully(api, "t-1").catch((e) => e);
+
+    expect(blad).toBeInstanceOf(ApiError);
+    expect(blad).not.toBeInstanceOf(TraineeDeleteError);
   });
 });

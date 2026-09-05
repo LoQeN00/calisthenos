@@ -19,14 +19,18 @@ import {
   setMonthlyAmount,
   SubscriptionError,
 } from "~/lib/stripe/subscriptions";
-import { assertTraineeOwnedBy, findTraineeOfTrainer } from "~/lib/trainees";
+import { findTraineeRef } from "~/lib/trainees";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainer" });
+  const { api, user } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
-  await assertTraineeOwnedBy(db, user.id, traineeId);
 
-  const trainee = await findTraineeOfTrainer(db, user.id, traineeId);
+  // Ta trasa jest w całości Stripe'em i przechodzi na kontrakt dopiero w S6.
+  // Zmieniły się w niej wyłącznie dwie linie obszaru „podopieczni": bramka
+  // `assertTraineeOwnedBy` i nazwa `findTraineeOfTrainer` zeszły z bazy do
+  // jednego `findTraineeRef` (luka L S5-2). Reszta — subskrypcja, płatności,
+  // wszystkie akcje — stoi dalej na `db`.
+  const trainee = await findTraineeRef(api, traineeId);
   if (!trainee) throw new Response("not found", { status: 404 });
 
   const [sub, payments] = await Promise.all([
@@ -45,7 +49,9 @@ export async function loader(args: LoaderFunctionArgs) {
 export async function action(args: ActionFunctionArgs) {
   const { user } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
-  await assertTraineeOwnedBy(db, user.id, traineeId);
+  // Bramka `assertTraineeOwnedBy` zniknęła bez zamiennika: każda operacja niżej
+  // i tak filtruje po parze (`trainerId` + `traineeId`) i odmawia cudzej —
+  // `SubscriptionError` dla subskrypcji, pusta lista dla płatności.
 
   const fd = await args.request.formData();
   const intent = fd.get("intent");

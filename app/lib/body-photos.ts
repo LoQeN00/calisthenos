@@ -1,64 +1,24 @@
-import { and, asc, count, desc, eq } from "drizzle-orm";
-import type { Db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
 import {
-  deleteFileBlob,
-  deleteFileRow,
-  UploadCleanupQueue,
-  UploadError,
-  uploadFile,
-} from "~/lib/file-uploads";
+  bodyPhotosControllerCreate,
+  bodyPhotosControllerMine,
+  bodyPhotosControllerRemove,
+  traineeBodyPhotosControllerForTrainee,
+} from "@kalisthenos/api-client";
+import type { BodyPhotoDto, BodyPhotoListPage } from "@kalisthenos/api-client";
+import { publicFileUrl } from "~/lib/api/client";
+import type { Api } from "~/lib/api/client";
+import { ApiError } from "~/lib/api/errors";
+import { uploadBodyPhoto } from "~/lib/file-uploads";
 
-export interface BodyPhotoRow {
-  id: string;
-  view: schema.BodyPhotoView;
-  takenOn: string;
-  note: string | null;
-  fileId: string;
-  mimeType: string;
-  createdAt: Date;
-}
+/**
+ * Typy zdjęcia biorą się z kontraktu, nie z własnej kopii — `BodyPhotoDto` niesie
+ * `photoUrl` zamiast dawnej pary `fileId` + `mimeType`, bo odnośnik podpisuje BE
+ * (ADR-0023), a FE tylko wstawia go do `<img>`.
+ */
+export type { BodyPhotoDto, BodyPhotoListPage } from "@kalisthenos/api-client";
 
-/** List a trainee's body photos, newest first by default. */
-export async function listBodyPhotosForTrainee(
-  db: Db,
-  traineeId: string,
-  opts: { limit?: number; offset?: number; sort?: "newest" | "oldest" } = {},
-): Promise<BodyPhotoRow[]> {
-  const order =
-    opts.sort === "oldest"
-      ? [asc(schema.bodyPhotos.takenOn), asc(schema.bodyPhotos.createdAt)]
-      : [desc(schema.bodyPhotos.takenOn), desc(schema.bodyPhotos.createdAt)];
-  const rows = await db
-    .select({
-      photo: schema.bodyPhotos,
-      mimeType: schema.files.mimeType,
-    })
-    .from(schema.bodyPhotos)
-    .innerJoin(schema.files, eq(schema.files.id, schema.bodyPhotos.fileId))
-    .where(eq(schema.bodyPhotos.traineeId, traineeId))
-    .orderBy(...order)
-    .limit(opts.limit ?? 100)
-    .offset(opts.offset ?? 0);
-
-  return rows.map((r) => ({
-    id: r.photo.id,
-    view: r.photo.view,
-    takenOn: r.photo.takenOn,
-    note: r.photo.note,
-    fileId: r.photo.fileId,
-    mimeType: r.mimeType,
-    createdAt: r.photo.createdAt,
-  }));
-}
-
-export async function countBodyPhotosForTrainee(db: Db, traineeId: string): Promise<number> {
-  const [row] = await db
-    .select({ c: count() })
-    .from(schema.bodyPhotos)
-    .where(eq(schema.bodyPhotos.traineeId, traineeId));
-  return Number(row?.c ?? 0);
-}
+/** Ujęcie zdjęcia. Ta sama trójka co dawny enum schematu, tyle że z kontraktu. */
+export type BodyPhotoView = BodyPhotoDto["view"];
 
 export class BodyPhotoError extends Error {
   constructor(
@@ -69,89 +29,254 @@ export class BodyPhotoError extends Error {
   }
 }
 
+/**
+ * Wąsko, po statusie: `400` (data spoza zakresu, zły kształt ładunku), `404`
+ * (plik nieistniejący albo cudzy — §2 `docs/04` rozciąga „cudzy = nieistniejący"
+ * na identyfikatory w ciele) i `409` (niezmiennik domenowy). Rozgałęzienia po
+ * `error.code` tu nie ma, bo kontrakt nie deklaruje dla sylwetki ANI JEDNEGO
+ * kodu znaczącego dla logiki — same rodziny statusów; dopisanie słownika kodów
+ * „na zapas" udawałoby wiedzę, której nie mamy. Reszta leci `ApiError`-em:
+ * awaria BE ma zostać awarią, nie komunikatem o zdjęciu.
+ */
+function toBodyPhotoError(e: unknown): never {
+  if (e instanceof ApiError && (e.status === 400 || e.status === 404 || e.status === 409)) {
+    throw new BodyPhotoError(e.code, e.message);
+  }
+  throw e;
+}
+
+// ============================================================
+// Odczyt
+// ============================================================
+
+/** Nazwy z zakładkowalnego adresu listy (`?sort=newest`), nie z kontraktu. */
+export type BodyPhotoSort = "newest" | "oldest";
+
+/**
+ * Kontrakt nazywa sortowania inaczej niż adres listy, więc — jak w `exercises.ts`,
+ * a inaczej niż w planach — jest słownik. Adres zostaje bez zmian: zakładka
+ * `?sort=oldest` zapisana przed integracją ma dalej działać.
+ */
+const CONTRACT_SORT: Record<BodyPhotoSort, "taken_on_desc" | "taken_on_asc"> = {
+  newest: "taken_on_desc",
+  oldest: "taken_on_asc",
+};
+
+/**
+ * `photoUrl` z kontraktu jest ŚCIEŻKĄ (`/v1/files/…?exp=…&sig=…`), nie adresem —
+ * origin dokłada MODUŁ, nie trasa i nie komponent (ten sam szew co `demoUrl`
+ * w `exercises.ts` i `videoUrl` w `workouts.ts`). Wstawiona wprost w `src`
+ * rozwiązałaby się względem origin FE, gdzie takiej trasy już nie ma — i to bez
+ * żadnego błędu, bo puste `<img>` wygląda jak brak zdjęcia.
+ */
+function withPublicPhotoUrls(items: BodyPhotoDto[]): BodyPhotoDto[] {
+  return items.map((photo) => ({ ...photo, photoUrl: publicFileUrl(photo.photoUrl) }));
+}
+
+/**
+ * Własna galeria podopiecznego — cała strona z kontraktu (60/stronę, `total`
+ * i `totalPages` w odpowiedzi, stronę spoza zakresu przycina BE), więc
+ * `countBodyPhotosForTrainee` znika bez zamiennika, a licznik nawigacji niesie
+ * `TraineeNavView.bodyPhotos` z `views.ts`.
+ */
+export async function listMyBodyPhotos(
+  api: Api,
+  opts: { page: number; sort: BodyPhotoSort },
+): Promise<BodyPhotoListPage> {
+  const { data } = await bodyPhotosControllerMine({
+    client: api,
+    query: { page: opts.page, sort: CONTRACT_SORT[opts.sort] },
+    throwOnError: true,
+  });
+  return { ...data, items: withPublicPhotoUrls(data.items) };
+}
+
+interface PhotoPage {
+  items: BodyPhotoDto[];
+  totalPages: number;
+}
+
+/**
+ * Galeria podopiecznego oglądana przez trenera. Odpowiedź niesie jeszcze `pairs`
+ * („przed / po" policzone po tamtej stronie) — **świadomie ich nie czytamy**:
+ * ekran pokazuje kafelek także dla ujęcia z JEDNYM zdjęciem i dla ujęcia bez
+ * zdjęć, a takich stanów `pairs` z definicji nie zawiera (para wymaga obu
+ * końców). Parowanie liczy więc `getSideBySidePhotoPairs` niżej — dla obu ról
+ * tak samo, z jednego kształtu (spec, Zał. A: „to prezentacja, nie dane").
+ */
+async function traineeBodyPhotoPage(api: Api, traineeId: string, page: number): Promise<PhotoPage> {
+  const { data } = await traineeBodyPhotosControllerForTrainee({
+    client: api,
+    path: { traineeId },
+    query: { page, sort: CONTRACT_SORT.newest },
+    throwOnError: true,
+  });
+  return { items: withPublicPhotoUrls(data.items), totalPages: data.totalPages };
+}
+
+async function myBodyPhotoPage(api: Api, page: number): Promise<PhotoPage> {
+  const strona = await listMyBodyPhotos(api, { page, sort: "newest" });
+  return { items: strona.items, totalPages: strona.totalPages };
+}
+
+/**
+ * Sklejone strony kontraktu w jedną listę, od najnowszego zdjęcia. Potrzebne,
+ * bo porównanie „pierwsze vs ostatnie" musi widzieć WSZYSTKIE zdjęcia ujęcia,
+ * a kontrakt stronicuje po 60 i nie ma parametru „wszystko" (precedens:
+ * `listActiveExercisesForTrainer` w `exercises.ts`). `totalPages` z pierwszej
+ * odpowiedzi jest granicą pętli, więc nie może się ona rozbiec; zdjęcie dodane
+ * MIĘDZY żądaniami może przesunąć jedną pozycję — dla porównania i siatki to
+ * bez znaczenia.
+ */
+async function gluePages(page: (n: number) => Promise<PhotoPage>): Promise<BodyPhotoDto[]> {
+  const first = await page(1);
+  const items = [...first.items];
+  for (let n = 2; n <= first.totalPages; n += 1) {
+    const next = await page(n);
+    items.push(...next.items);
+  }
+  return items;
+}
+
+/** Wszystkie własne zdjęcia, od najnowszego — do porównania „przed / po". */
+export async function listAllMyBodyPhotos(api: Api): Promise<BodyPhotoDto[]> {
+  return await gluePages((n) => myBodyPhotoPage(api, n));
+}
+
+/**
+ * Wszystkie zdjęcia podopiecznego, od najnowszego. Trener ogląda galerię bez
+ * stronicowania (tak było przed integracją), więc ta lista karmi u niego i siatkę,
+ * i porównanie — jednym kompletem żądań, nie dwoma.
+ */
+export async function listAllTraineeBodyPhotos(
+  api: Api,
+  traineeId: string,
+): Promise<BodyPhotoDto[]> {
+  return await gluePages((n) => traineeBodyPhotoPage(api, traineeId, n));
+}
+
+// ============================================================
+// Porównanie „przed / po" — czysta funkcja nad listą
+// ============================================================
+
+export interface SideBySidePhoto {
+  id: string;
+  /** Gotowy adres (origin już dołożony przez `withPublicPhotoUrls`). */
+  url: string;
+  takenOn: string;
+}
+
+export interface SideBySidePhotoPair {
+  view: BodyPhotoView;
+  first: SideBySidePhoto | null;
+  latest: SideBySidePhoto | null;
+  /** `false` także wtedy, gdy ujęcie ma dokładnie jedno zdjęcie. */
+  hasPair: boolean;
+  daysBetween: number | null;
+}
+
+const BODY_PHOTO_VIEWS: BodyPhotoView[] = ["front", "side", "back"];
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Rozstrzygnięcie remisu po `createdAt`: dwa zdjęcia z tego samego dnia miały
+ * dotąd kolejność, jaką akurat zwróciła baza. Tu jest deterministyczna, więc
+ * porównanie nie „mruga" między żądaniami.
+ */
+function earlier(a: BodyPhotoDto, b: BodyPhotoDto): boolean {
+  return a.takenOn !== b.takenOn ? a.takenOn < b.takenOn : a.createdAt < b.createdAt;
+}
+
+function tile(photo: BodyPhotoDto | null): SideBySidePhoto | null {
+  return photo == null ? null : { id: photo.id, url: photo.photoUrl, takenOn: photo.takenOn };
+}
+
+/**
+ * Pierwsze i ostatnie zdjęcie każdego ujęcia — trzy pozycje ZAWSZE, także dla
+ * ujęcia bez zdjęć (ekran rysuje wtedy kafelek „brak zdjęć"). Czysta: przeniesiona
+ * ze `stats.ts`, gdzie robiła własne zapytanie; kolejności wejścia nie zakłada,
+ * bo wybiera skrajne po `takenOn`, nie po pozycji w tablicy.
+ */
+export function getSideBySidePhotoPairs(photos: BodyPhotoDto[]): SideBySidePhotoPair[] {
+  return BODY_PHOTO_VIEWS.map((view) => {
+    const ofView = photos.filter((p) => p.view === view);
+    const first = ofView.reduce<BodyPhotoDto | null>(
+      (acc, p) => (acc == null || earlier(p, acc) ? p : acc),
+      null,
+    );
+    const latest = ofView.reduce<BodyPhotoDto | null>(
+      (acc, p) => (acc == null || earlier(acc, p) ? p : acc),
+      null,
+    );
+
+    if (first == null || latest == null || first.id === latest.id) {
+      return { view, first: tile(first), latest: tile(latest), hasPair: false, daysBetween: null };
+    }
+
+    return {
+      view,
+      first: tile(first),
+      latest: tile(latest),
+      hasPair: true,
+      daysBetween: Math.floor((Date.parse(latest.takenOn) - Date.parse(first.takenOn)) / DAY_MS),
+    };
+  });
+}
+
+// ============================================================
+// Zapis
+// ============================================================
+
 export interface AddBodyPhotoInput {
-  trainerId: string;
-  traineeId: string;
   file: File;
-  view: schema.BodyPhotoView;
-  takenOn: string; // YYYY-MM-DD
+  view: BodyPhotoView;
+  /** `YYYY-MM-DD`. */
+  takenOn: string;
   note: string | null;
 }
 
 /**
- * Upload a body photo and insert its row. Uses an UploadCleanupQueue so that
- * a partial-success state (file row committed, body_photos insert fails) is
- * cleaned up automatically.
+ * Dwie fazy, jak przy demo ćwiczenia: najpierw plik (`POST /v1/files/body-photo`
+ * + `confirm`), potem zdjęcie wskazujące na `fileId`. Odmowa PIERWSZEJ fazy leci
+ * `UploadError`-em (nic nie powstało, wolno ponowić); odmowa DRUGIEJ zostawia
+ * plik bez właściciela, którego po 24 h karencji zabiera zamiatacz BE — dlatego
+ * nie ma tu żadnego cofania i nie wraca `UploadCleanupQueue`.
+ *
+ * Bez `trainerId` i `traineeId`: właściciela zdjęcia wyznacza token, nie ładunek,
+ * a pole spoza `CreateBodyPhotoDto` byłoby `400` (`forbidNonWhitelisted`).
  */
-export async function addBodyPhoto(db: Db, input: AddBodyPhotoInput): Promise<string> {
-  const cleanup = new UploadCleanupQueue(db);
+export async function addBodyPhoto(api: Api, input: AddBodyPhotoInput): Promise<string> {
+  const fileId = await uploadBodyPhoto(api, input.file);
   try {
-    const uploaded = await uploadFile(
-      db,
-      {
-        file: input.file,
-        kind: "body_photo",
-        trainerId: input.trainerId,
-        uploadedBy: input.traineeId,
-      },
-      cleanup,
-    );
-
-    const [row] = await db
-      .insert(schema.bodyPhotos)
-      .values({
-        trainerId: input.trainerId,
-        traineeId: input.traineeId,
+    const { data } = await bodyPhotosControllerCreate({
+      client: api,
+      body: {
+        fileId,
         view: input.view,
         takenOn: input.takenOn,
         note: input.note,
-        fileId: uploaded.id,
-      })
-      .returning({ id: schema.bodyPhotos.id });
-    cleanup.commit();
-    return row!.id;
+      },
+      throwOnError: true,
+    });
+    return data.id;
   } catch (e) {
-    await cleanup.cleanup();
-    if (e instanceof UploadError) {
-      throw new BodyPhotoError(e.message, e.userMessage);
-    }
-    throw e;
+    return toBodyPhotoError(e);
   }
 }
 
 /**
- * Delete a body photo owned by `traineeId`. Removes the body_photos row AND
- * its underlying file row + blob. Returns true if a row was removed.
- *
- * Note: body_photos.file_id is `ON DELETE RESTRICT`, so we must drop the
- * body_photos row first inside a tx, capture the file id, then delete the
- * file row + blob.
+ * Kasuje WŁASNE zdjęcie (`DELETE /v1/me/body-photos/{id}`) razem z zawartością
+ * pliku — sprzątaniem bajtów zajmuje się BE (ADR-0021), więc nie ma tu ani
+ * transakcji, ani kasowania bloba po commicie. Cudze i nieistniejące zdjęcie
+ * wygląda tak samo (`404`) i wraca jako `BodyPhotoError`, żeby kliknięcie
+ * w nieaktualny przycisk skończyło się zdaniem przy galerii, nie ekranem błędu.
+ * Trener cudzych zdjęć nie kasuje — kontrakt nie ma takiej trasy.
  */
-export async function deleteBodyPhoto(
-  db: Db,
-  photoId: string,
-  traineeId: string,
-): Promise<boolean> {
-  const storagePath = await db.transaction(async (tx) => {
-    const rows = await tx
-      .delete(schema.bodyPhotos)
-      .where(and(eq(schema.bodyPhotos.id, photoId), eq(schema.bodyPhotos.traineeId, traineeId)))
-      .returning({ fileId: schema.bodyPhotos.fileId });
-    const fileId = rows[0]?.fileId;
-    if (!fileId) return null;
-    return await deleteFileRow(tx, fileId);
-  });
-
-  if (storagePath != null) {
-    // Best-effort: wiersze są już skasowane w transakcji, więc DB jest spójne.
-    // Błąd I/O dysku zostawia osierocony blob, ale nie może wywrócić udanej
-    // operacji 500-tką (ten sam wzorzec co w trainees.ts).
-    try {
-      await deleteFileBlob(storagePath);
-    } catch {
-      // Swallow.
-    }
-    return true;
+export async function deleteBodyPhoto(api: Api, photoId: string): Promise<void> {
+  try {
+    await bodyPhotosControllerRemove({ client: api, path: { id: photoId }, throwOnError: true });
+  } catch (e) {
+    toBodyPhotoError(e);
   }
-  return false;
 }

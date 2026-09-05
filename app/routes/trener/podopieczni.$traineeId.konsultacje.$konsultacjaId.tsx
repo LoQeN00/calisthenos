@@ -14,6 +14,8 @@ import { ConsultationForm } from "~/components/consultation-form";
 import { StatusBadge } from "~/components/consultation-status-badge";
 import { Icons } from "~/components/icons";
 import { requireUser } from "~/lib/api/auth";
+import { ApiError, toRouteResponse } from "~/lib/api/errors";
+import { defaultTitle } from "~/lib/consultation-schedules";
 import { consultationPresentation } from "~/lib/consultation-status";
 import { parseConsultationDocFormData } from "~/lib/consultation-form.server";
 import { ConsultationDocFormSchema } from "~/lib/consultation-types";
@@ -26,10 +28,7 @@ import {
   rescheduleOccurrence,
   setActionItemStatus,
 } from "~/lib/consultations";
-import { syncCancelOne, syncUpsertOne } from "~/lib/google/sync";
-import { db } from "~/lib/db/client";
 import { fmtDate, fmtDateTime } from "~/lib/format";
-import { findTraineeOfTrainer } from "~/lib/trainees";
 
 /** ISO (UTC) → wartość dla <input type="datetime-local"> ("YYYY-MM-DDTHH:MM"). */
 function toLocalInput(iso: string): string {
@@ -37,89 +36,81 @@ function toLocalInput(iso: string): string {
 }
 
 export async function loader(args: LoaderFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
-  const trainee = await findTraineeOfTrainer(db, user.id, traineeId);
-  if (!trainee) throw new Response("not found", { status: 404 });
-  // Scope by BOTH trainerId and traineeId, so a mislinked URL (another of the
-  // trainer's trainees) yields 404 rather than rendering under the wrong trainee.
-  const detail = await getConsultationDetail(db, {
-    consultationId: args.params.konsultacjaId ?? "",
-    trainerId: user.id,
-    traineeId,
-  });
-  if (!detail) throw new Response("not found", { status: 404 });
-  // Normalizujemy timestamptz → ISO string (UTC) dla widoku/formularza.
-  const consultation = {
-    ...detail.consultation,
-    scheduledAt: detail.consultation.scheduledAt.toISOString(),
-  };
-  return {
-    detail: { consultation, items: detail.items },
-    traineeId,
-    traineeName: trainee.displayName,
-  };
+  // Zakres tenanta rozstrzyga BE (cudzy termin to `404`), ale zgodność ze
+  // ścieżką — już nie: adres wskazujący termin INNEGO podopiecznego tego
+  // samego trenera przeszedłby i wyrenderował się pod złym nazwiskiem.
+  // Dlatego porównanie zostaje tutaj, jak przed integracją.
+  const detail = await getConsultationDetail(api, args.params.konsultacjaId ?? "");
+  if (!detail || detail.trainee.id !== traineeId) {
+    throw new Response("not found", { status: 404 });
+  }
+  // JEDYNA z dziewięciu tras trenera, która nazwy nie musi dopytywać: niesie ją
+  // widok, po który ta trasa i tak sięga (`ConsultationView.trainee`) — patrz
+  // luka L S5-2. Porównanie wyżej gwarantuje, że to nazwa podopiecznego ze ścieżki.
+  return { detail, traineeId, traineeName: detail.trainee.displayName };
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const { user } = requireUser(args.context, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
   const consultationId = args.params.konsultacjaId ?? "";
   const fd = await args.request.formData();
   const intent = fd.get("intent");
   try {
-    // Wiązanie do ścieżki traineeId (mislinked URL → 404), jak w loaderze.
+    // Wiązanie do ścieżki traineeId (mislinked URL → 404), jak w loaderze:
+    // BE odmawia dostępu do CUDZEGO terminu, ale termin innego podopiecznego
+    // tego samego trenera przepuści. Jedno `GET` przed mutacją, tak jak przed
+    // integracją było jedno zapytanie.
     if (
       intent === "delete" ||
       intent === "document" ||
       intent === "reschedule" ||
       intent === "cancel"
     ) {
-      const owned = await getConsultationDetail(db, {
-        consultationId,
-        trainerId: user.id,
-        traineeId,
-      });
-      if (!owned) throw new Response("not found", { status: 404 });
+      const owned = await getConsultationDetail(api, consultationId);
+      if (!owned || owned.trainee.id !== traineeId) {
+        throw new Response("not found", { status: 404 });
+      }
     }
+    // Zdarzenia w kalendarzu zewnętrznym zdejmuje i wypycha BE przez outbox po
+    // każdej z tych mutacji — dawne `syncCancelOne`/`syncUpsertOne` zniknęły
+    // stąd bez zamiennika.
     if (intent === "delete") {
-      await syncCancelOne(db, { trainerId: user.id, consultationId });
-      await deleteConsultation(db, { trainerId: user.id, consultationId });
+      await deleteConsultation(api, consultationId);
       throw redirect(`/trener/podopieczni/${traineeId}/konsultacje`);
     }
     if (intent === "cancel") {
-      await cancelOccurrence(db, { trainerId: user.id, consultationId });
-      await syncCancelOne(db, { trainerId: user.id, consultationId });
+      await cancelOccurrence(api, consultationId);
       return { success: "Termin odwołany." };
     }
     if (intent === "reschedule") {
       const scheduledAtLocal = String(fd.get("scheduledAt") ?? "");
       const durationMin = Number(fd.get("durationMin") ?? "") || undefined;
-      await rescheduleOccurrence(db, {
-        trainerId: user.id,
-        consultationId,
-        scheduledAtLocal,
-        durationMin,
-      });
-      await syncUpsertOne(db, { trainerId: user.id, consultationId });
+      await rescheduleOccurrence(api, { consultationId, scheduledAtLocal, durationMin });
       return { success: "Termin przełożony." };
     }
     if (intent === "toggle-item") {
       const itemId = String(fd.get("itemId") ?? "");
       const status = fd.get("status") === "resolved" ? "resolved" : "open";
-      await setActionItemStatus(db, { trainerId: user.id, itemId, status });
+      // Punkt adresuje się przez termin: kontrakt ma go w ścieżce
+      // (`/v1/consultations/{id}/action-items/{itemId}`), więc samo `itemId`
+      // już nie wystarcza.
+      await setActionItemStatus(api, { consultationId, itemId, status });
       return null;
     }
     if (intent === "document") {
       const parsed = ConsultationDocFormSchema.safeParse(parseConsultationDocFormData(fd));
       if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Niepoprawne dane." };
-      await documentConsultation(db, { trainerId: user.id, consultationId, form: parsed.data });
+      await documentConsultation(api, { consultationId, form: parsed.data });
       return { success: "Zapisano." };
     }
     return null;
   } catch (e) {
     if (e instanceof Response) throw e;
     if (e instanceof ConsultationError) return { error: e.userMessage };
+    if (e instanceof ApiError) throw toRouteResponse(e);
     throw e;
   }
 }
@@ -130,7 +121,11 @@ export default function TrenerKonsultacjaDetail() {
   const [searchParams] = useSearchParams();
   const isDocument = searchParams.get("document") === "1";
 
-  const { consultation: c, items } = detail;
+  // Szczegół z kontraktu jest PŁASKI: punkty siedzą w `actionItems`, a tytułu
+  // nie ma wcale (`title` nie istnieje w `/v1`) — nagłówek liczy się z terminu.
+  const c = detail;
+  const items = c.actionItems;
+  const title = defaultTitle(c.scheduledAt);
   const listUrl = `/trener/podopieczni/${traineeId}/konsultacje`;
 
   // ── DOCUMENT mode ──────────────────────────────────────────
@@ -144,7 +139,7 @@ export default function TrenerKonsultacjaDetail() {
           <span className="sep">›</span>
           <Link to={listUrl}>Konsultacje</Link>
           <span className="sep">›</span>
-          <Link to={`${listUrl}/${c.id}`}>{c.title}</Link>
+          <Link to={`${listUrl}/${c.id}`}>{title}</Link>
           <span className="sep">›</span>
           <span className="current">Dokumentowanie</span>
         </div>
@@ -168,9 +163,9 @@ export default function TrenerKonsultacjaDetail() {
                 scheduledAt: toLocalInput(c.scheduledAt),
                 durationMin: c.durationMin,
                 meetingUrl: c.meetingUrl,
-                periodFrom: c.periodFrom,
-                periodTo: c.periodTo,
-                title: c.title,
+                // `periodFrom`/`periodTo` nie idą: kontrakt ich nie niesie
+                // (kolumny są spadkiem po legacy, `docs/04` o nich milczy).
+                title,
                 summary: c.summary ?? "",
                 items: items.map((it) => ({ body: it.body, status: it.status })),
               }}
@@ -218,7 +213,7 @@ export default function TrenerKonsultacjaDetail() {
         <span className="sep">›</span>
         <Link to={listUrl}>Konsultacje</Link>
         <span className="sep">›</span>
-        <span className="current">{c.title}</span>
+        <span className="current">{title}</span>
       </div>
 
       <div className="pagehead">
@@ -231,7 +226,7 @@ export default function TrenerKonsultacjaDetail() {
             <span>· {c.durationMin} min</span>
             <StatusBadge label={meta.label} tone={meta.tone} />
           </div>
-          <h1>{c.title}</h1>
+          <h1>{title}</h1>
           {c.meetingUrl && (
             <div className="sub" style={{ marginTop: 4 }}>
               <a
@@ -383,13 +378,13 @@ export default function TrenerKonsultacjaDetail() {
         </div>
       )}
 
-      {/* Okres omówiony */}
-      {c.periodFrom && c.periodTo && (
-        <div className="text-xs muted" style={{ marginBottom: 18 }}>
-          Okres omówiony: <span className="mono">{fmtDate(c.periodFrom)}</span> —{" "}
-          <span className="mono">{fmtDate(c.periodTo)}</span>
-        </div>
-      )}
+      {/*
+        „Okres omówiony" (`periodFrom`–`periodTo`) zniknął z ekranu: kontrakt
+        tych pól nie niesie. Kolumny są w bazie spadkiem po aplikacji
+        fullstackowej, a `docs/04` o nich milczy — BE świadomie ich nie
+        wystawia, bo najpierw trzeba rozstrzygnąć, co właściwie znaczą.
+        Luka L S3-3 w planie przepięcia.
+      */}
 
       {/* Punkty do poprawy */}
       {items.length === 0 ? (
