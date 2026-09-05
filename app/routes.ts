@@ -26,7 +26,6 @@ export default [
       route("pomysly", "routes/trener/pomysly._index.tsx"),
       route("pomysly/:requestId", "routes/trener/pomysly.$requestId.tsx"),
       route("integracje/google", "routes/trener/integracje.google.tsx"),
-      route("integracje/google/callback", "routes/trener/integracje.google.callback.tsx"),
       route("integracje/stripe", "routes/trener/integracje.stripe.tsx"),
       route("podopieczni", "routes/trener/podopieczni._index.tsx"),
       route("podopieczni/:traineeId", "routes/trener/podopieczni.$traineeId.tsx"),

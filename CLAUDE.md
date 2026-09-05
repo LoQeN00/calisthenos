@@ -61,7 +61,6 @@ Każdy wpis linkuje do `README.md` danego katalogu — tam jest opis plików.
   - [`app/lib/auth/`](app/lib/auth/README.md) — sesje, hasła, cookie, zaproszenia
   - [`app/lib/db/`](app/lib/db/README.md) — klient Drizzle, schemat, migracje
     - [`app/lib/db/migrations/`](app/lib/db/migrations/README.md) — migracje SQL (generowane)
-  - [`app/lib/google/`](app/lib/google/README.md) — OAuth2 + Google Calendar/Meet sync (wychodząca, best-effort, opcjonalna)
   - [`app/lib/stripe/`](app/lib/stripe/README.md) — płatności Stripe Connect (klient, połączenia konta, status subskrypcji; opcjonalna)
 - [`app/styles/`](app/styles/README.md) — globalne tokeny CSS
 

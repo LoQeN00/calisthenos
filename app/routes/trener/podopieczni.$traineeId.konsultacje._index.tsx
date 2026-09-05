@@ -14,7 +14,7 @@ import { ScheduleForm } from "~/components/schedule-form";
 import { requireUser } from "~/lib/api/auth";
 import { ApiError, toRouteResponse } from "~/lib/api/errors";
 import { parseScheduleFormData } from "~/lib/consultation-form.server";
-import { isGoogleSyncActive } from "~/lib/google/connections";
+import { getCalendarConnection } from "~/lib/calendar";
 import {
   type ConsultationCadence,
   ScheduleError,
@@ -30,7 +30,6 @@ import {
   listOccurrencesForTrainer,
   runConsultationSync,
 } from "~/lib/consultations";
-import { db } from "~/lib/db/client";
 import { fmtDateTime, todayISO } from "~/lib/format";
 import { findTraineeRef } from "~/lib/trainees";
 
@@ -41,7 +40,7 @@ const CADENCE_LABEL: Record<ConsultationCadence, string> = {
 };
 
 export async function loader(args: LoaderFunctionArgs) {
-  const { api, user } = requireUser(args.context, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
   // Nazwa do nagłówka i `404` dla cudzego podopiecznego. Z listy terminów jej
   // wziąć nie można — para bez ani jednego terminu daje pustą listę, a nagłówek
@@ -56,7 +55,11 @@ export async function loader(args: LoaderFunctionArgs) {
   const occurrences = await listOccurrencesForTrainer(api, traineeId, {
     nowISO: new Date().toISOString(),
   });
-  const googleActive = await isGoogleSyncActive(db, user.id);
+  // `broken` liczy się jako aktywne, tak samo jak przed integracją, gdzie
+  // decydowała sama obecność wiersza połączenia. Chip zostaje widoczny,
+  // a o tym, czy synchronizacja przejdzie, rozstrzyga `runConsultationSync`
+  // (`connected: false` → komunikat zamiast mylącego „0/0").
+  const googleActive = (await getCalendarConnection(api)).status !== "disconnected";
   return { trainee, schedule, occurrences, googleActive };
 }
 

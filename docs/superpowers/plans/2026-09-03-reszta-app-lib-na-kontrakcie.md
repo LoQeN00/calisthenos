@@ -468,18 +468,87 @@ bo to obejście, nie rozwiązanie. Nie powielaj tego zapytania w każdej trasie 
 
 ### Segment S6 — sprzątanie
 
-Kolejność: (1) `stripe/*`, `payments.ts`, `money.ts` jeśli bez wywołań, trasy
-`podopieczny/aktywuj.tsx`, `podopieczny/platnosci.tsx`, `trener/podopieczni.$traineeId.platnosci.tsx`,
-`trener/integracje.stripe.tsx`, `webhooks.stripe.tsx`, bramka `hasTraineeAppAccess` w
-`podopieczny/_layout.tsx`, `formularz.tsx`, `upload.wideo.tsx`, wpisy w `app/routes.ts`;
-(2) `auth/invite.ts` reszta, `auth/users.ts`, `auth/password.ts`, `scripts/seed.ts`;
-(3) `app/lib/db/`, `drizzle.config.ts`, skrypty `db:*` i zależności `drizzle-*`/`postgres`
-w `package.json` (**edycja `package.json` bez `npm install`** — instalację robi Właściciel),
-`tests/*.itest.ts`, `docker-compose.yml`, wolumen w `railway.toml`, `docker-entrypoint.sh`;
-(4) `no-direct-db.test.ts` → nowa bramka „trasa nie importuje `@kalisthenos/api-client` ani
-`~/lib/api/client` — wyłącznie moduły `~/lib/*`"; (5) `CLAUDE.md`, `README.md`, `.env.example`,
-README katalogów usuniętych. Warunek wejścia: Grep `~/lib/db` w `app/` zwraca zero trafień poza
-`app/lib/db/` i `google/*` (LK1).
+**Brief doprecyzowany 05.09.2026 przez koordynatora** — akapit z 03.09 opisywał zakres z grubsza
+i w trzech miejscach się mylił. Poprawki niżej są zmierzone, nie wywnioskowane.
+
+**Warunek wejścia — grep z akapitu pierwotnego go NIE sprawdza.** `~/lib/db` nie łapie importów
+względnych, a tak właśnie sięgają po bazę oba moduły tożsamości (`auth/invite.ts`, `auth/users.ts`
+biorą `../db/client`). Właściwe sprawdzenie:
+
+```bash
+grep -rn "lib/db\|\.\./db/\|drizzle-orm" app scripts tests --include=*.ts --include=*.tsx | grep -v "^app/lib/db/"
+```
+
+Stan na 05.09: 22 pliki — pięć Stripe'a i `payments.ts`, dwa tożsamości, osiem tras, `scripts/seed.ts`,
+siedem `tests/*.itest.ts`, plus **cztery pliki biorące ze schematu wyłącznie typ** (trzy komponenty
+zdjęć i `feature-request-types.test.ts`). Ani jednego trafienia w kalendarzu — LK1 zamknięta.
+
+**Trzy rzeczy, których akapit pierwotny nie wiedział:**
+
+1. **`money.ts` ZOSTAJE.** Warunek „jeśli bez wywołań" nie zachodzi: `POST /v1/invites` przyjmuje
+   `monthlyAmountGrosze`, a formularz zaproszenia (`podopieczni._index.tsx`) go wysyła przez
+   `parsePlnToGrosze`/`MonthlyAmountSchema`. Umiera z modułu wyłącznie `fmtMoney` — czytały go
+   trzy kasowane trasy i nikt więcej.
+2. **Naruszenie przyszłej bramki już w drzewie.** `zaproszenie.$token.tsx` woła
+   `invitesControllerPreview` **wprost z SDK** (spadek po kroku 2 Etapu 2). Cztery inne trasy biorą
+   z pakietu `import type` — to jest dozwolone i bramka ma to przepuszczać, dokładnie jak stara
+   przepuszczała `import type` ze schematu.
+3. **Do listy plików dochodzą:** `Dockerfile` (CMD to `db:migrate && db:seed && start`),
+   `vitest.config.ts` (wpis `tests/**/*.itest.ts`), `app/lib/env.ts` (`DATABASE_URL`, cztery
+   `STRIPE_*`, a także `SESSION_SECRET`, `FILE_SIGNING_SECRET` i `DATA_DIR` — po S4 i kroku 2
+   nie mają ani jednego czytelnika) oraz `railway.toml`, który te zmienne dokumentuje.
+
+**Kolejność — pięć grup, każda zostawia drzewo w stanie dającym się zbudować:**
+
+**G1 — bramka szwu (pierwsza, bo jest testem, nie sprzątaniem).** Nowy `app/routes/no-direct-api.test.ts`:
+trasa nie importuje `~/lib/api/client` ani **wartości** z `@kalisthenos/api-client` (`import type`
+wolno). Bramka pada na `zaproszenie.$token.tsx` → podgląd zaproszenia przenosi się do
+`auth/invite.ts` jako `previewInvite(api, token)` → bramka przechodzi. Stary `no-direct-db.test.ts`
+zostaje nietknięty do G5: dopóki baza jest w drzewie, ma czego pilnować.
+
+**G2 — płatności (D1).** Usunięcie: `app/lib/stripe/` w całości, `payments.ts`, pięć tras
+(`podopieczny/aktywuj.tsx`, `podopieczny/platnosci.tsx`, `trener/podopieczni.$traineeId.platnosci.tsx`,
+`trener/integracje.stripe.tsx`, `webhooks.stripe.tsx`) wraz z wpisami w `app/routes.ts`, trzy
+`tests/stripe-*.itest.ts`, `fmtMoney` z `money.ts` i jego przypadki testowe, `STRIPE_*` wraz
+z `stripeConfigured`/`stripeApiConfigured` z `env.ts`, `stripe` z `package.json`.
+Odpięcie bramki `hasTraineeAppAccess` w `podopieczny/_layout.tsx` (razem z `redirect("/podopieczny/aktywuj")`),
+`formularz.tsx` (dwa wywołania) i `upload.wideo.tsx`. **Odnośniki też są ubytkiem:** pozycja
+„Płatności" w nawigacji podopiecznego (`_layout.tsx`) i przycisk płatności na ekranie podopiecznego
+u trenera (`podopieczni.$traineeId.tsx`), skąd znika także wywołanie `cleanupSubscriptionForTrainee`.
+
+**G3 — tożsamość.** `auth/invite.ts` schodzi do powierzchni kontraktowej (`createInvite`,
+`previewInvite` z G1, `InviteError`, typy); znikają `hashToken`, `findInviteByToken`, `consumeInvite`.
+`auth/users.ts` i `auth/password.ts` znikają w całości — **żadna z ich funkcji nie ma już
+wywołującego** (`findDisplayName` czytały tylko dwie trasy kasowane w G2; `formularz.tsx` bierze
+nazwę trenera z `MeDto.coach.displayName`). Do tego `auth/index.ts` (re-eksporty), `auth/invite.test.ts`
+(przycięcie), `scripts/seed.ts`, `tests/auth-repo.itest.ts`, skrypt `db:seed` i `@node-rs/argon2`
+z `package.json` — hasła liczy BE.
+
+**G4 — baza.** Najpierw przetypowanie czterech plików, które biorą ze schematu sam typ: trzy
+komponenty zdjęć na `BodyPhotoView` z `~/lib/body-photos` (moduł eksportuje go już z DTO kontraktu),
+`feature-request-types.test.ts` z enumów Drizzle na unię z kontraktu. Dopiero potem usunięcie:
+`app/lib/db/` (klient, schemat, dziewiętnaście migracji, README), `drizzle.config.ts`, trzy
+pozostałe itesty, `vitest.config.ts` (wpis `tests/`), `tests/README.md` (przepisany na jedno zdanie
+o Playwrighcie ze spec §10, nie skasowany — `playwright.config.ts` nadal celuje w `tests/e2e`),
+`package.json` (`db:*`, `test:itest`, `drizzle-orm`, `drizzle-kit`, `postgres`,
+`@testcontainers/postgresql`), `env.ts` (`DATABASE_URL`, `SESSION_SECRET`, `FILE_SIGNING_SECRET`,
+`DATA_DIR`), `docker-compose.yml` (był wyłącznie Postgresem), `docker-entrypoint.sh` (chownował
+wolumen pod `DATA_DIR`, którego nie ma), `Dockerfile` (CMD, kopie źródeł dla drizzle-kit i tsx,
+punkt montowania) i `railway.toml` (lista zmiennych, wolumen, nota o `citext`).
+**Edycja `package.json` bez `npm install`** — instalację robi Właściciel.
+
+**G5 — stara bramka i dokumentacja.** `no-direct-db.test.ts` znika (pilnował importu ze schematu,
+którego nie ma; jego rolę przejęła bramka z G1). Dalej: `CLAUDE.md`, `README.md`, `.env.example`,
+`app/lib/README.md`, `app/lib/auth/README.md`, `app/routes/*/README.md`, `scripts/README.md`.
+
+**Pułapka bez odwrotu, do powiedzenia Właścicielowi przed G4:** usunięcie `app/lib/db/schema.ts`
+i migracji odbiera FE zdolność wygenerowania migracji dwudziestej — co jest celem — ale zostawia
+jedyną kopię historii Drizzle w `calisthenos-be/docs/legacy-drizzle/`. Przed skasowaniem
+porównać oba drzewa bajt po bajcie; różnica znaczy, że archiwum BE nie jest tym, za co się podaje.
+
+**Testy:** S6 jest subtraktywny, więc nowych testów modułów nie ma — jedyny nowy plik to bramka
+z G1. Testy odwołujące się do usuwanych rzeczy przycina ta sama grupa, która usuwa. Jeden przebieg
+`npx vitest run app --no-file-parallelism` na końcu, u koordynatora; pełne bramki u Właściciela.
 
 - [ ] S6 wykonane
 
@@ -515,7 +584,7 @@ README katalogów usuniętych. Warunek wejścia: Grep `~/lib/db` w `app/` zwraca
 
 | Id | Co | Skąd | Propozycja |
 |---|---|---|---|
-| **LK1** | **„Połącz z Google" nie da się przepiąć na kontrakt przy FE wołającym BE serwer-do-serwera.** `POST /v1/calendar/connection/authorize` ustawia w odpowiedzi ciastko z nonce'em (`HttpOnly`, `SameSite=Lax`, host BE), a `GET …/callback` — trasa publiczna, na którą Google odsyła przeglądarkę — wpuszcza zgodę tylko, gdy skrót z tego ciastka zgadza się ze `state`. Ciastko z odpowiedzi na wywołanie serwer-do-serwera ląduje u serwera FE, nie w przeglądarce; przekazane dalej przez FE byłoby ciastkiem hosta FE, którego przeglądarka do hosta BE nie wyśle. W dev na `localhost` działałoby przypadkiem (ciastka ignorują port). | plan, przed falą 1 (`calendar.controller.ts` BE, `authorize`/`callback`) | decyzja poza tym planem: (a) wspólna domena nadrzędna i `Domain=` w ciastku po stronie BE, (b) przeglądarka woła `authorize` wprost (wymaga CORS i tokenu w przeglądarce — sprzeczne z D3), (c) BE przyjmuje callback bez ciastka, gdy `state` niesie drugi sekret znany tylko FE. Do rozstrzygnięcia `google/connections.ts`, `oauth.ts`, `crypto.ts` i obie trasy `integracje.google*` zostają na Drizzle; S6 nie może zdjąć bazy, dopóki to stoi |
+| ~~**LK1**~~ **ZAMKNIĘTA** | ~~**„Połącz z Google" nie da się przepiąć na kontrakt przy FE wołającym BE serwer-do-serwera.** `POST /v1/calendar/connection/authorize` ustawia w odpowiedzi ciastko z nonce'em (`HttpOnly`, `SameSite=Lax`, host BE), a `GET …/callback` — trasa publiczna, na którą Google odsyła przeglądarkę — wpuszcza zgodę tylko, gdy skrót z tego ciastka zgadza się ze `state`. Ciastko z odpowiedzi na wywołanie serwer-do-serwera ląduje u serwera FE, nie w przeglądarce; przekazane dalej przez FE byłoby ciastkiem hosta FE, którego przeglądarka do hosta BE nie wyśle. W dev na `localhost` działałoby przypadkiem (ciastka ignorują port).~~ | plan, przed falą 1 (`calendar.controller.ts` BE, `authorize`/`callback`) | Zamknięta specem [`2026-09-04-zgoda-google-przez-dwa-hosty-design.md`](../specs/2026-09-04-zgoda-google-przez-dwa-hosty-design.md) i ADR-0036 po stronie BE (`docs/adr/0036-domena-ciastka-nonce-przy-dwoch-hostach.md` w `calisthenos-be`) — ciastko z nonce'em dostaje domenę nadrzędną z konfiguracji BE (`CALENDAR_COOKIE_DOMAIN`), więc przeglądarka wraca prosto na callback BE, a FE (`app/lib/calendar.ts`) przekazuje dalej tylko jeden nagłówek `Set-Cookie` z odpowiedzi rozpoczynającej zgodę (`authorize`) |
 | **L S1-1** | **Sugestia awansu znika z ekranu umiejętności.** Oba endpointy mapy deklarują w docbloku „bez sugestii awansu", a DTO nie niesie ŻADNEGO z sygnałów, na których stała `suggestAdvancement`: liczby sesji na bieżącym wariancie, statusu progresji, „łatwiej przy tych samych powtórzeniach", stagnacji i ostatniego RPE. | S1, potwierdzone w `types.gen.d.ts` | dodatek po stronie BE: pięć pól przy pozycji mapy albo osobny blok `suggestion`. Do tego czasu ekran pokazuje poziom i historię bez podpowiedzi — moduł świadomie NIE składa jej z N wywołań progresji |
 | **L S2-1** | **BE i FE nie zgadzają się co do adresu zaproszenia.** `POST /v1/invites` zwraca `url` zbudowany jako `{APP_PUBLIC_URL}/join/{token}`, a FE przyjmuje zaproszenia pod `/zaproszenie/:token`. Trasa składa więc odnośnik z samego `token`, ignorując `url` z kontraktu. | S2 | jedna z dwóch stron ustępuje: BE bierze wzorzec adresu z konfiguracji albo FE dokłada trasę `/join/:token`. Póki co odnośnik jest poprawny, ale pole kontraktu leży nieużywane — czyli obietnica bez pokrycia |
 | **L S3-1** | **Historia terminów starsza niż rok przestaje być widoczna.** Kontrakt wymaga zakresu zamkniętego z obu stron (`from`/`to`), a dawna lista pary zakresu nie miała. Moduł przyjął okno `LIST_WINDOW_DAYS` = rok wstecz i rok w przód. | S3 | do decyzji: okno wystarczy, czy lista pary ma dostać stronicowanie po stronie BE. Dziś nikt nie zgłosił potrzeby — to ubytek widoczny, nie cichy |

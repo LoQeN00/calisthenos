@@ -20,10 +20,7 @@ const BaseEnvSchema = z.object({
    * tego przepisania pusty string wysypywałby `.url()`, a razem z nim całe
    * `getEnv()` na starcie aplikacji.
    */
-  API_PUBLIC_URL: z.preprocess(
-    (v) => (v === "" ? undefined : v),
-    z.string().url().optional(),
-  ),
+  API_PUBLIC_URL: z.preprocess((v) => (v === "" ? undefined : v), z.string().url().optional()),
   DATA_DIR: z.string().default("./data"),
   MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(250_000_000),
   // Osobny, niższy limit dla wideo (nagrania serii, demo ćwiczeń). Długie nagrania
@@ -33,12 +30,6 @@ const BaseEnvSchema = z.object({
   // Kalibrowalne bez redeployu.
   MAX_VIDEO_UPLOAD_BYTES: z.coerce.number().int().positive().default(30_000_000),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  // Integracja Google (opcjonalna — aplikacja działa bez niej).
-  GOOGLE_CLIENT_ID: z.string().optional(),
-  GOOGLE_CLIENT_SECRET: z.string().optional(),
-  GOOGLE_REDIRECT_URI: z.string().url().optional(),
-  // base64 32 bajtów (klucz AES-256-GCM do szyfrowania tokenów at-rest).
-  GOOGLE_TOKEN_ENC_KEY: z.string().optional(),
   // Płatności Stripe (opcjonalne — aplikacja działa bez nich).
   STRIPE_SECRET_KEY: z.string().optional(),
   // Sekret webhooka konta platformy (zdarzenia billingowe: invoice/subscription/checkout).
@@ -68,14 +59,6 @@ export const env = new Proxy({} as Env, {
     return getEnv()[prop as keyof Env];
   },
 });
-
-/** True, gdy wszystkie sekrety integracji Google są ustawione (OAuth + klucz szyfrujący). */
-export function googleConfigured(): boolean {
-  const e = getEnv();
-  return Boolean(
-    e.GOOGLE_CLIENT_ID && e.GOOGLE_CLIENT_SECRET && e.GOOGLE_REDIRECT_URI && e.GOOGLE_TOKEN_ENC_KEY,
-  );
-}
 
 /** True, gdy sekrety Stripe są ustawione (klucz API + sekret webhooka). */
 export function stripeConfigured(): boolean {
