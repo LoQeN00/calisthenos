@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, redirect, useLoaderData, useNavigate, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
-import { requireUser } from "~/lib/auth";
-import { db } from "~/lib/db/client";
+import { requireUser } from "~/lib/api/auth";
 import { fmtDate } from "~/lib/format";
 import { hasPendingOnboarding } from "~/lib/onboarding-forms";
 import {
-  getMonthlyWrapped,
+  describeArchetype,
   isPastMonth,
+  loadWrappedSummary,
   parseYM,
-  type MonthlyPR,
-  type WrappedSummary,
+  type Archetype,
+  type WrappedPrItem,
+  type WrappedSummaryView,
 } from "~/lib/wrapped";
 
 // ============================================================
@@ -19,12 +20,14 @@ import {
 // ============================================================
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
+  const { api, user } = requireUser(args.context, { role: "trainee" });
 
   // Wrapped żyje poza layoutem, więc bramka formularza musi tu stać osobno.
   // Bramki płatności celowo NIE dokładamy — dziś jej tu nie ma i ta zmiana nie
-  // jest od zaostrzania dostępu.
-  if (await hasPendingOnboarding(db, user.id)) throw redirect("/podopieczny/formularz");
+  // jest od zaostrzania dostępu. Jawnie, przez kontrakt (`GET /v1/me/onboarding-form`
+  // jest na białej liście bramki BE): do fali 2 ta trasa nie woła żadnej innej
+  // trasy kontraktu, która odpaliłaby bramkę globalną `403 ONBOARDING_FORM_PENDING`.
+  if (await hasPendingOnboarding(api)) throw redirect("/podopieczny/formularz");
 
   const ym = args.params.ym ?? "";
   const parsed = parseYM(ym);
@@ -32,8 +35,11 @@ export async function loader(args: LoaderFunctionArgs) {
   if (!isPastMonth(parsed.year, parsed.month)) {
     throw new Response("month not yet closed", { status: 404 });
   }
-  const summary = await getMonthlyWrapped(db, user.id, parsed.year, parsed.month);
-  if (!summary.hasData) {
+  // Całą arytmetykę miesiąca liczy BE. Miesiąc bez ani jednego treningu to po
+  // tamtej stronie `404` (`docs/04`: „`404`, gdy brak danych"), tu `null` —
+  // dawna flaga `hasData` nie ma już czego opisywać.
+  const summary = await loadWrappedSummary(api, ym);
+  if (!summary) {
     throw new Response("no data", { status: 404 });
   }
   return { user, summary };
@@ -89,7 +95,7 @@ function CardDeck({
   firstName,
   onClose,
 }: {
-  summary: WrappedSummary;
+  summary: WrappedSummaryView;
   firstName: string;
   onClose: () => void;
 }) {
@@ -257,24 +263,24 @@ type Card =
   | {
       key: "top";
       kind: "top";
-      top: NonNullable<WrappedSummary["topExercise"]>;
+      top: NonNullable<WrappedSummaryView["topExercise"]>;
     }
   | { key: "top-empty"; kind: "top-empty" }
-  | { key: "prs"; kind: "prs"; prs: MonthlyPR[] }
+  | { key: "prs"; kind: "prs"; prs: WrappedPrItem[] }
   | {
       key: "heaviest";
       kind: "heaviest";
-      day: NonNullable<WrappedSummary["heaviestDay"]>;
+      day: NonNullable<WrappedSummaryView["heaviestDay"]>;
     }
-  | { key: "archetype"; kind: "archetype"; archetype: WrappedSummary["archetype"] }
+  | { key: "archetype"; kind: "archetype"; archetype: Archetype }
   | {
       key: "vs-prev";
       kind: "vs-prev";
-      vs: WrappedSummary["vsPrevious"];
+      vs: WrappedSummaryView["vsPrevious"];
     }
   | { key: "closing"; kind: "closing"; label: string };
 
-function buildCards(s: WrappedSummary, firstName: string): Card[] {
+function buildCards(s: WrappedSummaryView, firstName: string): Card[] {
   const cards: Card[] = [];
   cards.push({ key: "intro", kind: "intro", firstName, label: s.label, sessions: s.sessions });
   cards.push({
@@ -293,7 +299,9 @@ function buildCards(s: WrappedSummary, firstName: string): Card[] {
   if (s.heaviestDay) {
     cards.push({ key: "heaviest", kind: "heaviest", day: s.heaviestDay });
   }
-  cards.push({ key: "archetype", kind: "archetype", archetype: s.archetype });
+  // Kontrakt oddaje `key` i `emoji`; nazwa i opis po polsku (z liczbami z tej
+  // samej odpowiedzi) są prezentacją i liczy je moduł.
+  cards.push({ key: "archetype", kind: "archetype", archetype: describeArchetype(s) });
   cards.push({ key: "vs-prev", kind: "vs-prev", vs: s.vsPrevious });
   cards.push({ key: "closing", kind: "closing", label: s.label });
   return cards;
@@ -465,7 +473,7 @@ function VolumeCard({
 function TopExerciseCard({
   top,
 }: {
-  top: NonNullable<WrappedSummary["topExercise"]>;
+  top: NonNullable<WrappedSummaryView["topExercise"]>;
 }) {
   return (
     <div>
@@ -501,7 +509,7 @@ function TopEmptyCard() {
   );
 }
 
-function PRsCard({ prs }: { prs: MonthlyPR[] }) {
+function PRsCard({ prs }: { prs: WrappedPrItem[] }) {
   if (prs.length === 0) {
     return (
       <div>
@@ -564,7 +572,7 @@ function PRsCard({ prs }: { prs: MonthlyPR[] }) {
 function HeaviestCard({
   day,
 }: {
-  day: NonNullable<WrappedSummary["heaviestDay"]>;
+  day: NonNullable<WrappedSummaryView["heaviestDay"]>;
 }) {
   return (
     <div>
@@ -595,11 +603,7 @@ function HeaviestCard({
   );
 }
 
-function ArchetypeCard({
-  archetype,
-}: {
-  archetype: WrappedSummary["archetype"];
-}) {
+function ArchetypeCard({ archetype }: { archetype: Archetype }) {
   return (
     <div>
       <div style={EYEBROW}>Twój typ trenującego</div>
@@ -621,7 +625,7 @@ function ArchetypeCard({
   );
 }
 
-function VsPrevCard({ vs }: { vs: WrappedSummary["vsPrevious"] }) {
+function VsPrevCard({ vs }: { vs: WrappedSummaryView["vsPrevious"] }) {
   if (!vs.hasPrevious) {
     return (
       <div>
@@ -769,7 +773,7 @@ function ShareBar({
   summary,
   firstName,
 }: {
-  summary: WrappedSummary;
+  summary: WrappedSummaryView;
   firstName: string;
 }) {
   const [copied, setCopied] = useState(false);
@@ -822,12 +826,13 @@ function ShareBar({
   );
 }
 
-function buildShareText(s: WrappedSummary, firstName: string): string {
+function buildShareText(s: WrappedSummaryView, firstName: string): string {
+  const archetype = describeArchetype(s);
   const parts = [`${firstName} · ${s.label} w kalisthenos:`, `${s.sessions} sesji`];
   if (s.totalReps > 0) parts.push(`${s.totalReps.toLocaleString("pl-PL")} powt.`);
   if (s.totalSeconds > 0) parts.push(`${s.totalSeconds.toLocaleString("pl-PL")} sek.`);
   if (s.prs.length > 0) parts.push(`${s.prs.length} nowych rekordów`);
-  parts.push(`Typ: ${s.archetype.label} ${s.archetype.emoji}`);
+  parts.push(`Typ: ${archetype.label} ${archetype.emoji}`);
   return parts.join(" · ");
 }
 

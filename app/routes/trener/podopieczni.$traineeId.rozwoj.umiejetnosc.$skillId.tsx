@@ -7,31 +7,37 @@ import {
   type LoaderFunctionArgs,
 } from "react-router";
 import { ExerciseProgressionPanel } from "~/components/exercise-progression-panel";
-import { Icons } from "~/components/icons";
 import { VariationLadder } from "~/components/skill-tree";
 import { TierBadge } from "~/components/tier-badge";
-import { requireUser } from "~/lib/auth";
-import { db } from "~/lib/db/client";
+import { requireUser } from "~/lib/api/auth";
+import { ApiError, toRouteResponse } from "~/lib/api/errors";
 import { fmtDate } from "~/lib/format";
-import { findTraineeOfTrainer, getExerciseProgression, todayIso } from "~/lib/progression";
+import { loadTraineeExerciseProgression, todayIso } from "~/lib/progression";
 import type { ProgressionRange } from "~/lib/progression-math";
 import {
-  getSkillMapForTrainee,
+  currentVariationOf,
+  loadTraineeSkillMap,
   recordAdvancement,
   setStartingLevel,
 } from "~/lib/skill-progression";
 import { SkillError } from "~/lib/skills";
 import { AdvancementFormSchema } from "~/lib/skill-types";
+import { findTraineeRef } from "~/lib/trainees";
 
 const RANGES: ProgressionRange[] = ["4w", "3m", "6m", "all"];
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
   const skillId = args.params.skillId ?? "";
-  const trainee = await findTraineeOfTrainer(db, user.id, traineeId);
+  // Nazwa do nagłówka i `404` dla cudzego podopiecznego — ze sklejonych stron
+  // listy, bo kontrakt nie ma trasy „jeden podopieczny" (luka L S5-2).
+  const trainee = await findTraineeRef(api, traineeId);
   if (!trainee) throw new Response("not found", { status: 404 });
-  const map = await getSkillMapForTrainee(db, user.id, traineeId, { withSuggestions: true });
+  // Mapa niesie drabinę, bieżący poziom i historię każdej umiejętności; sugestii
+  // awansu w niej NIE ma (luka L S1-1) — kontrakt nie oddaje sygnałów, na których
+  // stała, więc ekran przestał ją pokazywać, zamiast składać ją z N wywołań.
+  const map = await loadTraineeSkillMap(api, traineeId);
   const entry = map.find((m) => m.skillId === skillId);
   if (!entry) throw new Response("not found", { status: 404 });
 
@@ -40,20 +46,23 @@ export async function loader(args: LoaderFunctionArgs) {
   const range: ProgressionRange = (RANGES as string[]).includes(raw ?? "")
     ? (raw as ProgressionRange)
     : "3m";
-  const view =
-    entry.currentHasLogs && entry.currentExerciseId
-      ? await getExerciseProgression(db, traineeId, entry.currentExerciseId, range)
-      : null;
+  // Brak logów na bieżącym wariancie to po stronie BE `404`, tu `null` — dawna
+  // flaga `currentHasLogs` z mapy przestała być potrzebna.
+  const current = currentVariationOf(entry);
+  const view = current
+    ? await loadTraineeExerciseProgression(api, traineeId, current.exerciseId, range)
+    : null;
 
   return { trainee, entry, view, range, today: todayIso() };
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
   const skillId = args.params.skillId ?? "";
-  const trainee = await findTraineeOfTrainer(db, user.id, traineeId);
-  if (!trainee) throw new Response("not found", { status: 404 });
+  // Pre-checku przynależności tu już nie ma: obie mutacje idą pod
+  // `/v1/trainees/{traineeId}/skills/{skillId}/…`, więc cudzy podopieczny
+  // odbija się o `404` z samego zapisu — a nazwa w akcji nie jest potrzebna.
 
   const fd = await args.request.formData();
   const intent = fd.get("intent");
@@ -68,29 +77,16 @@ export async function action(args: ActionFunctionArgs) {
   const { toVariationId, advancedOn, note } = parsed.data;
   try {
     if (intent === "set-start") {
-      await setStartingLevel(
-        db,
-        user.id,
-        traineeId,
-        skillId,
-        toVariationId,
-        advancedOn,
-        note ?? null,
-      );
+      await setStartingLevel(api, traineeId, skillId, toVariationId, advancedOn, note ?? null);
     } else {
-      await recordAdvancement(
-        db,
-        user.id,
-        traineeId,
-        skillId,
-        toVariationId,
-        advancedOn,
-        note ?? null,
-      );
+      await recordAdvancement(api, traineeId, skillId, toVariationId, advancedOn, note ?? null);
     }
     return { ok: true };
   } catch (e) {
+    // „Bez poziomu startowego", „ten sam poziom", drugi poziom startowy — `409`
+    // z treścią do formularza; każda inna odmowa BE idzie na granicę błędu.
     if (e instanceof SkillError) return { error: e.userMessage };
+    if (e instanceof ApiError) throw toRouteResponse(e);
     throw e;
   }
 }
@@ -132,25 +128,11 @@ export default function TrenerRozwojWezel() {
         </p>
       )}
 
-      {entry.suggestion === "advance" && (
-        <span
-          className="badge active"
-          style={{ marginBottom: 12, display: "inline-flex", gap: 4, alignItems: "center" }}
-        >
-          <Icons.Trend /> rozważ awans
-        </span>
-      )}
-      {entry.suggestion === "regress" && (
-        <span
-          className="badge"
-          style={{ color: "var(--danger)", marginBottom: 12, display: "inline-block" }}
-        >
-          rozważ cofnięcie
-        </span>
-      )}
-
       <div style={{ marginBottom: 12 }}>
-        <VariationLadder variations={entry.variations} />
+        <VariationLadder
+          variations={entry.variations}
+          currentVariationId={entry.currentVariationId}
+        />
       </div>
 
       {entry.lastAdvancedOn && (
@@ -174,7 +156,7 @@ export default function TrenerRozwojWezel() {
                 Wybierz wariant…
               </option>
               {entry.variations.map((v) => (
-                <option key={v.id} value={v.id} disabled={v.isCurrent}>
+                <option key={v.id} value={v.id} disabled={v.id === entry.currentVariationId}>
                   {v.ordinal}. {v.exerciseName}
                 </option>
               ))}

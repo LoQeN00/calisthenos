@@ -1,28 +1,31 @@
 import { NavLink, Outlet, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { UserMenu } from "~/components/user-menu";
-import { requireUser } from "~/lib/auth";
-import { db } from "~/lib/db/client";
-import { countActiveExercisesForTrainer } from "~/lib/exercises";
-import { countNewForTrainer } from "~/lib/feature-requests";
-import { countPlansForTrainerByStatus } from "~/lib/plans";
-import { countTraineesOfTrainer } from "~/lib/trainees";
+import { requireUser } from "~/lib/api/auth";
+import { loadTrainerNavigation } from "~/lib/views";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { api, user } = requireUser(args.context, { role: "trainer" });
 
-  const traineeCount = await countTraineesOfTrainer(db, user.id);
-  const exerciseCount = await countActiveExercisesForTrainer(db, user.id);
-  const planCount = await countPlansForTrainerByStatus(db, user.id, null);
-  const newIdeas = await countNewForTrainer(db, user.id);
+  // Jedno wywołanie na CAŁĄ powłokę — `countTraineesOfTrainer` zniknęło razem
+  // z resztą obszaru podopiecznych.
+  const nav = await loadTrainerNavigation(api);
 
   return {
     user,
     tails: {
-      trainees: traineeCount,
-      exercises: exerciseCount,
-      plans: planCount,
-      ideas: newIdeas,
+      // Podopieczni z AKTYWNĄ relacją prowadzenia. Do integracji licznik celowo
+      // liczył także zarchiwizowanych; decyzja D3 specu odwróciła tę regułę —
+      // w nawigacji trener chce wiedzieć, ilu prowadzi TERAZ.
+      trainees: nav.trainees,
+      exercises: nav.activeExercises,
+      // Bez zarchiwizowanych — tak liczy BE (`docs/03`: licznik powłoki liczy
+      // jak zakładka „wszystkie" na liście). Do integracji liczył także archiwum.
+      plans: nav.plans,
+      // Wyłącznie zgłoszenia w stanie `new` — tak liczy BE
+      // (`TrainerNavView.newFeatureRequests`): sygnał „przyszło coś nowego",
+      // dlatego NIE liczy wszystkich.
+      ideas: nav.newFeatureRequests,
     },
   };
 }
@@ -70,13 +73,6 @@ const NAV_ITEMS = [
     end: false,
     icon: "Sparkle" as const,
     tailKey: "ideas" as const,
-  },
-  {
-    to: "/trener/integracje/stripe",
-    label: "Płatności",
-    end: false,
-    icon: "Card" as const,
-    tailKey: null,
   },
   {
     to: "/trener/integracje/google",

@@ -1,47 +1,26 @@
+import type { WorkoutLogExerciseView } from "@kalisthenos/api-client";
 import { useEffect, useRef } from "react";
 import { Link, useLoaderData, useSearchParams, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { useToast } from "~/components/toast-provider";
-import { requireUser } from "~/lib/auth";
-import { db } from "~/lib/db/client";
-import { signFileUrl } from "~/lib/files";
+import { requireUser } from "~/lib/api/auth";
 import { daysAgo, fmtDate } from "~/lib/format";
 import { draftKey } from "~/lib/log-draft";
-import { loadLogForViewer } from "~/lib/workouts";
+import { loadMyLog } from "~/lib/workouts";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
-  const logId = args.params.logId ?? "";
-
-  const detail = await loadLogForViewer(db, logId, {
-    id: user.id,
-    role: "trainee",
-    trainerId: user.trainerId,
-  });
-  if (!detail) throw new Response("not found", { status: 404 });
-
-  // Pre-sign URLs for any per-set videos so the page is render-ready.
-  const exercises = detail.exercises.map((ex) => ({
-    ...ex,
-    sets: ex.sets.map((s) => ({
-      ...s,
-      videoUrl: s.videoFileId ? signFileUrl(s.videoFileId, user.id) : null,
-    })),
-  }));
-
-  return {
-    log: detail.log,
-    exercises,
-    totalExpectedSets: detail.totalExpectedSets,
-  };
+  const { api } = requireUser(args.context, { role: "trainee" });
+  const log = await loadMyLog(api, args.params.logId ?? "");
+  if (!log) throw new Response("not found", { status: 404 });
+  return { log };
 }
 
 export default function TraineeLogDetail() {
-  const { log, exercises, totalExpectedSets } = useLoaderData<typeof loader>();
+  const { log } = useLoaderData<typeof loader>();
+  const exercises = log.exercises;
   const totalSets = exercises.reduce((a, e) => a + e.sets.length, 0);
-  const skippedSets = Math.max(0, totalExpectedSets - totalSets);
   const allDiff = exercises
-    .flatMap((e) => e.sets.map((s) => s.log.difficulty))
+    .flatMap((e) => e.sets.map((s) => s.difficulty))
     .filter((d): d is number => d !== null);
   const avgDiff =
     allDiff.length === 0
@@ -66,21 +45,11 @@ export default function TraineeLogDetail() {
           <h1>{log.sessionName}</h1>
           <div className="sub">
             <span className="mono">{exercises.length}</span> ćwiczeń ·{" "}
-            <span className="mono">{totalSets}</span>
-            {totalExpectedSets > 0 ? (
-              <>
-                {" "}
-                z <span className="mono">{totalExpectedSets}</span> serii
-              </>
-            ) : (
-              " serii"
-            )}
-            {skippedSets > 0 && (
+            <span className="mono">{totalSets}</span> serii
+            {!log.allDone && (
               <>
                 {" · "}
-                <strong style={{ color: "var(--warn)" }}>
-                  {skippedSets} pominięt{skippedSets === 1 ? "a" : "ych"}
-                </strong>
+                <strong style={{ color: "var(--warn)" }}>nie wszystkie serie wykonane</strong>
               </>
             )}
             {avgDiff != null && (
@@ -111,16 +80,14 @@ export default function TraineeLogDetail() {
 
       <div className="col" style={{ gap: 12 }}>
         {exercises.map((ex, eIdx) => (
-          <ExerciseLogCard key={ex.log.id} exercise={ex} index={eIdx} />
+          <ExerciseLogCard key={`${ex.exerciseId}-${eIdx}`} exercise={ex} index={eIdx} />
         ))}
       </div>
     </div>
   );
 }
 
-function usePRToasts(
-  exercises: Array<{ exercise: { id: string; name: string; unit: "REPS" | "SEC" } }>,
-) {
+function usePRToasts(exercises: Array<{ exerciseId: string; exerciseName: string }>) {
   const [searchParams, setSearchParams] = useSearchParams();
   const toast = useToast();
   const firedRef = useRef(false);
@@ -135,8 +102,8 @@ function usePRToasts(
 
     if (raw) {
       const ids = raw.split(",").filter(Boolean);
-      const byId = new Map(exercises.map((e) => [e.exercise.id, e.exercise]));
-      const names = ids.map((id) => byId.get(id)?.name).filter((n): n is string => !!n);
+      const byId = new Map(exercises.map((e) => [e.exerciseId, e.exerciseName]));
+      const names = ids.map((id) => byId.get(id)).filter((n): n is string => !!n);
 
       if (names.length === 1) {
         toast(`🏆 Nowy rekord w ${names[0]}!`, { durationMs: 5000 });
@@ -162,30 +129,25 @@ function usePRToasts(
   }, []);
 }
 
-type ExWithSigned = {
-  log: { id: string; ordinal: number };
-  exercise: { id: string; name: string; unit: "REPS" | "SEC" };
-  sets: Array<{
-    log: { id: string; ordinal: number; reps: number; difficulty: number | null };
-    videoUrl: string | null;
-  }>;
-  expectedSets: number;
-  expectedReps: number;
-};
-
-function ExerciseLogCard({ exercise: ex, index }: { exercise: ExWithSigned; index: number }) {
-  const totalReps = ex.sets.reduce((a, s) => a + s.log.reps, 0);
+function ExerciseLogCard({
+  exercise: ex,
+  index,
+}: {
+  exercise: WorkoutLogExerciseView;
+  index: number;
+}) {
+  const totalReps = ex.sets.reduce((a, s) => a + s.reps, 0);
   const avgReps = ex.sets.length === 0 ? 0 : Math.round((totalReps / ex.sets.length) * 10) / 10;
   // Czy ten wpis ma jakąkolwiek ocenę RPE (data-driven) — ćwiczenia bez RPE
   // nie pokazują pigułki trudności przy seriach; historyczne z RPE nadal tak.
-  const hasRpe = ex.sets.some((s) => s.log.difficulty !== null);
-  const skippedHere = Math.max(0, ex.expectedSets - ex.sets.length);
+  const hasRpe = ex.sets.some((s) => s.difficulty !== null);
 
-  const setsByOrdinal = new Map(ex.sets.map((s) => [s.log.ordinal, s]));
-  const lastLoggedOrdinal =
-    ex.sets.length > 0 ? Math.max(...ex.sets.map((s) => s.log.ordinal)) : -1;
-  const rowCount = Math.max(ex.expectedSets, lastLoggedOrdinal + 1);
-  const rows = Array.from({ length: rowCount }, (_, ordinal) => ({
+  // Bez liczby oczekiwanych serii (kontrakt jej nie niesie) wiersze idą od 0 do
+  // najwyższego zalogowanego `ordinal` — luka w środku to seria pominięta. Ogona
+  // nie widać; mówi o nim `allDone` w nagłówku strony.
+  const setsByOrdinal = new Map(ex.sets.map((s) => [s.ordinal, s]));
+  const lastLoggedOrdinal = ex.sets.length > 0 ? Math.max(...ex.sets.map((s) => s.ordinal)) : -1;
+  const rows = Array.from({ length: lastLoggedOrdinal + 1 }, (_, ordinal) => ({
     ordinal,
     logged: setsByOrdinal.get(ordinal) ?? null,
   }));
@@ -202,43 +164,24 @@ function ExerciseLogCard({ exercise: ex, index }: { exercise: ExWithSigned; inde
       >
         <div>
           <span className="mono text-xs muted">#{String(index + 1).padStart(2, "0")}</span>
-          <h3 style={{ margin: "2px 0 0" }}>{ex.exercise.name}</h3>
-          {skippedHere > 0 && (
-            <span
-              className="badge"
-              style={{
-                marginTop: 4,
-                background: "rgba(226, 162, 58, 0.12)",
-                borderColor: "var(--warn)",
-                color: "var(--warn)",
-                fontSize: 10,
-              }}
-            >
-              {ex.sets.length}/{ex.expectedSets} serii
-            </span>
-          )}
+          <h3 style={{ margin: "2px 0 0" }}>{ex.exerciseName}</h3>
         </div>
         <div className="mono text-xs muted" style={{ textAlign: "right" }}>
-          śr. {avgReps} {ex.exercise.unit === "SEC" ? "s" : "rep"}
+          śr. {avgReps} {ex.unit === "SEC" ? "s" : "rep"}
         </div>
       </div>
       <div style={{ padding: 12, display: "grid", gap: 6 }}>
         {rows.map(({ ordinal, logged }) =>
           logged == null ? (
-            <SkippedSetRow
-              key={`skip-${ordinal}`}
-              ordinal={ordinal}
-              expectedReps={ex.expectedReps}
-              unit={ex.exercise.unit}
-            />
+            <SkippedSetRow key={`skip-${ordinal}`} ordinal={ordinal} />
           ) : (
             <SetRowDisplay
-              key={logged.log.id}
+              key={`set-${ordinal}`}
               ordinal={ordinal}
-              reps={logged.log.reps}
-              difficulty={logged.log.difficulty}
+              reps={logged.reps}
+              difficulty={logged.difficulty}
               hasRpe={hasRpe}
-              unit={ex.exercise.unit}
+              unit={ex.unit}
               videoUrl={logged.videoUrl}
             />
           ),
@@ -248,15 +191,7 @@ function ExerciseLogCard({ exercise: ex, index }: { exercise: ExWithSigned; inde
   );
 }
 
-function SkippedSetRow({
-  ordinal,
-  expectedReps,
-  unit,
-}: {
-  ordinal: number;
-  expectedReps: number;
-  unit: "REPS" | "SEC";
-}) {
+function SkippedSetRow({ ordinal }: { ordinal: number }) {
   return (
     <div
       style={{
@@ -282,19 +217,6 @@ function SkippedSetRow({
         }}
       >
         Pominięta
-        {expectedReps > 0 && (
-          <span
-            className="muted"
-            style={{
-              marginLeft: 8,
-              textTransform: "none",
-              letterSpacing: 0,
-              fontWeight: 400,
-            }}
-          >
-            · plan: {expectedReps} {unit === "SEC" ? "sek." : "powt."}
-          </span>
-        )}
       </span>
     </div>
   );

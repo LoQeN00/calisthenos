@@ -1,21 +1,22 @@
 import {
-  and,
-  asc,
-  count,
-  desc,
-  eq,
-  exists,
-  gte,
-  ilike,
-  inArray,
-  not,
-  notExists,
-  or,
-  sql,
-} from "drizzle-orm";
-import type { Db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
-import { logger } from "~/lib/logger";
+  myPlanControllerActivePlan,
+  myPlanControllerSession,
+  myWorkoutLogsControllerById,
+  myWorkoutLogsControllerMine,
+  traineeWorkoutLogsControllerById,
+  traineeWorkoutLogsControllerList,
+  workoutLogsControllerCreate,
+} from "@kalisthenos/api-client";
+import type {
+  CreatedWorkoutLogView,
+  MyPlanView,
+  SessionDetailView,
+  WorkoutLogDetailView,
+  WorkoutLogListPage,
+} from "@kalisthenos/api-client";
+import { orNull, publicFileUrl } from "~/lib/api/client";
+import type { Api } from "~/lib/api/client";
+import { ApiError } from "~/lib/api/errors";
 
 // ============================================================
 // Domain types
@@ -44,717 +45,202 @@ export interface LoggingEntry {
   tracksRpe: boolean;
 }
 
-export interface SessionForLogging {
-  plan: schema.Plan;
-  session: schema.PlanSession;
-  entries: LoggingEntry[];
-}
-
 // ============================================================
-// Reads
+// Aktywny plan i sesja podopiecznego — kontrakt
 // ============================================================
-
-/** Find the trainee's active plan, or null. */
-export async function findActivePlanForTrainee(
-  db: Db,
-  traineeId: string,
-): Promise<schema.Plan | null> {
-  const rows = await db
-    .select()
-    .from(schema.plans)
-    .where(and(eq(schema.plans.traineeId, traineeId), eq(schema.plans.status, "active")))
-    .limit(1);
-  return rows[0] ?? null;
-}
 
 /**
- * Load the trainee's active plan, listing its sessions, with a count of how
- * many logs each session has + the date of the most recent one. Returns null
- * if the trainee has no active plan.
+ * Aktywny plan podopiecznego z pełnym drzewem sesji → bloków → pozycji. Brak
+ * planu to po stronie BE `404 PLAN_NOT_FOUND` — „stan normalny, nie awaria"
+ * (docblock trasy) — więc `| null` i `orNull`. Liczby wykonań per sesja tu nie ma
+ * (`docs/03` „Sesje: pełne drzewo"); niesie je `activePlan` pulpitu (`views.ts`).
  */
-export async function loadActivePlanSummaryForTrainee(db: Db, traineeId: string) {
-  const plan = await findActivePlanForTrainee(db, traineeId);
-  if (!plan) return null;
-
-  const sessions = await db
-    .select()
-    .from(schema.planSessions)
-    .where(eq(schema.planSessions.planId, plan.id))
-    .orderBy(schema.planSessions.ordinal);
-
-  const sessionIds = sessions.map((s) => s.id);
-
-  let countsBySession = new Map<string, { count: number; lastPerformedOn: string | null }>();
-  if (sessionIds.length > 0) {
-    const countRows = await db
-      .select({
-        planSessionId: schema.workoutLogs.planSessionId,
-        c: count(),
-        last: sql<string | null>`MAX(${schema.workoutLogs.performedOn})`,
-      })
-      .from(schema.workoutLogs)
-      .where(
-        and(
-          eq(schema.workoutLogs.traineeId, traineeId),
-          eq(schema.workoutLogs.planId, plan.id),
-          inArray(schema.workoutLogs.planSessionId, sessionIds),
-        ),
-      )
-      .groupBy(schema.workoutLogs.planSessionId);
-    countsBySession = new Map(
-      countRows.map((r) => [r.planSessionId, { count: Number(r.c), lastPerformedOn: r.last }]),
-    );
-  }
-
-  return {
-    plan,
-    sessions: sessions.map((s) => ({
-      session: s,
-      doneCount: countsBySession.get(s.id)?.count ?? 0,
-      lastPerformedOn: countsBySession.get(s.id)?.lastPerformedOn ?? null,
-    })),
-  };
-}
-
-// ============================================================
-// Active plan with full nested structure (trainee-side, view-only)
-// ============================================================
-
-export interface PlanSessionView {
-  session: schema.PlanSession;
-  doneCount: number;
-  lastPerformedOn: string | null;
-  blocks: Array<{
-    block: schema.PlanBlock;
-    items: Array<{
-      item: schema.PlanItem;
-      exercise: {
-        id: string;
-        name: string;
-        unit: "REPS" | "SEC";
-        description: string;
-        demoFileId: string | null;
-      };
-    }>;
-  }>;
-}
-
-export interface ActivePlanFull {
-  plan: schema.Plan;
-  sessions: PlanSessionView[];
-}
-
-/** Load the trainee's active plan with full nested sessions/blocks/items + per-session stats. */
-export async function loadActivePlanFullForTrainee(
-  db: Db,
-  traineeId: string,
-): Promise<ActivePlanFull | null> {
-  const plan = await findActivePlanForTrainee(db, traineeId);
-  if (!plan) return null;
-
-  const sessions = await db
-    .select()
-    .from(schema.planSessions)
-    .where(eq(schema.planSessions.planId, plan.id))
-    .orderBy(schema.planSessions.ordinal);
-
-  if (sessions.length === 0) {
-    return { plan, sessions: [] };
-  }
-
-  const sessionIds = sessions.map((s) => s.id);
-  const blocks = await db
-    .select()
-    .from(schema.planBlocks)
-    .where(inArray(schema.planBlocks.planSessionId, sessionIds))
-    .orderBy(schema.planBlocks.planSessionId, schema.planBlocks.ordinal);
-
-  const blockIds = blocks.map((b) => b.id);
-  const items =
-    blockIds.length === 0
-      ? []
-      : await db
-          .select({
-            item: schema.planItems,
-            exercise: {
-              id: schema.exercises.id,
-              name: schema.exercises.name,
-              unit: schema.exercises.unit,
-              description: schema.exercises.description,
-              demoFileId: schema.exercises.demoFileId,
-            },
-          })
-          .from(schema.planItems)
-          .innerJoin(schema.exercises, eq(schema.exercises.id, schema.planItems.exerciseId))
-          .where(inArray(schema.planItems.planBlockId, blockIds))
-          .orderBy(schema.planItems.planBlockId, schema.planItems.ordinal);
-
-  // Session-level log counts.
-  const countRows = await db
-    .select({
-      planSessionId: schema.workoutLogs.planSessionId,
-      c: count(),
-      last: sql<string | null>`MAX(${schema.workoutLogs.performedOn})`,
-    })
-    .from(schema.workoutLogs)
-    .where(
-      and(
-        eq(schema.workoutLogs.traineeId, traineeId),
-        eq(schema.workoutLogs.planId, plan.id),
-        inArray(schema.workoutLogs.planSessionId, sessionIds),
-      ),
-    )
-    .groupBy(schema.workoutLogs.planSessionId);
-  const statsBySession = new Map(
-    countRows.map((r) => [r.planSessionId, { count: Number(r.c), last: r.last }]),
+export async function loadMyActivePlan(api: Api): Promise<MyPlanView | null> {
+  return await orNull(
+    myPlanControllerActivePlan({ client: api, throwOnError: true }).then((r) => r.data),
   );
+}
 
-  // Group items by block.
-  const itemsByBlock = new Map<string, typeof items>();
-  for (const it of items) {
-    const list = itemsByBlock.get(it.item.planBlockId) ?? [];
-    list.push(it);
-    itemsByBlock.set(it.item.planBlockId, list);
-  }
-
-  // Group blocks (with their items) by session.
-  const blocksBySession = new Map<string, PlanSessionView["blocks"]>();
-  for (const b of blocks) {
-    const list = blocksBySession.get(b.planSessionId) ?? [];
-    list.push({ block: b, items: itemsByBlock.get(b.id) ?? [] });
-    blocksBySession.set(b.planSessionId, list);
-  }
-
+/**
+ * `demoUrl` z kontraktu jest ŚCIEŻKĄ — origin dokłada moduł (jak `videoUrl`
+ * w `withPublicVideoUrls` niżej i `demoUrl` w `exercises.ts`).
+ */
+function withPublicDemoUrls(session: SessionDetailView): SessionDetailView {
   return {
-    plan,
-    sessions: sessions.map((s) => ({
-      session: s,
-      doneCount: statsBySession.get(s.id)?.count ?? 0,
-      lastPerformedOn: statsBySession.get(s.id)?.last ?? null,
-      blocks: blocksBySession.get(s.id) ?? [],
+    ...session,
+    blocks: session.blocks.map((block) => ({
+      ...block,
+      items: block.items.map((item) =>
+        item.demoUrl == null ? item : { ...item, demoUrl: publicFileUrl(item.demoUrl) },
+      ),
     })),
   };
 }
 
 /**
- * Expand one plan_session into the flat list of logging entries.
- * Verifies the session belongs to the given plan (defense-in-depth).
+ * Sesja do wykonania — z jednostką, flagą RPE i podpisanym demo per pozycja.
+ * Przynależność sesji do planu aktywnego ALBO archiwalnego tej pary rozstrzyga
+ * BE (zaległy trening ze starszej wersji planu jest legalny — `docs/01` §D);
+ * sesja szkicu to `409 PLAN_NOT_PUBLISHED`, które leci dalej jako `ApiError`,
+ * a cudza lub nieistniejąca to `404`, tu `null`. `findActivePlanForTrainee`
+ * przestało więc istnieć: trasa nie pyta „jaki jest aktywny plan", tylko
+ * „daj mi tę sesję".
  */
 export async function loadSessionForLogging(
-  db: Db,
-  planId: string,
+  api: Api,
   sessionId: string,
-): Promise<SessionForLogging | null> {
-  const planRows = await db.select().from(schema.plans).where(eq(schema.plans.id, planId)).limit(1);
-  const plan = planRows[0];
-  if (!plan) return null;
+): Promise<SessionDetailView | null> {
+  const session = await orNull(
+    myPlanControllerSession({ client: api, path: { sessionId }, throwOnError: true }).then(
+      (r) => r.data,
+    ),
+  );
+  return session == null ? null : withPublicDemoUrls(session);
+}
 
-  const sessionRows = await db
-    .select()
-    .from(schema.planSessions)
-    .where(and(eq(schema.planSessions.id, sessionId), eq(schema.planSessions.planId, planId)))
-    .limit(1);
-  const session = sessionRows[0];
-  if (!session) return null;
-
-  const blocks = await db
-    .select()
-    .from(schema.planBlocks)
-    .where(eq(schema.planBlocks.planSessionId, session.id))
-    .orderBy(schema.planBlocks.ordinal);
-
-  if (blocks.length === 0) {
-    return { plan, session, entries: [] };
-  }
-
-  const blockIds = blocks.map((b) => b.id);
-  const items = await db
-    .select({
-      item: schema.planItems,
-      exerciseName: schema.exercises.name,
-      exerciseUnit: schema.exercises.unit,
-      exerciseTracksRpe: schema.exercises.tracksRpe,
-    })
-    .from(schema.planItems)
-    .innerJoin(schema.exercises, eq(schema.exercises.id, schema.planItems.exerciseId))
-    .where(inArray(schema.planItems.planBlockId, blockIds))
-    .orderBy(schema.planItems.planBlockId, schema.planItems.ordinal);
-
-  const itemsByBlock = new Map<string, typeof items>();
-  for (const it of items) {
-    const list = itemsByBlock.get(it.item.planBlockId) ?? [];
-    list.push(it);
-    itemsByBlock.set(it.item.planBlockId, list);
-  }
-
+/**
+ * Spłaszczenie sesji do wpisów formularza logowania — jedna pozycja planu = jeden
+ * wpis; w dropsecie liczbę serii niesie BLOK, a pozycje mają `sets: null`.
+ * Czysta funkcja: do integracji robił to `loadSessionForLogging(db)` po drodze
+ * z bazy, więc nie miała testu. Kształt `LoggingEntry` zostaje — formularz
+ * i akcja czytają go bez zmian.
+ */
+export function toLoggingEntries(session: SessionDetailView): LoggingEntry[] {
   const entries: LoggingEntry[] = [];
-  for (const block of blocks) {
+  for (const block of session.blocks) {
     const isDropset = block.kind === "dropset";
-    const blockItems = itemsByBlock.get(block.id) ?? [];
-    for (const it of blockItems) {
+    for (const item of block.items) {
       entries.push({
-        planItemId: it.item.id,
-        exerciseId: it.item.exerciseId,
-        exerciseName: it.exerciseName,
-        unit: it.item.unit,
-        expectedSets: isDropset ? (block.sets ?? 1) : (it.item.sets ?? 1),
-        expectedReps: it.item.reps,
-        note: it.item.note,
+        planItemId: item.id,
+        exerciseId: item.exerciseId,
+        exerciseName: item.exerciseName,
+        unit: item.unit,
+        expectedSets: isDropset ? (block.sets ?? 1) : (item.sets ?? 1),
+        expectedReps: item.reps,
+        note: item.note,
         isDropsetItem: isDropset,
-        tracksRpe: it.exerciseTracksRpe,
+        tracksRpe: item.tracksRpe,
       });
     }
   }
-
-  return { plan, session, entries };
+  return entries;
 }
 
 // ============================================================
 // Workout log lists + detail
 // ============================================================
 
-export interface WorkoutLogListItem {
-  id: string;
-  performedOn: string;
-  sessionName: string;
-  note: string | null;
-  exerciseCount: number;
-  setCount: number;
-  hasVideo: boolean;
-  avgDifficulty: number | null;
-}
-
 export type LogSort = "date_desc" | "date_asc" | "hardest" | "easiest" | "sets_desc";
+export type VideoFilter = "all" | "with" | "without";
 
 export interface LogListOpts {
-  limit?: number;
-  offset?: number;
-  sort?: LogSort; // domyślnie "date_desc"
-  q?: string; // search po nazwie sesji
-  video?: "all" | "with" | "without"; // domyślnie "all"
+  page: number;
+  sort: LogSort;
+  q?: string;
+  /** Domyślnie `all` — wtedy parametr nie idzie do kontraktu. */
+  video?: VideoFilter;
 }
 
-export async function listLogsForTrainee(
-  db: Db,
-  traineeId: string,
-  opts: LogListOpts = {},
-): Promise<WorkoutLogListItem[]> {
-  const statsSub = db.$with("log_stats").as(
-    db
-      .select({
-        logId: schema.workoutExerciseLogs.workoutLogId,
-        exerciseCount: sql<number>`COUNT(DISTINCT ${schema.workoutExerciseLogs.id})::int`.as(
-          "exercise_count",
-        ),
-        setCount: sql<number>`COUNT(${schema.workoutSetLogs.id})::int`.as("set_count"),
-        avgDifficulty: sql<number | null>`AVG(${schema.workoutSetLogs.difficulty})::float`.as(
-          "avg_difficulty",
-        ),
-        hasVideo: sql<boolean>`bool_or(${schema.workoutSetLogs.videoFileId} IS NOT NULL)`.as(
-          "has_video",
-        ),
-      })
-      .from(schema.workoutExerciseLogs)
-      .leftJoin(
-        schema.workoutSetLogs,
-        eq(schema.workoutSetLogs.workoutExerciseLogId, schema.workoutExerciseLogs.id),
-      )
-      .groupBy(schema.workoutExerciseLogs.workoutLogId),
-  );
-
-  const conditions = [eq(schema.workoutLogs.traineeId, traineeId)];
-  if (opts.q && opts.q.length > 0) {
-    conditions.push(ilike(schema.workoutLogs.sessionName, `%${opts.q}%`));
-  }
-  if (opts.video === "with") conditions.push(sql`COALESCE(${statsSub.hasVideo}, false) = true`);
-  if (opts.video === "without") conditions.push(sql`COALESCE(${statsSub.hasVideo}, false) = false`);
-
-  const orderBy =
-    opts.sort === "date_asc"
-      ? [asc(schema.workoutLogs.performedOn), asc(schema.workoutLogs.createdAt)]
-      : opts.sort === "hardest"
-        ? [sql`${statsSub.avgDifficulty} DESC NULLS LAST`, desc(schema.workoutLogs.performedOn)]
-        : opts.sort === "easiest"
-          ? [sql`${statsSub.avgDifficulty} ASC NULLS LAST`, desc(schema.workoutLogs.performedOn)]
-          : opts.sort === "sets_desc"
-            ? [sql`COALESCE(${statsSub.setCount}, 0) DESC`, desc(schema.workoutLogs.performedOn)]
-            : [desc(schema.workoutLogs.performedOn), desc(schema.workoutLogs.createdAt)];
-
-  const rows = await db
-    .with(statsSub)
-    .select({
-      log: schema.workoutLogs,
-      exerciseCount: sql<number>`COALESCE(${statsSub.exerciseCount}, 0)::int`,
-      setCount: sql<number>`COALESCE(${statsSub.setCount}, 0)::int`,
-      avgDifficulty: sql<number | null>`${statsSub.avgDifficulty}`,
-      hasVideo: sql<boolean>`COALESCE(${statsSub.hasVideo}, false)`,
-    })
-    .from(schema.workoutLogs)
-    .leftJoin(statsSub, eq(statsSub.logId, schema.workoutLogs.id))
-    .where(and(...conditions))
-    .orderBy(...orderBy)
-    .limit(opts.limit ?? 200)
-    .offset(opts.offset ?? 0);
-
-  return rows.map((r) => ({
-    id: r.log.id,
-    performedOn: r.log.performedOn,
-    sessionName: r.log.sessionName,
-    note: r.log.note,
-    exerciseCount: Number(r.exerciseCount),
-    setCount: Number(r.setCount),
-    hasVideo: Boolean(r.hasVideo),
-    avgDifficulty: r.avgDifficulty == null ? null : Math.round(Number(r.avgDifficulty) * 10) / 10,
-  }));
-}
-
-export async function countClientsForTrainer(
-  db: Db,
-  trainerId: string,
-  opts: { q?: string; plan?: "all" | "with" | "without" } = {},
-): Promise<number> {
-  const conds = [eq(schema.users.trainerId, trainerId), eq(schema.users.role, "trainee")];
-  if (opts.q && opts.q.length > 0) {
-    conds.push(
-      or(ilike(schema.users.displayName, `%${opts.q}%`), ilike(schema.users.email, `%${opts.q}%`))!,
-    );
-  }
-  const activePlanSub = db
-    .select({ x: sql`1` })
-    .from(schema.plans)
-    .where(
-      and(
-        eq(schema.plans.traineeId, schema.users.id),
-        eq(schema.plans.trainerId, trainerId),
-        eq(schema.plans.status, "active"),
-      ),
-    );
-  if (opts.plan === "with") conds.push(exists(activePlanSub));
-  if (opts.plan === "without") conds.push(not(exists(activePlanSub)));
-  const [row] = await db
-    .select({ c: count() })
-    .from(schema.users)
-    .where(and(...conds));
-  return Number(row?.c ?? 0);
-}
-
-export async function countLogsForTrainee(
-  db: Db,
-  traineeId: string,
-  opts: { q?: string; video?: "all" | "with" | "without" } = {},
-): Promise<number> {
-  if (opts.video === "with" || opts.video === "without") {
-    const statsSub = db.$with("log_stats").as(
-      db
-        .select({
-          logId: schema.workoutExerciseLogs.workoutLogId,
-          hasVideo: sql<boolean>`bool_or(${schema.workoutSetLogs.videoFileId} IS NOT NULL)`.as(
-            "has_video",
-          ),
-        })
-        .from(schema.workoutExerciseLogs)
-        .leftJoin(
-          schema.workoutSetLogs,
-          eq(schema.workoutSetLogs.workoutExerciseLogId, schema.workoutExerciseLogs.id),
-        )
-        .groupBy(schema.workoutExerciseLogs.workoutLogId),
-    );
-    const conds = [eq(schema.workoutLogs.traineeId, traineeId)];
-    if (opts.q && opts.q.length > 0)
-      conds.push(ilike(schema.workoutLogs.sessionName, `%${opts.q}%`));
-    conds.push(
-      opts.video === "with"
-        ? sql`COALESCE(${statsSub.hasVideo}, false) = true`
-        : sql`COALESCE(${statsSub.hasVideo}, false) = false`,
-    );
-    const [row] = await db
-      .with(statsSub)
-      .select({ c: count() })
-      .from(schema.workoutLogs)
-      .leftJoin(statsSub, eq(statsSub.logId, schema.workoutLogs.id))
-      .where(and(...conds));
-    return Number(row?.c ?? 0);
-  }
-
-  const conds = [eq(schema.workoutLogs.traineeId, traineeId)];
-  if (opts.q && opts.q.length > 0) conds.push(ilike(schema.workoutLogs.sessionName, `%${opts.q}%`));
-  const [row] = await db
-    .select({ c: count() })
-    .from(schema.workoutLogs)
-    .where(and(...conds));
-  return Number(row?.c ?? 0);
-}
-
-export interface WorkoutLogDetail {
-  log: schema.WorkoutLog;
-  trainee: { id: string; displayName: string };
-  exercises: Array<{
-    log: schema.WorkoutExerciseLog;
-    exercise: { id: string; name: string; unit: "REPS" | "SEC" };
-    sets: Array<{
-      log: schema.WorkoutSetLog;
-      videoFileId: string | null;
-    }>;
-    /** Number of sets the plan expected at log time; 0 if plan data unavailable. */
-    expectedSets: number;
-    /** Planned reps/seconds per set; 0 if plan data unavailable. */
-    expectedReps: number;
-  }>;
-  /** Sum of `expectedSets` across all exercises. 0 if plan unavailable. */
-  totalExpectedSets: number;
-}
-
-/** Load a workout log with all its details. Returns null if not visible to the viewer. */
-export async function loadLogForViewer(
-  db: Db,
-  logId: string,
-  viewer: { id: string; role: "trainer" | "trainee"; trainerId: string | null },
-): Promise<WorkoutLogDetail | null> {
-  const rows = await db
-    .select({
-      log: schema.workoutLogs,
-      trainee: { id: schema.users.id, displayName: schema.users.displayName },
-    })
-    .from(schema.workoutLogs)
-    .innerJoin(schema.users, eq(schema.users.id, schema.workoutLogs.traineeId))
-    .where(eq(schema.workoutLogs.id, logId))
-    .limit(1);
-  const head = rows[0];
-  if (!head) return null;
-
-  // Tenant scoping:
-  // - Trainee: must be their own log.
-  // - Trainer: log's trainer_id must match.
-  if (viewer.role === "trainee" && head.log.traineeId !== viewer.id) return null;
-  if (viewer.role === "trainer" && head.log.trainerId !== viewer.id) return null;
-
-  const exLogs = await db
-    .select({
-      log: schema.workoutExerciseLogs,
-      exercise: {
-        id: schema.exercises.id,
-        name: schema.exercises.name,
-        unit: schema.exercises.unit,
-      },
-    })
-    .from(schema.workoutExerciseLogs)
-    .innerJoin(schema.exercises, eq(schema.exercises.id, schema.workoutExerciseLogs.exerciseId))
-    .where(eq(schema.workoutExerciseLogs.workoutLogId, logId))
-    .orderBy(schema.workoutExerciseLogs.ordinal);
-
-  if (exLogs.length === 0) {
-    return {
-      log: head.log,
-      trainee: head.trainee,
-      exercises: [],
-      totalExpectedSets: 0,
-    };
-  }
-
-  const exLogIds = exLogs.map((e) => e.log.id);
-  const setLogs = await db
-    .select()
-    .from(schema.workoutSetLogs)
-    .where(inArray(schema.workoutSetLogs.workoutExerciseLogId, exLogIds))
-    .orderBy(schema.workoutSetLogs.workoutExerciseLogId, schema.workoutSetLogs.ordinal);
-
-  const setsByExLog = new Map<string, schema.WorkoutSetLog[]>();
-  for (const s of setLogs) {
-    const list = setsByExLog.get(s.workoutExerciseLogId) ?? [];
-    list.push(s);
-    setsByExLog.set(s.workoutExerciseLogId, list);
-  }
-
-  // Reconstruct the planned entries for this session (same shape the logging
-  // form sees). Matched 1:1 by position with exLogs — that's the contract
-  // saveWorkoutLog upholds: one workout_exercise_log per plan entry, in
-  // entry order. If the plan can't be loaded (deleted? RESTRICT should make
-  // that impossible, but be defensive), fall back to 0 = "no expected info".
-  const planSession = await loadSessionForLogging(db, head.log.planId, head.log.planSessionId);
-  const entries = planSession?.entries ?? [];
-
-  const exercises = exLogs.map((e, i) => {
-    const entry = entries[i];
-    return {
-      log: e.log,
-      exercise: e.exercise,
-      sets: (setsByExLog.get(e.log.id) ?? []).map((s) => ({
-        log: s,
-        videoFileId: s.videoFileId,
-      })),
-      expectedSets: entry?.expectedSets ?? 0,
-      expectedReps: entry?.expectedReps ?? 0,
-    };
-  });
-
-  const totalExpectedSets = exercises.reduce((a, e) => a + e.expectedSets, 0);
-
+function logListQuery(opts: LogListOpts) {
   return {
-    log: head.log,
-    trainee: head.trainee,
-    exercises,
-    totalExpectedSets,
+    page: opts.page,
+    sort: opts.sort,
+    // `all` to BRAK parametru (wzorzec `status` w planach); puste `q=` znaczy
+    // „szukaj pustego łańcucha", więc też nie wychodzi. Rozłożone warunkowo, nie
+    // przez `q: opts.q`: klucz z `undefined` i brak klucza to dla serializatora
+    // zapytań dwie różne rzeczy.
+    ...(opts.video != null && opts.video !== "all" ? { video: opts.video } : {}),
+    ...(opts.q != null && opts.q.length > 0 ? { q: opts.q } : {}),
   };
 }
 
-// ============================================================
-// Trainer-side trainee aggregation
-// ============================================================
-
-export interface ClientStats {
-  id: string;
-  displayName: string;
-  joinedOn: string | null;
-  totalSessions: number;
-  lastSession: string | null;
-  activePlanName: string | null;
-  activePlanId: string | null;
+/**
+ * Własna historia podopiecznego — cała strona z kontraktu (`items`, `page`,
+ * `totalPages`, `total`), więc `countLogsForTrainee` znika bez zamiennika, a rozmiar
+ * strony (20) i przycięcie `page` spoza zakresu należą do BE (`docs/04` §5).
+ * Wartości `sort` są identyczne z zakładkowalnym adresem listy, więc — jak
+ * w planach — nie ma słownika. Lista niesie wyłącznie `hasVideo`; podpisany adres
+ * nagrania przychodzi dopiero w szczególe.
+ */
+export async function listMyLogs(api: Api, opts: LogListOpts): Promise<WorkoutLogListPage> {
+  const { data } = await myWorkoutLogsControllerMine({
+    client: api,
+    query: logListQuery(opts),
+    throwOnError: true,
+  });
+  return data;
 }
 
-export type ClientSort = "name_asc" | "name_desc" | "last_session" | "most_sessions" | "newest";
-
-export interface ClientListOpts {
-  limit?: number;
-  offset?: number;
-  sort?: ClientSort;
-  q?: string;
-  plan?: "all" | "with" | "without";
+/**
+ * Historia podopiecznego oglądana przez trenera — te same filtry. Cudzy
+ * podopieczny daje PUSTĄ stronę, nie `404` (tak zdecydował kontrakt), więc
+ * o `404` decyduje wcześniejsze `findTraineeRef` (`trainees.ts`) w tej samej trasie.
+ */
+export async function listTraineeLogs(
+  api: Api,
+  traineeId: string,
+  opts: LogListOpts,
+): Promise<WorkoutLogListPage> {
+  const { data } = await traineeWorkoutLogsControllerList({
+    client: api,
+    path: { traineeId },
+    query: logListQuery(opts),
+    throwOnError: true,
+  });
+  return data;
 }
 
-export async function listClientsForTrainer(
-  db: Db,
-  trainerId: string,
-  opts: ClientListOpts = {},
-): Promise<ClientStats[]> {
-  const statsSub = db.$with("client_stats").as(
-    db
-      .select({
-        traineeId: schema.workoutLogs.traineeId,
-        sessionCount: count().as("session_count"),
-        lastSession: sql<string | null>`MAX(${schema.workoutLogs.performedOn})`.as("last_session"),
-      })
-      .from(schema.workoutLogs)
-      .groupBy(schema.workoutLogs.traineeId),
+/**
+ * `videoUrl` z kontraktu jest ŚCIEŻKĄ (`/v1/files/…`), nie adresem — origin
+ * dokłada moduł, nie trasa (ten sam powód co `demoUrl` w `exercises.ts`).
+ * Adres jest podpisany tożsamością PYTAJĄCEGO: trener i podopieczny dostają na
+ * to samo nagranie różne adresy, i tak ma być (`docs/04` §Dziennik treningowy).
+ */
+function withPublicVideoUrls(detail: WorkoutLogDetailView): WorkoutLogDetailView {
+  return {
+    ...detail,
+    exercises: detail.exercises.map((exercise) => ({
+      ...exercise,
+      sets: exercise.sets.map((set) =>
+        set.videoUrl == null ? set : { ...set, videoUrl: publicFileUrl(set.videoUrl) },
+      ),
+    })),
+  };
+}
+
+/**
+ * Własny trening z pełnym drzewem serii. `| null` w sygnaturze mapuje `404` przez
+ * `orNull` — cudzy log jest po tamtej stronie nieodróżnialny od nieistniejącego.
+ * Liczby oczekiwanych serii kontrakt nie niesie: pominięte serie w środku czyta
+ * się z luk w `ordinal`, a o ogonie mówi `allDone`.
+ */
+export async function loadMyLog(api: Api, logId: string): Promise<WorkoutLogDetailView | null> {
+  const detail = await orNull(
+    myWorkoutLogsControllerById({ client: api, path: { id: logId }, throwOnError: true }).then(
+      (r) => r.data,
+    ),
   );
-
-  const conditions = [eq(schema.users.trainerId, trainerId), eq(schema.users.role, "trainee")];
-  if (opts.q && opts.q.length > 0) {
-    conditions.push(
-      or(ilike(schema.users.displayName, `%${opts.q}%`), ilike(schema.users.email, `%${opts.q}%`))!,
-    );
-  }
-
-  // Correlated EXISTS on an active plan for this trainee under this trainer.
-  const activePlanSub = db
-    .select({ x: sql`1` })
-    .from(schema.plans)
-    .where(
-      and(
-        eq(schema.plans.traineeId, schema.users.id),
-        eq(schema.plans.trainerId, trainerId),
-        eq(schema.plans.status, "active"),
-      ),
-    );
-  if (opts.plan === "with") conditions.push(exists(activePlanSub));
-  if (opts.plan === "without") conditions.push(not(exists(activePlanSub)));
-
-  const orderBy =
-    opts.sort === "name_desc"
-      ? [desc(schema.users.displayName)]
-      : opts.sort === "last_session"
-        ? [sql`${statsSub.lastSession} DESC NULLS LAST`, asc(schema.users.displayName)]
-        : opts.sort === "most_sessions"
-          ? [sql`COALESCE(${statsSub.sessionCount}, 0) DESC`, asc(schema.users.displayName)]
-          : opts.sort === "newest"
-            ? [sql`${schema.users.joinedOn} DESC NULLS LAST`, asc(schema.users.displayName)]
-            : [asc(schema.users.displayName)];
-
-  const clients = await db
-    .with(statsSub)
-    .select({
-      id: schema.users.id,
-      displayName: schema.users.displayName,
-      joinedOn: schema.users.joinedOn,
-      totalSessions: sql<number>`COALESCE(${statsSub.sessionCount}, 0)::int`,
-      lastSession: sql<string | null>`${statsSub.lastSession}`,
-    })
-    .from(schema.users)
-    .leftJoin(statsSub, eq(statsSub.traineeId, schema.users.id))
-    .where(and(...conditions))
-    .orderBy(...orderBy)
-    .limit(opts.limit ?? 200)
-    .offset(opts.offset ?? 0);
-
-  if (clients.length === 0) return [];
-  const ids = clients.map((c) => c.id);
-
-  // Active plan names for the page.
-  const activePlans = await db
-    .select({
-      traineeId: schema.plans.traineeId,
-      planId: schema.plans.id,
-      name: schema.plans.name,
-    })
-    .from(schema.plans)
-    .where(
-      and(
-        eq(schema.plans.trainerId, trainerId),
-        eq(schema.plans.status, "active"),
-        inArray(schema.plans.traineeId, ids),
-      ),
-    );
-  const planByTrainee = new Map(activePlans.map((p) => [p.traineeId, p]));
-
-  return clients.map((c) => ({
-    id: c.id,
-    displayName: c.displayName,
-    joinedOn: c.joinedOn,
-    totalSessions: Number(c.totalSessions),
-    lastSession: c.lastSession ?? null,
-    activePlanName: planByTrainee.get(c.id)?.name ?? null,
-    activePlanId: planByTrainee.get(c.id)?.planId ?? null,
-  }));
+  return detail == null ? null : withPublicVideoUrls(detail);
 }
 
-export interface RecentLogRow {
-  log: schema.WorkoutLog;
-  trainee: { id: string; displayName: string };
-}
-
-/** Ostatnie treningi wszystkich podopiecznych trenera — pulpit. */
-export async function listRecentLogsForTrainer(
-  db: Db,
-  trainerId: string,
-  limit: number,
-): Promise<RecentLogRow[]> {
-  return await db
-    .select({
-      log: schema.workoutLogs,
-      trainee: { id: schema.users.id, displayName: schema.users.displayName },
-    })
-    .from(schema.workoutLogs)
-    .innerJoin(schema.users, eq(schema.users.id, schema.workoutLogs.traineeId))
-    .where(eq(schema.workoutLogs.trainerId, trainerId))
-    .orderBy(desc(schema.workoutLogs.performedOn), desc(schema.workoutLogs.createdAt))
-    .limit(limit);
-}
-
-/** Liczba treningów trenera od podanej daty włącznie (`performedOn >= sinceIso`). */
-export async function countLogsForTrainerSince(
-  db: Db,
-  trainerId: string,
-  sinceIso: string,
-): Promise<number> {
-  const [row] = await db
-    .select({ c: count() })
-    .from(schema.workoutLogs)
-    .where(
-      and(
-        eq(schema.workoutLogs.trainerId, trainerId),
-        gte(schema.workoutLogs.performedOn, sinceIso),
-      ),
-    );
-  return Number(row?.c ?? 0);
+/**
+ * Trening podopiecznego oglądany przez trenera. Parę (podopieczny, log) sprawdza
+ * BE — niezgodna albo spoza tenanta to `404`, tu `null`. Nazwy podopiecznego ten
+ * widok nie niesie; trasa bierze ją z `findTraineeRef` (`trainees.ts`, luka L S5-2).
+ */
+export async function loadTraineeLog(
+  api: Api,
+  traineeId: string,
+  logId: string,
+): Promise<WorkoutLogDetailView | null> {
+  const detail = await orNull(
+    traineeWorkoutLogsControllerById({
+      client: api,
+      path: { traineeId, id: logId },
+      throwOnError: true,
+    }).then((r) => r.data),
+  );
+  return detail == null ? null : withPublicVideoUrls(detail);
 }
 
 // ============================================================
@@ -772,12 +258,9 @@ export class WorkoutSaveError extends Error {
 
 export interface SaveSetInput {
   /**
-   * Original planned position of this set (0-indexed). Preserving it — rather
-   * than re-indexing on insert — lets the viewer detect *which* sets were
-   * skipped: any ordinal in [0, expectedSets) without a corresponding row is
-   * a skip. Old logs (saved before this change) have consecutive ordinals
-   * 0..n-1; in that case the missing tail is treated as "skipped at the end",
-   * which is still informative.
+   * Pozycja serii w planie (od 0). Zachowana, nie przenumerowana przy zapisie —
+   * dzięki temu szczegół widzi, KTÓRE serie pominięto: brakujący `ordinal`
+   * w środku to pominięcie.
    */
   ordinal: number;
   reps: number;
@@ -790,152 +273,80 @@ export interface SaveExerciseLogInput {
   sets: SaveSetInput[];
 }
 
+/**
+ * Bez `trainerId`, `traineeId`, `planId` i `sessionName` — BE wyprowadza je z tokenu
+ * i z sesji planu. `LogWorkoutDto` nie ma tych pól, a `forbidNonWhitelisted` zamienia
+ * każde nadmiarowe w `400`.
+ */
 export interface SaveWorkoutLogInput {
-  traineeId: string;
-  trainerId: string;
-  planId: string;
   planSessionId: string;
-  sessionName: string;
-  performedOn: string; // YYYY-MM-DD
+  /** `YYYY-MM-DD`; górną granicę (dziś + 1 dzień w strefie aplikacji) egzekwuje BE. */
+  performedOn: string;
   note: string | null;
   allDone: boolean;
   exercises: SaveExerciseLogInput[];
 }
 
-/**
- * Czysta część walidacji nagrań: które z żądanych identyfikatorów nie nadają się do
- * podpięcia. Dwie reguły:
- *  1. id nie wróciło z bazy — jest cudze, złego rodzaju, spoza tenanta, już podpięte
- *     albo sprzątnięte przez sweeper;
- *  2. id powtarza się w żądaniu — jeden upload nie może obsłużyć dwóch serii, a samo
- *     zapytanie tego nie wykryje (zwróci wiersz raz i będzie wyglądał poprawnie).
- */
-/** Kształt UUID — `files.id` jest kolumną `uuid`, więc śmieć musi odpaść przed zapytaniem. */
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-export function findUnusableVideoIds(requested: string[], usable: Array<{ id: string }>): string[] {
-  const ok = new Set(usable.map((r) => r.id));
-  const seen = new Set<string>();
-  const bad: string[] = [];
-  for (const id of requested) {
-    if (!ok.has(id) || seen.has(id)) bad.push(id);
-    seen.add(id);
-  }
-  return bad;
+export interface SaveWorkoutLogOptions {
+  /**
+   * Klucz idempotencji (`docs/04` §6): powtórzenie z tym samym kluczem oddaje
+   * PIERWOTNY wynik zamiast drugiego treningu.
+   *
+   * Zasięg jest węższy, niż się wydaje: nadaje go loader trasy raz na WYŚWIETLENIE
+   * formularza, więc chroni przed podwójną wysyłką TEGO SAMEGO renderu — drugim
+   * kliknięciem i ponowionym `fetch`-em przeglądarki. Po przemontowaniu trasy
+   * (powrót po `ErrorBoundary` ze szkicem z `sessionStorage`) klucz jest NOWY
+   * i takie ponowienie założy drugi log. Klucz trwały, zapisywany razem ze
+   * szkicem, to osobna decyzja — luka L10.
+   */
+  idempotencyKey?: string;
 }
 
 /**
- * Rzuca `WorkoutSaveError`, jeśli którekolwiek z podanych nagrań nie należy do TEGO
- * podopiecznego, nie jest rodzaju `set_video`, wypada poza tenanta albo jest już
- * podpięte do innej serii.
+ * Zapis treningu — jedno żądanie, atomowo po stronie BE. Zwraca utworzony log
+ * RAZEM z listą pobitych rekordów, więc `detectNewPRsForLog` zniknęło: rekordy
+ * są częścią odpowiedzi `201`, nie osobnym zapytaniem po zapisie.
  *
- * Konieczne od czasu rozdzielenia uploadu od zapisu: wcześniej `videoFileId` pochodził
- * z `uploadFile` w tym samym żądaniu, teraz przychodzi od klienta.
+ * Co przestało być sprawą FE: własność i dostępność nagrań (`409
+ * SET_VIDEO_UNAVAILABLE`, dawne `assertOwnedUnclaimedVideos`), przynależność
+ * ćwiczeń do sesji (`409 EXERCISE_NOT_IN_SESSION`), reguły oceny trudności
+ * per ćwiczenie (`409 DIFFICULTY_*`), data z przyszłości (`400
+ * PERFORMED_ON_IN_FUTURE`), pusty trening (`409 EMPTY_WORKOUT_LOG`).
  *
- * `uploaded_by` jest tu KLUCZOWE i sam `trainer_id` NIE wystarcza — podopieczni jednego
- * trenera dzielą tę samą wartość `trainer_id`, więc bez tego warunku podopieczny A mógłby
- * podpiąć pod swój trening nagranie podopiecznego B.
+ * Wąski `catch`: trasa pokazuje `userMessage` w formularzu, więc własny typ
+ * dostają `400`, `404` i `409`. Reszta leci `ApiError`-em — awaria ma zostać awarią.
  */
-export async function assertOwnedUnclaimedVideos(
-  db: Db,
-  args: { traineeId: string; trainerId: string; fileIds: string[] },
-): Promise<void> {
-  if (args.fileIds.length === 0) return;
-
-  // Odsiej identyfikatory o niepoprawnym kształcie PRZED zapytaniem: `files.id` jest
-  // kolumną `uuid`, więc wstawienie tam czegokolwiek innego kończy się błędem Postgresa
-  // 22P02, a ten nie jest `WorkoutSaveError` — poleciałby jako 500 i ErrorBoundary.
-  // Identyfikatory pochodzą od klienta, więc to trywialnie wywoływalne.
-  // Odsiane id trafiają niżej do `bad` przez porównanie z pełną listą żądań.
-  const wellFormed = args.fileIds.filter((id) => UUID_RE.test(id));
-  if (wellFormed.length === 0) {
-    logger.warn("workout.video_ids_rejected", {
-      count: args.fileIds.length,
-      requested: args.fileIds.length,
-      traineeId: args.traineeId,
-    });
-    throw new WorkoutSaveError(
-      `rejected ${args.fileIds.length} malformed video ids`,
-      "Któreś z nagrań nie jest już dostępne. Odśwież stronę i dodaj je ponownie.",
-    );
-  }
-
-  const rows = await db
-    .select({ id: schema.files.id })
-    .from(schema.files)
-    .where(
-      and(
-        inArray(schema.files.id, wellFormed),
-        eq(schema.files.kind, "set_video"),
-        eq(schema.files.trainerId, args.trainerId),
-        eq(schema.files.uploadedBy, args.traineeId),
-        notExists(
-          db
-            .select({ x: sql`1` })
-            .from(schema.workoutSetLogs)
-            .where(eq(schema.workoutSetLogs.videoFileId, schema.files.id)),
-        ),
-      ),
-    );
-
-  const bad = findUnusableVideoIds(args.fileIds, rows);
-  if (bad.length > 0) {
-    // Bez samych identyfikatorów w logu — liczba wystarcza do diagnozy, a nie zdradza
-    // cudzych zasobów w strumieniu logów.
-    logger.warn("workout.video_ids_rejected", {
-      count: bad.length,
-      requested: args.fileIds.length,
-      traineeId: args.traineeId,
-    });
-    throw new WorkoutSaveError(
-      `rejected ${bad.length} of ${args.fileIds.length} video ids`,
-      "Któreś z nagrań nie jest już dostępne. Odśwież stronę i dodaj je ponownie.",
-    );
-  }
-}
-
-/** Persist a workout log + nested exercise logs + set logs inside one transaction. */
-export async function saveWorkoutLog(db: Db, input: SaveWorkoutLogInput): Promise<string> {
-  return await db.transaction(async (tx) => {
-    const [logRow] = await tx
-      .insert(schema.workoutLogs)
-      .values({
-        trainerId: input.trainerId,
-        traineeId: input.traineeId,
-        planId: input.planId,
+export async function saveWorkoutLog(
+  api: Api,
+  input: SaveWorkoutLogInput,
+  opts: SaveWorkoutLogOptions = {},
+): Promise<CreatedWorkoutLogView> {
+  try {
+    const { data } = await workoutLogsControllerCreate({
+      client: api,
+      body: {
         planSessionId: input.planSessionId,
-        sessionName: input.sessionName,
         performedOn: input.performedOn,
         note: input.note,
         allDone: input.allDone,
-      })
-      .returning({ id: schema.workoutLogs.id });
-    const logId = logRow!.id;
-
-    for (const [eIdx, ex] of input.exercises.entries()) {
-      const [exRow] = await tx
-        .insert(schema.workoutExerciseLogs)
-        .values({
-          workoutLogId: logId,
-          ordinal: eIdx,
-          exerciseId: ex.exerciseId,
-        })
-        .returning({ id: schema.workoutExerciseLogs.id });
-      const exLogId = exRow!.id;
-
-      if (ex.sets.length > 0) {
-        await tx.insert(schema.workoutSetLogs).values(
-          ex.sets.map((s) => ({
-            workoutExerciseLogId: exLogId,
-            ordinal: s.ordinal,
-            reps: s.reps,
-            difficulty: s.difficulty,
-            videoFileId: s.videoFileId,
+        exercises: input.exercises.map((exercise) => ({
+          exerciseId: exercise.exerciseId,
+          sets: exercise.sets.map((set) => ({
+            ordinal: set.ordinal,
+            reps: set.reps,
+            difficulty: set.difficulty,
+            videoFileId: set.videoFileId,
           })),
-        );
-      }
+        })),
+      },
+      ...(opts.idempotencyKey ? { headers: { "Idempotency-Key": opts.idempotencyKey } } : {}),
+      throwOnError: true,
+    });
+    return data;
+  } catch (e) {
+    if (e instanceof ApiError && (e.status === 400 || e.status === 404 || e.status === 409)) {
+      throw new WorkoutSaveError(e.code, e.message);
     }
-
-    return logId;
-  });
+    throw e;
+  }
 }

@@ -8,12 +8,10 @@ import {
   ThisWeekCard,
   WrappedListRow,
 } from "~/components/trainee-stats";
-import { requireUser } from "~/lib/auth";
-import { db } from "~/lib/db/client";
-import { daysAgo, fmtDate, fmtDateShort } from "~/lib/format";
-import { getActivityHeatmap, getEffortBalance, getHeroStats, getThisWeekStats } from "~/lib/stats";
-import { listLogsForTrainee, loadActivePlanSummaryForTrainee } from "~/lib/workouts";
-import { getAvailableWrappedMonths, getLatestAvailableWrapped } from "~/lib/wrapped";
+import { requireUser } from "~/lib/api/auth";
+import { daysAgo, fmtDateShort } from "~/lib/format";
+import { loadTraineeDashboard } from "~/lib/views";
+import { latestWrappedMonth } from "~/lib/wrapped";
 
 // ============================================================
 // Wrapped banner — appears when the previous month's wrapped is fresh and
@@ -124,38 +122,32 @@ function WrappedBanner({
 }
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
-  const [planSummary, recent, hero, thisWeek, heatmap, effort, wrappedMonths, latestWrapped] =
-    await Promise.all([
-      loadActivePlanSummaryForTrainee(db, user.id),
-      listLogsForTrainee(db, user.id, { limit: 5 }),
-      getHeroStats(db, user.id),
-      getThisWeekStats(db, user.id),
-      getActivityHeatmap(db, user.id, 26),
-      getEffortBalance(db, user.id),
-      getAvailableWrappedMonths(db, user.id),
-      // Latest wrapped (previous calendar month, if it has data). Banner is
-      // suppressed client-side once the trainee opens the wrapped.
-      getLatestAvailableWrapped(db, user.id),
-    ]);
+  const { api, user } = requireUser(args.context, { role: "trainee" });
+
+  // Jedno wywołanie na ekran (B5): do integracji ten loader składał pulpit
+  // z ośmiu zapytań trzech modułów. `activePlan` niesie liczbę wykonań per
+  // sesja, `recentLogs` pięć ostatnich treningów, `wrappedMonths` listę
+  // podsumowań; baner „świeży wrapped" bierze z niej najpóźniejszy miesiąc,
+  // a klient sam wycisza go po obejrzeniu albo odrzuceniu (localStorage).
+  const home = await loadTraineeDashboard(api);
 
   return {
     user,
-    planSummary,
-    recent,
-    hero,
-    thisWeek,
-    heatmap,
-    effort,
-    wrappedMonths,
-    latestWrapped,
+    activePlan: home.activePlan,
+    recent: home.recentLogs,
+    hero: home.hero,
+    thisWeek: home.thisWeek,
+    heatmap: home.heatmap,
+    effort: home.effort,
+    wrappedMonths: home.wrappedMonths,
+    latestWrapped: latestWrappedMonth(home.wrappedMonths),
   };
 }
 
 export default function TraineeDashboard() {
   const {
     user,
-    planSummary,
+    activePlan,
     recent,
     hero,
     thisWeek,
@@ -190,7 +182,7 @@ export default function TraineeDashboard() {
             Twoje sesje i historia treningów.
           </div>
         </div>
-        {planSummary != null && planSummary.sessions.length > 0 && (
+        {activePlan != null && activePlan.sessions.length > 0 && (
           <Link to="/podopieczny/sesje" className="btn btn-primary btn-lg">
             <Icons.Plus /> Zarejestruj sesję
           </Link>
@@ -199,7 +191,7 @@ export default function TraineeDashboard() {
 
       {hero.totalSessions > 0 && <HeroStatsCard hero={hero} />}
 
-      {planSummary == null ? (
+      {activePlan == null ? (
         <div className="empty" style={{ marginBottom: 22 }}>
           <h3>Brak aktywnego planu</h3>
           <div>Trener przygotuje go wkrótce.</div>
@@ -244,21 +236,10 @@ export default function TraineeDashboard() {
                   <span className="badge-dot" style={{ background: "var(--accent)" }} />
                   aktywny plan
                 </span>
-                <span
-                  className="mono"
-                  style={{ fontSize: 11, opacity: 0.7, color: "var(--accent)" }}
-                >
-                  v{planSummary.plan.version}
-                  {planSummary.plan.publishedAt && (
-                    <> · od {fmtDate(planSummary.plan.publishedAt.toString())}</>
-                  )}
-                </span>
               </div>
-              <h2 style={{ fontSize: 24, color: "var(--bg)", margin: 0 }}>
-                {planSummary.plan.name}
-              </h2>
+              <h2 style={{ fontSize: 24, color: "var(--bg)", margin: 0 }}>{activePlan.name}</h2>
               <div className="mono" style={{ fontSize: 12, opacity: 0.7, marginTop: 8 }}>
-                {planSummary.sessions.length} sesji do wyboru
+                {activePlan.sessions.length} sesji do wyboru
               </div>
             </div>
             <Link
@@ -288,7 +269,7 @@ export default function TraineeDashboard() {
         className="grid"
         style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 20 }}
       >
-        {planSummary != null && planSummary.sessions.length > 0 && (
+        {activePlan != null && activePlan.sessions.length > 0 && (
           <section>
             <div className="row between" style={{ alignItems: "baseline", marginBottom: 10 }}>
               <h2 style={{ fontSize: 16 }}>Sesje w planie</h2>
@@ -297,9 +278,9 @@ export default function TraineeDashboard() {
               </Link>
             </div>
             <div className="list">
-              {planSummary.sessions.map((s, idx) => (
+              {activePlan.sessions.map((s, idx) => (
                 <div
-                  key={s.session.id}
+                  key={s.id}
                   className="list-row"
                   style={{
                     gridTemplateColumns: "32px 1fr auto auto",
@@ -311,23 +292,20 @@ export default function TraineeDashboard() {
                     {String(idx + 1).padStart(2, "0")}
                   </div>
                   <div>
-                    <div style={{ fontSize: 13.5, fontWeight: 500 }}>{s.session.name}</div>
+                    <div style={{ fontSize: 13.5, fontWeight: 500 }}>{s.name}</div>
                     <div className="text-xs muted" style={{ marginTop: 2 }}>
-                      {s.doneCount === 0
+                      {s.logCount === 0
                         ? "jeszcze nie wykonana"
-                        : `×${s.doneCount}${
+                        : `×${s.logCount}${
                             s.lastPerformedOn ? ` · ostatnio ${daysAgo(s.lastPerformedOn)}` : ""
                           }`}
                     </div>
                   </div>
-                  <Link
-                    to={`/podopieczny/loguj/${s.session.id}`}
-                    className="btn btn-primary btn-sm"
-                  >
+                  <Link to={`/podopieczny/loguj/${s.id}`} className="btn btn-primary btn-sm">
                     <Icons.Plus /> Zarejestruj
                   </Link>
                   <Link
-                    to={`/podopieczny/sesje/${s.session.id}`}
+                    to={`/podopieczny/sesje/${s.id}`}
                     className="btn btn-ghost btn-sm btn-icon"
                     aria-label="Szczegóły sesji"
                   >
@@ -365,16 +343,6 @@ export default function TraineeDashboard() {
                   <div className="mono text-xs muted">{fmtDateShort(log.performedOn)}</div>
                   <div>
                     <div style={{ fontSize: 13.5, fontWeight: 500 }}>{log.sessionName}</div>
-                    <div className="text-xs muted" style={{ marginTop: 2 }}>
-                      <span className="mono">{log.exerciseCount}</span> ćwiczeń · trudność{" "}
-                      {log.avgDifficulty == null ? (
-                        "—"
-                      ) : (
-                        <>
-                          <span className="mono">{log.avgDifficulty}</span>/10
-                        </>
-                      )}
-                    </div>
                   </div>
                   <Icons.Chev style={{ color: "var(--muted-2)" }} />
                 </Link>

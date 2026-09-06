@@ -1,13 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fmtMoney, parsePlnToGrosze, MonthlyAmountSchema } from "~/lib/money";
-
-describe("fmtMoney", () => {
-  it("formatuje grosze jako PLN po polsku", () => {
-    expect(fmtMoney(12345, "pln")).toBe("123,45 zł");
-    expect(fmtMoney(20000, "pln")).toBe("200,00 zł");
-    expect(fmtMoney(0, "pln")).toBe("0,00 zł");
-  });
-});
+import { parsePlnToGrosze, MonthlyAmountSchema } from "~/lib/money";
 
 describe("parsePlnToGrosze", () => {
   it("zamienia złotówki (string) na grosze", () => {

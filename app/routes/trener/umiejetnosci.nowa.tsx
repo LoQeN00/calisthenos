@@ -5,19 +5,19 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
-import { requireUser } from "~/lib/auth";
-import { db } from "~/lib/db/client";
+import { requireUser } from "~/lib/api/auth";
+import { ApiError, toRouteResponse } from "~/lib/api/errors";
 import { SKILL_TIERS, TIER_LABEL } from "~/lib/skill-tier";
 import { SkillError, createSkill } from "~/lib/skills";
 import { SkillFormSchema } from "~/lib/skill-types";
 
 export async function loader(args: LoaderFunctionArgs) {
-  await requireUser(args.request, db, { role: "trainer" });
+  requireUser(args.context, { role: "trainer" });
   return null;
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const fd = await args.request.formData();
   const parsed = SkillFormSchema.safeParse({
     name: String(fd.get("name") ?? ""),
@@ -29,8 +29,7 @@ export async function action(args: ActionFunctionArgs) {
   }
   try {
     const skill = await createSkill(
-      db,
-      user.id,
+      api,
       parsed.data.name,
       parsed.data.description,
       parsed.data.tier,
@@ -38,7 +37,10 @@ export async function action(args: ActionFunctionArgs) {
     throw redirect(`/trener/umiejetnosci/${skill.id}`);
   } catch (e) {
     if (e instanceof Response) throw e;
+    // Zajęta nazwa (`409`) to zdanie w formularzu; każda inna odmowa BE idzie
+    // na granicę błędu z kodem kontraktu, nie jako nieobsłużony wyjątek.
     if (e instanceof SkillError) return { error: e.userMessage };
+    if (e instanceof ApiError) throw toRouteResponse(e);
     throw e;
   }
 }

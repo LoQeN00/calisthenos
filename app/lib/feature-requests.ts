@@ -1,16 +1,44 @@
-import { type SQL, and, asc, count, desc, eq, ilike, or } from "drizzle-orm";
-import type { Db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
+import {
+  featureRequestsControllerGet,
+  featureRequestsControllerList,
+  featureRequestsControllerRespond,
+  myFeatureRequestsControllerCreate,
+  myFeatureRequestsControllerList,
+  myFeatureRequestsControllerRemove,
+} from "@kalisthenos/api-client";
+import type {
+  FeatureRequestPage,
+  FeatureRequestView,
+  TrainerFeatureRequestPage,
+  TrainerFeatureRequestView,
+} from "@kalisthenos/api-client";
+import { orNull } from "~/lib/api/client";
+import type { Api } from "~/lib/api/client";
+import { ApiError } from "~/lib/api/errors";
 import type { FeatureRequestKind, FeatureRequestStatus } from "~/lib/feature-request-types";
 
 /**
- * Repozytorium zgłoszeń podopiecznych („Pomysły"). Zgłoszenie jest PRYWATNE w
- * parze: czyta je autor i jego trener. Każda funkcja przyjmuje wymagany
- * `traineeId` (widok autora) albo `trainerId` (skrzynka trenera) i filtruje po
- * nim w zapytaniu — nigdy po odczycie. Brak dopasowania to `null`/`0`; trasa
- * zamienia to na 404, nie 403 (nie zdradzamy istnienia cudzego zasobu).
+ * Zgłoszenia podopiecznych („Pomysły") — w całości na kontrakcie. Zgłoszenie
+ * jest PRYWATNE w parze: czyta je autor (`/v1/me/feature-requests`) i jego
+ * trener (`/v1/feature-requests`). Kontrakt rozdziela te dwie perspektywy
+ * trasami, więc moduł ma po dwie funkcje tam, gdzie do integracji miał jedną
+ * z filtrem tenanta w `WHERE`. Samego filtra nie ma już w żadnej sygnaturze:
+ * zakres niesie token dostępowy, egzekwuje go BE, a cudze zgłoszenie jest po
+ * tamtej stronie nieodróżnialne od nieistniejącego (`404`).
  */
 
+export type {
+  FeatureRequestPage,
+  FeatureRequestView,
+  TrainerFeatureRequestPage,
+  TrainerFeatureRequestView,
+} from "@kalisthenos/api-client";
+
+/**
+ * Własny typ błędu obszaru, bo trasy pokazują `userMessage` w formularzu
+ * (precedens: `PlanError`, `CategoryError`). Źródłem `userMessage` jest
+ * `message` z koperty BE — po polsku i dla użytkownika.
+ */
 export class FeatureRequestError extends Error {
   constructor(
     message: string,
@@ -20,320 +48,190 @@ export class FeatureRequestError extends Error {
   }
 }
 
+/**
+ * Wartości identyczne z kontraktem (`newest` domyślnie · `oldest`) i z
+ * zakładkowalnym adresem listy, więc — jak w planach — słownika nie ma.
+ */
 export type FeatureRequestSort = "newest" | "oldest";
+export type FeatureRequestStatusFilter = FeatureRequestStatus | "all";
+export type FeatureRequestKindFilter = FeatureRequestKind | "all";
 
-export interface TraineeRequestRow {
-  id: string;
-  kind: FeatureRequestKind;
-  title: string;
-  body: string;
-  status: FeatureRequestStatus;
-  trainerResponse: string | null;
-  respondedAtISO: string | null;
-  createdAtISO: string;
+export interface TraineeRequestListOpts {
+  page: number;
+  sort: FeatureRequestSort;
+  /** `all` (albo brak) to BRAK parametru — kontrakt zawęża wyłącznie do jednego stanu. */
+  status?: FeatureRequestStatusFilter;
 }
 
-export interface TrainerRequestRow {
-  id: string;
-  kind: FeatureRequestKind;
-  title: string;
-  status: FeatureRequestStatus;
-  traineeId: string;
-  traineeName: string;
-  createdAtISO: string;
-  respondedAtISO: string | null;
-}
-
-export interface TrainerRequestDetail extends TrainerRequestRow {
-  body: string;
-  trainerResponse: string | null;
-}
-
-type StatusFilter = FeatureRequestStatus | "all" | undefined;
-type KindFilter = FeatureRequestKind | "all" | undefined;
-
-function statusCond(status: StatusFilter): SQL | undefined {
-  return status == null || status === "all" ? undefined : eq(schema.featureRequests.status, status);
-}
-
-function kindCond(kind: KindFilter): SQL | undefined {
-  return kind == null || kind === "all" ? undefined : eq(schema.featureRequests.kind, kind);
+export interface TrainerRequestListOpts extends TraineeRequestListOpts {
+  kind?: FeatureRequestKindFilter;
+  /** Szukajka po tytule, treści i nazwie autora — escapowanie `%`/`_` robi BE. */
+  q?: string;
 }
 
 /**
- * Szukajka trenera: tytuł, treść albo nazwa autora. `%`/`_` escapujemy — inaczej
- * `%` wpisany w pole szukajki pasuje do wszystkiego zamiast do znaku procenta.
+ * Obie listy biorą ten sam zestaw parametrów (`docs/04` §Zgłoszenia), więc jeden
+ * budowniczy zapytania. Rozłożone warunkowo, nie przez `status: opts.status`:
+ * klucz z wartością `undefined` i BRAK klucza to dla serializatora zapytań dwie
+ * różne rzeczy, a `status=all` kontrakt zignorowałby jako nieznaną wartość.
+ * Puste `q=` znaczy „szukaj pustego łańcucha", nie „bez filtra".
  */
-function searchCond(q: string | undefined): SQL | undefined {
-  const trimmed = (q ?? "").trim();
-  if (trimmed.length === 0) return undefined;
-  const pattern = `%${trimmed.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
-  return or(
-    ilike(schema.featureRequests.title, pattern),
-    ilike(schema.featureRequests.body, pattern),
-    ilike(schema.users.displayName, pattern),
-  );
-}
-
-function orderFor(sort: FeatureRequestSort | undefined) {
-  return sort === "oldest"
-    ? asc(schema.featureRequests.createdAt)
-    : desc(schema.featureRequests.createdAt);
+function listQuery(opts: TrainerRequestListOpts) {
+  return {
+    page: opts.page,
+    sort: opts.sort,
+    ...(opts.status != null && opts.status !== "all" ? { status: opts.status } : {}),
+    ...(opts.kind != null && opts.kind !== "all" ? { kind: opts.kind } : {}),
+    ...(opts.q != null && opts.q.length > 0 ? { q: opts.q } : {}),
+  };
 }
 
 // ---------------- Podopieczny (autor) ----------------
 
+/**
+ * Własne zgłoszenia z odpowiedziami trenera — cała strona z kontraktu (20/stronę,
+ * `total` i `totalPages` razem z listą; stronę spoza zakresu przycina BE), więc
+ * dawna para `listForTrainee` + `countForTrainee` to dziś jedno żądanie, a licznik
+ * nawigacji bierze się z `TraineeNavView.featureRequests` (`views.ts`).
+ * Wiersze są BEZ autora — autorem każdego jest pytający.
+ */
 export async function listForTrainee(
-  db: Db,
-  traineeId: string,
-  opts: { sort?: FeatureRequestSort; status?: StatusFilter; limit: number; offset: number },
-): Promise<TraineeRequestRow[]> {
-  const rows = await db
-    .select({
-      id: schema.featureRequests.id,
-      kind: schema.featureRequests.kind,
-      title: schema.featureRequests.title,
-      body: schema.featureRequests.body,
-      status: schema.featureRequests.status,
-      trainerResponse: schema.featureRequests.trainerResponse,
-      respondedAt: schema.featureRequests.respondedAt,
-      createdAt: schema.featureRequests.createdAt,
-    })
-    .from(schema.featureRequests)
-    .where(and(eq(schema.featureRequests.traineeId, traineeId), statusCond(opts.status)))
-    .orderBy(orderFor(opts.sort))
-    .limit(opts.limit)
-    .offset(opts.offset);
-
-  return rows.map((r) => ({
-    id: r.id,
-    kind: r.kind,
-    title: r.title,
-    body: r.body,
-    status: r.status,
-    trainerResponse: r.trainerResponse,
-    respondedAtISO: r.respondedAt?.toISOString() ?? null,
-    createdAtISO: r.createdAt.toISOString(),
-  }));
+  api: Api,
+  opts: TraineeRequestListOpts,
+): Promise<FeatureRequestPage> {
+  const { data } = await myFeatureRequestsControllerList({
+    client: api,
+    query: listQuery(opts),
+    throwOnError: true,
+  });
+  return data;
 }
 
-export async function countForTrainee(
-  db: Db,
-  traineeId: string,
-  opts: { status?: StatusFilter } = {},
-): Promise<number> {
-  const [row] = await db
-    .select({ c: count() })
-    .from(schema.featureRequests)
-    .where(and(eq(schema.featureRequests.traineeId, traineeId), statusCond(opts.status)));
-  return Number(row?.c ?? 0);
-}
-
-export async function createFeatureRequest(
-  db: Db,
-  args: {
-    trainerId: string;
-    traineeId: string;
-    kind: FeatureRequestKind;
-    title: string;
-    body: string;
-  },
-): Promise<{ id: string }> {
-  const [row] = await db
-    .insert(schema.featureRequests)
-    .values({
-      trainerId: args.trainerId,
-      traineeId: args.traineeId,
-      kind: args.kind,
-      title: args.title,
-      body: args.body,
-    })
-    .returning({ id: schema.featureRequests.id });
-  return { id: row!.id };
+export interface CreateFeatureRequestInput {
+  kind: FeatureRequestKind;
+  title: string;
+  body: string;
 }
 
 /**
- * Kasuje WŁASNE zgłoszenie autora i tylko dopóki ma status `new`. Warunek statusu
- * siedzi w `WHERE`, nie w kodzie po odczycie — inaczej trener odpowiadający w tej
- * samej chwili przegrywałby wyścig i odpowiedź znikałaby razem ze zgłoszeniem.
+ * Trener wynika z konta autora, NIGDY z ładunku (`docs/04`) — stąd w ciele
+ * wyłącznie trzy pola formularza, składane jawnie: BE odrzuca pola spoza DTO.
+ * `400` dostaje własny typ, bo Zod w trasie stoi pierwszy, ale reguły po tamtej
+ * stronie bywają ostrzejsze, a jedno zdanie w formularzu jest lepsze niż
+ * granica błędu. Reszta leci dalej — awaria BE ma zostać awarią.
  */
-export async function deleteFeatureRequest(
-  db: Db,
-  args: { traineeId: string; id: string },
-): Promise<void> {
-  const deleted = await db
-    .delete(schema.featureRequests)
-    .where(
-      and(
-        eq(schema.featureRequests.id, args.id),
-        eq(schema.featureRequests.traineeId, args.traineeId),
-        eq(schema.featureRequests.status, "new"),
-      ),
-    )
-    .returning({ id: schema.featureRequests.id });
+export async function createFeatureRequest(
+  api: Api,
+  input: CreateFeatureRequestInput,
+): Promise<FeatureRequestView> {
+  try {
+    const { data } = await myFeatureRequestsControllerCreate({
+      client: api,
+      body: { kind: input.kind, title: input.title, body: input.body },
+      throwOnError: true,
+    });
+    return data;
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 400) {
+      throw new FeatureRequestError(e.code, e.message);
+    }
+    throw e;
+  }
+}
 
-  if (deleted.length === 0) {
-    throw new FeatureRequestError(
-      "not deletable",
-      "Nie można usunąć tego zgłoszenia — trener już je obsłużył.",
-    );
+/**
+ * Wycofanie WŁASNEGO zgłoszenia, dopóki ma status `new`. Warunek stanu jest
+ * częścią `DELETE` po stronie BE (nie sprawdzeniem po odczycie), więc trener
+ * odpowiadający w tej samej chwili nie przegrywa wyścigu — tak jak do integracji.
+ *
+ * Zero usuniętych wierszy BE oddaje jako `404`, nie `409`: „nie istnieje, cudze
+ * albo już nie `new`" wygląda tam jednakowo, bo rozróżnienie zdradzałoby
+ * istnienie zasobu. Trasa pokazuje `userMessage` przy liście, więc `404` dostaje
+ * własny typ — ekran błędu za kliknięcie w nieaktualny przycisk byłby gorszy niż
+ * zdanie. `409` obok na wypadek, gdyby kontrakt kiedyś nazwał tę odmowę osobno.
+ */
+export async function deleteFeatureRequest(api: Api, id: string): Promise<void> {
+  try {
+    await myFeatureRequestsControllerRemove({ client: api, path: { id }, throwOnError: true });
+  } catch (e) {
+    if (e instanceof ApiError && (e.status === 404 || e.status === 409)) {
+      throw new FeatureRequestError(e.code, e.message);
+    }
+    throw e;
   }
 }
 
 // ---------------- Trener (skrzynka) ----------------
 
+/**
+ * Skrzynka wszystkich podopiecznych, każdy wiersz z autorem (`authorId`,
+ * `authorName`) — dawny `innerJoin` na `users` przeszedł na drugą stronę razem
+ * z szukajką po tytule, treści i nazwie autora. Cała strona z kontraktu, więc
+ * `countForTrainer` zniknęło bez zamiennika.
+ */
 export async function listForTrainer(
-  db: Db,
-  trainerId: string,
-  opts: {
-    sort?: FeatureRequestSort;
-    status?: StatusFilter;
-    kind?: KindFilter;
-    q?: string;
-    limit: number;
-    offset: number;
-  },
-): Promise<TrainerRequestRow[]> {
-  const rows = await db
-    .select({
-      id: schema.featureRequests.id,
-      kind: schema.featureRequests.kind,
-      title: schema.featureRequests.title,
-      status: schema.featureRequests.status,
-      traineeId: schema.featureRequests.traineeId,
-      traineeName: schema.users.displayName,
-      createdAt: schema.featureRequests.createdAt,
-      respondedAt: schema.featureRequests.respondedAt,
-    })
-    .from(schema.featureRequests)
-    .innerJoin(schema.users, eq(schema.users.id, schema.featureRequests.traineeId))
-    .where(
-      and(
-        eq(schema.featureRequests.trainerId, trainerId),
-        statusCond(opts.status),
-        kindCond(opts.kind),
-        searchCond(opts.q),
-      ),
-    )
-    .orderBy(orderFor(opts.sort))
-    .limit(opts.limit)
-    .offset(opts.offset);
-
-  return rows.map((r) => ({
-    id: r.id,
-    kind: r.kind,
-    title: r.title,
-    status: r.status,
-    traineeId: r.traineeId,
-    traineeName: r.traineeName,
-    createdAtISO: r.createdAt.toISOString(),
-    respondedAtISO: r.respondedAt?.toISOString() ?? null,
-  }));
-}
-
-export async function countForTrainer(
-  db: Db,
-  trainerId: string,
-  opts: { status?: StatusFilter; kind?: KindFilter; q?: string } = {},
-): Promise<number> {
-  const [row] = await db
-    .select({ c: count() })
-    .from(schema.featureRequests)
-    .innerJoin(schema.users, eq(schema.users.id, schema.featureRequests.traineeId))
-    .where(
-      and(
-        eq(schema.featureRequests.trainerId, trainerId),
-        statusCond(opts.status),
-        kindCond(opts.kind),
-        searchCond(opts.q),
-      ),
-    );
-  return Number(row?.c ?? 0);
-}
-
-export async function getForTrainer(
-  db: Db,
-  trainerId: string,
-  id: string,
-): Promise<TrainerRequestDetail | null> {
-  const [r] = await db
-    .select({
-      id: schema.featureRequests.id,
-      kind: schema.featureRequests.kind,
-      title: schema.featureRequests.title,
-      body: schema.featureRequests.body,
-      status: schema.featureRequests.status,
-      trainerResponse: schema.featureRequests.trainerResponse,
-      traineeId: schema.featureRequests.traineeId,
-      traineeName: schema.users.displayName,
-      createdAt: schema.featureRequests.createdAt,
-      respondedAt: schema.featureRequests.respondedAt,
-    })
-    .from(schema.featureRequests)
-    .innerJoin(schema.users, eq(schema.users.id, schema.featureRequests.traineeId))
-    .where(and(eq(schema.featureRequests.id, id), eq(schema.featureRequests.trainerId, trainerId)))
-    .limit(1);
-
-  if (!r) return null;
-  return {
-    id: r.id,
-    kind: r.kind,
-    title: r.title,
-    body: r.body,
-    status: r.status,
-    trainerResponse: r.trainerResponse,
-    traineeId: r.traineeId,
-    traineeName: r.traineeName,
-    createdAtISO: r.createdAt.toISOString(),
-    respondedAtISO: r.respondedAt?.toISOString() ?? null,
-  };
+  api: Api,
+  opts: TrainerRequestListOpts,
+): Promise<TrainerFeatureRequestPage> {
+  const { data } = await featureRequestsControllerList({
+    client: api,
+    query: listQuery(opts),
+    throwOnError: true,
+  });
+  return data;
 }
 
 /**
- * Ustawia status i odpowiedź. `respondedAt` stemplujemy tylko przy NIEPUSTEJ
- * odpowiedzi — sama zmiana statusu nie jest odpowiedzią i nie powinna udawać, że
- * trener coś napisał.
+ * Szczegół z autorem. `| null` w sygnaturze mapuje `404` przez `orNull` —
+ * cudze zgłoszenie jest po tamtej stronie nieodróżnialne od nieistniejącego,
+ * a trasa robi z `null` własne `404`, jak do integracji.
  */
-export async function respondToFeatureRequest(
-  db: Db,
-  args: {
-    trainerId: string;
-    id: string;
-    status: FeatureRequestStatus;
-    response: string | null;
-  },
-): Promise<void> {
-  const updated = await db
-    .update(schema.featureRequests)
-    .set({
-      status: args.status,
-      trainerResponse: args.response,
-      respondedAt: args.response == null ? null : new Date(),
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(schema.featureRequests.id, args.id),
-        eq(schema.featureRequests.trainerId, args.trainerId),
-      ),
-    )
-    .returning({ id: schema.featureRequests.id });
-
-  if (updated.length === 0) {
-    throw new FeatureRequestError("not found", "Nie znaleziono zgłoszenia.");
-  }
+export async function getForTrainer(
+  api: Api,
+  id: string,
+): Promise<TrainerFeatureRequestView | null> {
+  return await orNull(
+    featureRequestsControllerGet({ client: api, path: { id }, throwOnError: true }).then(
+      (r) => r.data,
+    ),
+  );
 }
 
-/** Odznaka nawigacji trenera — liczy WYŁĄCZNIE nieruszone zgłoszenia. */
-export async function countNewForTrainer(db: Db, trainerId: string): Promise<number> {
-  const [row] = await db
-    .select({ c: count() })
-    .from(schema.featureRequests)
-    .where(
-      and(
-        eq(schema.featureRequests.trainerId, trainerId),
-        eq(schema.featureRequests.status, "new"),
-      ),
-    );
-  return Number(row?.c ?? 0);
+export interface RespondToFeatureRequestInput {
+  id: string;
+  status: FeatureRequestStatus;
+  /** `null` = skasuj odpowiedź. */
+  response: string | null;
+}
+
+/**
+ * Ustala stan i odpowiedź. Datę odpowiedzi stempluje BE — wyłącznie przy
+ * niepustej treści, a pusta kasuje treść RAZEM z datą (`docs/04`): FE nie
+ * stempluje nic samo. `null` z formularza to BRAK klucza `response` w ciele
+ * (DTO zna wyłącznie `string`), nie `null` — to ta sama różnica, co przy
+ * `demoFileId` w ćwiczeniach. `400` dostaje własny typ dla formularza; cudze
+ * albo nieistniejące zgłoszenie (`404`) leci dalej — trasa robi z niego `404`,
+ * tak jak do integracji robiła z pustego `UPDATE`.
+ */
+export async function respondToFeatureRequest(
+  api: Api,
+  input: RespondToFeatureRequestInput,
+): Promise<TrainerFeatureRequestView> {
+  try {
+    const { data } = await featureRequestsControllerRespond({
+      client: api,
+      path: { id: input.id },
+      body: {
+        status: input.status,
+        ...(input.response != null ? { response: input.response } : {}),
+      },
+      throwOnError: true,
+    });
+    return data;
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 400) {
+      throw new FeatureRequestError(e.code, e.message);
+    }
+    throw e;
+  }
 }

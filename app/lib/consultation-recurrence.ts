@@ -1,4 +1,7 @@
-import type { ConsultationCadence } from "~/lib/db/schema";
+import type { ConsultationScheduleView } from "@kalisthenos/api-client";
+
+// Cykl z kontraktu, nie ze schematu Drizzle — źródłem zbioru wartości jest BE.
+type ConsultationCadence = ConsultationScheduleView["cadence"];
 
 export interface RecurrenceRule {
   cadence: ConsultationCadence;

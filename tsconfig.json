@@ -1,5 +1,9 @@
 {
   "compilerOptions": {
+    // Generowane typy tras RR7 adresuja pliki wzgledem SIEBIE (`./app/root.tsx`),
+    // wiec bez tego nie rozwiazuja sie i `+future.ts` — a z nim flaga
+    // `v8_middleware` — nie trafia do programu `tsc`.
+    "rootDirs": [".", "./.react-router/types"],
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
@@ -20,6 +24,6 @@
     "paths": { "~/*": ["app/*"] },
     "types": ["node", "@react-router/node", "vite/client"]
   },
-  "include": ["app/**/*", "scripts/**/*", "tests/**/*", "*.config.ts"],
-  "exclude": ["node_modules", "build", ".react-router", "prototype"]
+  "include": [".react-router/types/**/*", "app/**/*", "scripts/**/*", "tests/**/*", "*.config.ts"],
+  "exclude": ["node_modules", "build", "prototype"]
 }

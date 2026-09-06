@@ -12,8 +12,7 @@ import {
 import { ConfirmSubmitButton, useAlert, useConfirm } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
 import { useToast } from "~/components/toast-provider";
-import { requireUser } from "~/lib/auth";
-import { db } from "~/lib/db/client";
+import { requireUser } from "~/lib/api/auth";
 import { listActiveExercisesForTrainer } from "~/lib/exercises";
 import { fmtDate, pluralizePl, type PlForms } from "~/lib/format";
 
@@ -28,10 +27,8 @@ import {
 import {
   createDraftFromActive,
   deletePlan,
-  findAnyDraftFor,
-  findPlanStatusForTrainer,
   loadPlanForTrainer,
-  PlanRepoError,
+  PlanError,
   publishPlan,
   saveDraftPlan,
 } from "~/lib/plans";
@@ -47,29 +44,27 @@ import {
 export type PlanRouteMode = "view-active" | "edit-active" | "edit-draft" | "view-archived";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const planId = args.params.planId ?? "";
   const url = new URL(args.request.url);
   const wantsEdit = url.searchParams.get("edit") === "1";
 
-  const detail = await loadPlanForTrainer(db, planId, user.id);
+  const detail = await loadPlanForTrainer(api, planId);
   if (!detail) throw new Response("not found", { status: 404 });
 
   let mode: PlanRouteMode;
-  if (detail.plan.status === "active") {
+  if (detail.status === "active") {
     if (wantsEdit) {
-      // The partial unique index allows at most one draft per trainee, so if
-      // one already exists for this trainee we jump to it — editing the active
-      // plan would conflict at the DB layer.
-      const existing = await findAnyDraftFor(db, detail.plan.traineeId);
-      if (existing) {
-        throw redirect(`/trener/plany/${existing.id}`);
+      // Para ma najwyżej jeden szkic, a kontrakt mówi o nim wprost w `draftId` —
+      // edycja aktywnego, gdy szkic istnieje, to praca na tamtym szkicu.
+      if (detail.draftId != null) {
+        throw redirect(`/trener/plany/${detail.draftId}`);
       }
       mode = "edit-active";
     } else {
       mode = "view-active";
     }
-  } else if (detail.plan.status === "draft") {
+  } else if (detail.status === "draft") {
     mode = "edit-draft";
   } else {
     mode = "view-archived";
@@ -77,34 +72,44 @@ export async function loader(args: LoaderFunctionArgs) {
 
   // Exercise library — loaded always; views use it for display names, the
   // editor uses it for the picker.
-  const exercises = await listActiveExercisesForTrainer(db, user.id);
+  const exercises = await listActiveExercisesForTrainer(api);
 
-  // Map the DB tree into the editor's `PlanForm` shape.
+  // Drzewo z kontraktu jest płaskie (każdy węzeł niesie własne pola), więc
+  // mapowanie na `PlanForm` to przepisanie pól — `id` zostają dla edytora
+  // (klucze React, śledzenie zmian), a zdejmie je `toSavePlanDto` przy zapisie.
   const initial: PlanForm = {
-    name: detail.plan.name,
+    name: detail.name,
     sessions: detail.sessions.map((s) => ({
-      id: s.session.id,
-      name: s.session.name,
+      id: s.id,
+      name: s.name,
       blocks: s.blocks.map((b) => ({
-        id: b.block.id,
-        kind: b.block.kind,
-        sets: b.block.sets ?? null,
-        restSeconds: b.block.restSeconds ?? null,
+        id: b.id,
+        kind: b.kind,
+        sets: b.sets,
+        restSeconds: b.restSeconds,
         items: b.items.map((it) => ({
           id: it.id,
           exerciseId: it.exerciseId,
-          sets: it.sets ?? null,
-          restSeconds: it.restSeconds ?? null,
+          sets: it.sets,
+          restSeconds: it.restSeconds,
           reps: it.reps,
           unit: it.unit,
-          note: it.note ?? null,
+          note: it.note,
         })),
       })),
     })),
   };
 
   return {
-    plan: detail.plan,
+    // Komponenty czytają `id`, `name`, `version`, `basedOnVersion`, `publishedAt`
+    // — dokładnie te pola, więc kształt dla nich się nie zmienia.
+    plan: {
+      id: detail.id,
+      name: detail.name,
+      version: detail.version,
+      basedOnVersion: detail.basedOnVersion,
+      publishedAt: detail.publishedAt,
+    },
     trainee: detail.trainee,
     initial,
     exercises,
@@ -117,14 +122,14 @@ export async function loader(args: LoaderFunctionArgs) {
 // ============================================================
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const planId = args.params.planId ?? "";
   const fd = await args.request.formData();
   const intent = fd.get("intent");
 
   try {
     if (intent === "delete") {
-      await deletePlan(db, planId, user.id);
+      await deletePlan(api, planId);
       throw redirect("/trener/plany");
     }
 
@@ -148,32 +153,27 @@ export async function action(args: ActionFunctionArgs) {
       };
     }
 
-    // Determine the actual draft to write to. If we're editing an active plan
-    // (lazy-draft flow), promote to a draft now — either reuse an existing one
-    // for this trainee or clone from active. This is the only place where a
-    // draft is created automatically; just loading a plan no longer does it.
-    const plan = await findPlanStatusForTrainer(db, planId, user.id);
-    if (plan == null) throw new Response("not found", { status: 404 });
+    // Status planu czytamy z pełnego szczegółu — lżejszego odczytu kontrakt nie
+    // ma. Edycja aktywnego (leniwy szkic): jedno wywołanie oddaje istniejący
+    // szkic pary ALBO tworzy nowy — BE rozstrzyga, nie ta akcja.
+    const detail = await loadPlanForTrainer(api, planId);
+    if (detail == null) throw new Response("not found", { status: 404 });
 
     let targetPlanId = planId;
     let wasPromoted = false;
 
-    if (plan.status === "active") {
-      const existing = await findAnyDraftFor(db, plan.traineeId);
-      if (existing) {
-        targetPlanId = existing.id;
-      } else {
-        targetPlanId = await createDraftFromActive(db, planId);
-      }
+    if (detail.status === "active") {
+      const draft = await createDraftFromActive(api, planId);
+      targetPlanId = draft.id;
       wasPromoted = true;
-    } else if (plan.status === "archived") {
+    } else if (detail.status === "archived") {
       return { error: "Nie można edytować zarchiwizowanego planu." };
     }
 
-    await saveDraftPlan(db, targetPlanId, user.id, validated.data);
+    await saveDraftPlan(api, targetPlanId, validated.data);
 
     if (intent === "publish") {
-      await publishPlan(db, targetPlanId, user.id);
+      await publishPlan(api, targetPlanId);
       throw redirect("/trener/plany");
     }
 
@@ -184,7 +184,7 @@ export async function action(args: ActionFunctionArgs) {
     }
     return { ok: true };
   } catch (e) {
-    if (e instanceof PlanRepoError) {
+    if (e instanceof PlanError) {
       return { error: e.userMessage };
     }
     throw e;
@@ -603,7 +603,7 @@ function PlanView() {
             Plan v{plan.version}
             {plan.basedOnVersion != null && ` · bazuje na v${plan.basedOnVersion}`}
             {plan.publishedAt &&
-              ` · ${isArchived ? "opublikowany" : "od"} ${fmtDate(plan.publishedAt.toString())}`}
+              ` · ${isArchived ? "opublikowany" : "od"} ${fmtDate(plan.publishedAt)}`}
             {` · dla ${trainee.displayName}`}
           </div>
           <h1>{plan.name}</h1>

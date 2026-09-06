@@ -10,33 +10,25 @@ import { ConfirmSubmitButton } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
 import { ListControls } from "~/components/list-controls";
 import { Pagination, parsePage } from "~/components/pagination";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import {
   CategoryError,
   addCategory,
   deleteCategory,
   listCategoriesForTrainer,
 } from "~/lib/categories";
-import { db } from "~/lib/db/client";
-import {
-  type ExerciseFilter,
-  type ExerciseSort,
-  countExercisesForTrainer,
-  listExercisesForTrainer,
-} from "~/lib/exercises";
-import { signFileUrl } from "~/lib/files";
+import { type ExerciseFilter, type ExerciseSort, listExercisesForTrainer } from "~/lib/exercises";
 import { type PlForms, pluralizePl } from "~/lib/format";
 import { type ListControlsSpec, parseListControls } from "~/lib/list-params";
 
-const PAGE_SIZE = 24;
 const POZYCJA: PlForms = { one: "pozycja", few: "pozycje", many: "pozycji" };
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const url = new URL(args.request.url);
   const page = parsePage(url.searchParams);
 
-  const categories = await listCategoriesForTrainer(db, user.id);
+  const categories = await listCategoriesForTrainer(api);
   const categoryNames = new Set(categories.map((c) => c.name));
 
   const spec: ListControlsSpec = {
@@ -82,30 +74,24 @@ export async function loader(args: LoaderFunctionArgs) {
     unit: filterUnit === "REPS" || filterUnit === "SEC" ? filterUnit : undefined,
   };
 
-  const total = await countExercisesForTrainer(db, user.id, filter);
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-
-  const rows = await listExercisesForTrainer(db, user.id, {
+  // Nazwa po angielsku, jak reszta identyfikatorów w kodzie — polskie nazewnictwo
+  // obowiązuje w testach i komentarzach, nie w kodzie produkcyjnym.
+  const result = await listExercisesForTrainer(api, {
     ...filter,
     sort: controls.sort as ExerciseSort,
-    limit: PAGE_SIZE,
-    offset: (safePage - 1) * PAGE_SIZE,
+    page,
   });
 
-  const items = rows.map((r) => ({
-    id: r.exercise.id,
-    name: r.exercise.name,
-    unit: r.exercise.unit,
-    description: r.exercise.description,
-    tags: r.exercise.tags,
-    demo:
-      r.demoFile != null
-        ? {
-            url: signFileUrl(r.demoFile.id, user.id),
-            mime: r.demoFile.mimeType,
-          }
-        : null,
+  const items = result.items.map((e) => ({
+    id: e.id,
+    name: e.name,
+    unit: e.unit,
+    description: e.description,
+    tags: e.tags,
+    // Podpisany odnośnik przychodzi z kontraktu (ADR-0023) — FE go nie składa
+    // i nie proxuje bajtów. Atrybutu `type` przy `<video>` nigdy tu nie było,
+    // więc `mimeType` z wiersza pliku odpada bez straty.
+    demoUrl: e.demoUrl,
   }));
 
   return {
@@ -113,21 +99,21 @@ export async function loader(args: LoaderFunctionArgs) {
     spec,
     controls,
     categories,
-    page: safePage,
-    totalPages,
-    total,
+    page: result.page,
+    totalPages: result.totalPages,
+    total: result.total,
   };
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const fd = await args.request.formData();
   const intent = fd.get("intent");
 
   if (intent === "add-category") {
     const name = (fd.get("name") ?? "").toString();
     try {
-      await addCategory(db, user.id, name);
+      await addCategory(api, name);
     } catch (e) {
       if (e instanceof CategoryError) return { error: e.userMessage };
       throw e;
@@ -138,7 +124,7 @@ export async function action(args: ActionFunctionArgs) {
   if (intent === "delete-category") {
     const categoryId = (fd.get("categoryId") ?? "").toString();
     if (categoryId.length > 0) {
-      await deleteCategory(db, user.id, categoryId);
+      await deleteCategory(api, categoryId);
     }
     return { ok: true };
   }
@@ -267,9 +253,9 @@ export default function BibliotekaList() {
               style={{ padding: 14 }}
             >
               <div className="video-tile" style={{ marginBottom: 12 }}>
-                {ex.demo ? (
+                {ex.demoUrl != null ? (
                   <video
-                    src={ex.demo.url}
+                    src={ex.demoUrl}
                     preload="metadata"
                     muted
                     playsInline

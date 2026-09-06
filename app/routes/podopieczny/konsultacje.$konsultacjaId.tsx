@@ -9,60 +9,52 @@ import { ConsultationAlert } from "~/components/consultation-alert";
 import { StatusBadge } from "~/components/consultation-status-badge";
 import { Icons } from "~/components/icons";
 import { TraineeOccurrenceActions } from "~/components/trainee-occurrence-actions";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
+import { ApiError, toRouteResponse } from "~/lib/api/errors";
+import { defaultTitle } from "~/lib/consultation-schedules";
 import { consultationPresentation } from "~/lib/consultation-status";
 import { TraineeActionSchema } from "~/lib/consultation-types";
-import { ConsultationError, getConsultationDetail, respondToOccurrence } from "~/lib/consultations";
-import { syncCancelOne } from "~/lib/google/sync";
-import { db } from "~/lib/db/client";
-import { fmtDate, fmtDateTime } from "~/lib/format";
+import {
+  canTraineeRespond,
+  ConsultationError,
+  getConsultationDetail,
+  respondToOccurrence,
+} from "~/lib/consultations";
+import { fmtDateTime } from "~/lib/format";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
-  const detail = await getConsultationDetail(db, {
-    consultationId: args.params.konsultacjaId ?? "",
-    traineeId: user.id,
-  });
+  const { api } = requireUser(args.context, { role: "trainee" });
+  // Zakres tenanta rozstrzyga BE: cudzy termin — także kolegi u tego samego
+  // trenera — to `404`, tu `null`.
+  const detail = await getConsultationDetail(api, args.params.konsultacjaId ?? "");
   if (!detail) throw new Response("not found", { status: 404 });
-  const consultation = {
-    ...detail.consultation,
-    scheduledAt: detail.consultation.scheduledAt.toISOString(),
-  };
-  return { detail: { consultation, items: detail.items } };
+  return { detail };
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
+  const { api } = requireUser(args.context, { role: "trainee" });
   const fd = await args.request.formData();
   const consultationId = String(fd.get("consultationId") ?? "");
   const parsedAction = TraineeActionSchema.safeParse(String(fd.get("action") ?? ""));
   if (!parsedAction.success) return { error: "Nieznana akcja." };
   const note = String(fd.get("note") ?? "").trim() || undefined;
   try {
-    await respondToOccurrence(db, {
-      traineeId: user.id,
-      consultationId,
-      action: parsedAction.data,
-      note,
-    });
-    if (parsedAction.data === "decline") {
-      // Termin doczytany w scope podopiecznego → trainerId jest zaufany (nie z requestu).
-      const detail = await getConsultationDetail(db, { consultationId, traineeId: user.id });
-      if (detail?.consultation.googleEventId) {
-        await syncCancelOne(db, { trainerId: detail.consultation.trainerId, consultationId });
-      }
-    }
+    // Odrzucenie zdejmuje zdarzenie z kalendarza trenera po stronie BE (outbox)
+    // — dawne `syncCancelOne` zniknęło bez zamiennika.
+    await respondToOccurrence(api, { consultationId, action: parsedAction.data, note });
     return { success: "Zapisano." };
   } catch (e) {
     if (e instanceof ConsultationError) return { error: e.userMessage };
+    if (e instanceof ApiError) throw toRouteResponse(e);
     throw e;
   }
 }
 
 export default function TraineeKonsultacjaDetail() {
-  const { detail } = useLoaderData<typeof loader>();
+  const { detail: c } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
-  const { consultation: c, items } = detail;
+  const items = c.actionItems;
+  const title = defaultTitle(c.scheduledAt);
 
   const meta = consultationPresentation({
     status: c.status,
@@ -70,7 +62,8 @@ export default function TraineeKonsultacjaDetail() {
     nowMs: Date.now(),
     viewer: "trainee",
   });
-  const canAct = c.status === "planned" || c.status === "confirmed";
+  // Z listy akcji BE, nie ze statusu — tabela przejść należy do kontraktu.
+  const canAct = canTraineeRespond(c);
   const openCount = items.filter((it) => it.status === "open").length;
 
   return (
@@ -78,7 +71,7 @@ export default function TraineeKonsultacjaDetail() {
       <div className="crumbs">
         <Link to="/podopieczny/konsultacje">Konsultacje</Link>
         <span className="sep">›</span>
-        <span className="current">{c.title}</span>
+        <span className="current">{title}</span>
       </div>
 
       <div className="pagehead">
@@ -91,7 +84,7 @@ export default function TraineeKonsultacjaDetail() {
             <span>· {c.durationMin} min</span>
             <StatusBadge label={meta.label} tone={meta.tone} />
           </div>
-          <h1>{c.title}</h1>
+          <h1>{title}</h1>
           {c.meetingUrl && (
             <div className="sub" style={{ marginTop: 4 }}>
               <a
@@ -127,7 +120,7 @@ export default function TraineeKonsultacjaDetail() {
       )}
 
       {/* Podsumowanie (po udokumentowaniu) */}
-      {c.summary && c.summary.trim().length > 0 && (
+      {c.summary.trim().length > 0 && (
         <div
           className="card"
           style={{
@@ -139,13 +132,6 @@ export default function TraineeKonsultacjaDetail() {
           }}
         >
           {c.summary}
-        </div>
-      )}
-
-      {c.periodFrom && c.periodTo && (
-        <div className="text-xs muted" style={{ marginBottom: 18 }}>
-          Okres omówiony: <span className="mono">{fmtDate(c.periodFrom)}</span> —{" "}
-          <span className="mono">{fmtDate(c.periodTo)}</span>
         </div>
       )}
 

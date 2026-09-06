@@ -11,10 +11,9 @@ import {
 import { z } from "zod";
 import { CategoryPicker } from "~/components/exercise-fields";
 import { FileDropzone } from "~/components/file-dropzone";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
 import { filterToKnownCategoryNames, listCategoriesForTrainer } from "~/lib/categories";
-import { db } from "~/lib/db/client";
-import { createExerciseWithDemo } from "~/lib/exercises";
+import { createExercise, type CreatedExercise } from "~/lib/exercises";
 import { maxUploadBytesFor, UploadError } from "~/lib/file-uploads";
 
 const ExerciseSchema = z.object({
@@ -25,8 +24,8 @@ const ExerciseSchema = z.object({
 });
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
-  const categories = await listCategoriesForTrainer(db, user.id);
+  const { api } = requireUser(args.context, { role: "trainer" });
+  const categories = await listCategoriesForTrainer(api);
   // Limit kliencki MUSI pochodzić z tego samego źródła co serwerowy — inaczej
   // przeglądarka przepuszcza plik, który serwer i tak odrzuci, ale dopiero PO
   // zbuforowaniu całego ciała żądania w pamięci.
@@ -34,7 +33,7 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const fd = await args.request.formData();
   const parsed = ExerciseSchema.safeParse({
     name: fd.get("name"),
@@ -48,16 +47,16 @@ export async function action(args: ActionFunctionArgs) {
     };
   }
 
-  const categories = await listCategoriesForTrainer(db, user.id);
+  const categories = await listCategoriesForTrainer(api);
   const selected = fd.getAll("categories").map((v) => v.toString());
   const tags = filterToKnownCategoryNames(categories, selected);
 
   const demoBlob = fd.get("demo");
   const demo = demoBlob instanceof File && demoBlob.size > 0 ? demoBlob : null;
 
+  let utworzone: CreatedExercise;
   try {
-    await createExerciseWithDemo(db, {
-      trainerId: user.id,
+    utworzone = await createExercise(api, {
       name: parsed.data.name,
       unit: parsed.data.unit,
       description: parsed.data.description,
@@ -66,8 +65,20 @@ export async function action(args: ActionFunctionArgs) {
       demo,
     });
   } catch (e) {
+    // Odmowa PRZED utworzeniem (pusty plik, ponad limit, `400`/`409`/`413`
+    // z wysyłki): nic nie powstało, więc formularz wraca z komunikatem
+    // i ponowienie jest właściwą reakcją.
     if (e instanceof UploadError) return { error: e.userMessage };
     throw e;
+  }
+
+  // Odmowa PO utworzeniu: ćwiczenie już istnieje. Gdyby wrócił tu komunikat na
+  // formularzu, „Zapisz" odblokowałoby się nad wypełnionymi polami i drugie
+  // kliknięcie utworzyłoby DRUGIE ćwiczenie — dokładnie to, przed czym broni się
+  // blokada podwójnej wysyłki niżej. Prowadzimy więc trenera do ćwiczenia, które
+  // powstało; tam dołoży demo edycją.
+  if (utworzone.demoError != null) {
+    throw redirect(`/trener/biblioteka/${utworzone.id}?demo=blad`);
   }
   throw redirect("/trener/biblioteka");
 }

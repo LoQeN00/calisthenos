@@ -1,5 +1,5 @@
 import { BODY_VIEW_LABELS } from "~/components/photo-card";
-import type { BodyPhotoView } from "~/lib/db/schema";
+import type { BodyPhotoView } from "~/lib/body-photos";
 import { fmtDate } from "~/lib/format";
 
 // ============================================================

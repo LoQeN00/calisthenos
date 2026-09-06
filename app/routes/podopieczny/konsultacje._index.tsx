@@ -12,65 +12,49 @@ import { StatusBadge } from "~/components/consultation-status-badge";
 import { Icons } from "~/components/icons";
 import { type DaySummary, MonthCalendar } from "~/components/month-calendar";
 import { TraineeOccurrenceActions } from "~/components/trainee-occurrence-actions";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
+import { ApiError, toRouteResponse } from "~/lib/api/errors";
+import { defaultTitle } from "~/lib/consultation-schedules";
 import { consultationPresentation, mostUrgentTone } from "~/lib/consultation-status";
 import { TraineeActionSchema } from "~/lib/consultation-types";
 import {
+  canTraineeRespond,
   ConsultationError,
-  type OccurrenceListItem,
-  getConsultationDetail,
-  listOccurrencesForTrainee,
-  nextUpcomingForTrainee,
+  type ConsultationView,
+  listOccurrencesInRange,
+  loadUpcomingConsultations,
   respondToOccurrence,
 } from "~/lib/consultations";
-import { syncCancelOne } from "~/lib/google/sync";
-import { db } from "~/lib/db/client";
 import { fmtDateTime, fmtTime, monthRangeUTC, shiftMonth, todayISO } from "~/lib/format";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
+  const { api } = requireUser(args.context, { role: "trainee" });
   const url = new URL(args.request.url);
   const m = url.searchParams.get("m") ?? todayISO().slice(0, 7);
   const range = monthRangeUTC(m);
-  const occurrences = await listOccurrencesForTrainee(db, user.id, range);
-  const nextRow = await nextUpcomingForTrainee(db, user.id, new Date().toISOString());
-  const next = nextRow
-    ? {
-        id: nextRow.id,
-        scheduledAt: nextRow.scheduledAt.toISOString(),
-        durationMin: nextRow.durationMin,
-        status: nextRow.status,
-        title: nextRow.title,
-        meetingUrl: nextRow.meetingUrl,
-      }
-    : null;
+  // Dwa wywołania, bo to dwa różne okna: siatka pokazuje wybrany miesiąc,
+  // a przypięty „najbliższy” ma być widoczny także z kartki sprzed roku.
+  // Zakres tenanta niesie token — podopieczny dostaje wyłącznie własne terminy.
+  const occurrences = await listOccurrencesInRange(api, range);
+  const { next } = await loadUpcomingConsultations(api, { nowISO: new Date().toISOString() });
   return { occurrences, next, m, year: range.year, month0: range.month0, today: todayISO() };
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
+  const { api } = requireUser(args.context, { role: "trainee" });
   const fd = await args.request.formData();
   const consultationId = String(fd.get("consultationId") ?? "");
   const parsedAction = TraineeActionSchema.safeParse(String(fd.get("action") ?? ""));
   if (!parsedAction.success) return { error: "Nieznana akcja." };
   const note = String(fd.get("note") ?? "").trim() || undefined;
   try {
-    await respondToOccurrence(db, {
-      traineeId: user.id,
-      consultationId,
-      action: parsedAction.data,
-      note,
-    });
-    if (parsedAction.data === "decline") {
-      // Termin doczytany w scope podopiecznego → trainerId jest zaufany (nie z requestu).
-      const detail = await getConsultationDetail(db, { consultationId, traineeId: user.id });
-      if (detail?.consultation.googleEventId) {
-        await syncCancelOne(db, { trainerId: detail.consultation.trainerId, consultationId });
-      }
-    }
+    // Odrzucenie zdejmuje zdarzenie z kalendarza trenera po stronie BE (outbox)
+    // — dawne `syncCancelOne` zniknęło bez zamiennika.
+    await respondToOccurrence(api, { consultationId, action: parsedAction.data, note });
     return { success: "Zapisano." };
   } catch (e) {
     if (e instanceof ConsultationError) return { error: e.userMessage };
+    if (e instanceof ApiError) throw toRouteResponse(e);
     throw e;
   }
 }
@@ -81,7 +65,7 @@ export default function PodopiecznyKonsultacjeKalendarz() {
   const now = Date.now();
 
   // Grupuj terminy po dniu miesiąca (UTC).
-  const byDay = new Map<number, OccurrenceListItem[]>();
+  const byDay = new Map<number, ConsultationView[]>();
   for (const o of occurrences) {
     const day = new Date(o.scheduledAt).getUTCDate();
     const arr = byDay.get(day) ?? [];
@@ -126,7 +110,8 @@ export default function PodopiecznyKonsultacjeKalendarz() {
         viewer: "trainee",
       })
     : null;
-  const nextCanAct = next?.status === "planned" || next?.status === "confirmed";
+  // Z listy akcji BE, nie ze statusu — tabela przejść należy do kontraktu.
+  const nextCanAct = next != null && canTraineeRespond(next);
 
   return (
     <div>
@@ -158,7 +143,7 @@ export default function PodopiecznyKonsultacjeKalendarz() {
                 to={`/podopieczny/konsultacje/${next.id}`}
                 style={{ fontSize: 16, fontWeight: 600 }}
               >
-                {next.title}
+                {defaultTitle(next.scheduledAt)}
               </Link>
               <div className="mono text-xs muted" style={{ marginTop: 2 }}>
                 {fmtDateTime(next.scheduledAt)} · {next.durationMin} min
@@ -245,7 +230,7 @@ export default function PodopiecznyKonsultacjeKalendarz() {
                       key={o.id}
                       to={`/podopieczny/konsultacje/${o.id}`}
                       lead={fmtDateTime(o.scheduledAt)}
-                      title={o.title}
+                      title={defaultTitle(o.scheduledAt)}
                       sub={`${o.durationMin} min`}
                       label={meta.label}
                       tone={meta.tone}
@@ -271,7 +256,7 @@ export default function PodopiecznyKonsultacjeKalendarz() {
                         key={o.id}
                         to={`/podopieczny/konsultacje/${o.id}`}
                         lead={fmtDateTime(o.scheduledAt)}
-                        title={o.title}
+                        title={defaultTitle(o.scheduledAt)}
                         sub={`${o.durationMin} min`}
                         label={meta.label}
                         tone={meta.tone}
@@ -288,21 +273,21 @@ export default function PodopiecznyKonsultacjeKalendarz() {
   );
 }
 
-function DayOccurrenceCard({ occ, now }: { occ: OccurrenceListItem; now: number }) {
+function DayOccurrenceCard({ occ, now }: { occ: ConsultationView; now: number }) {
   const meta = consultationPresentation({
     status: occ.status,
     scheduledAtISO: occ.scheduledAt,
     nowMs: now,
     viewer: "trainee",
   });
-  const canAct = occ.status === "planned" || occ.status === "confirmed";
+  const canAct = canTraineeRespond(occ);
 
   return (
     <div className="card">
       <div className="row between" style={{ alignItems: "flex-start", gap: 10 }}>
         <div>
           <Link to={`/podopieczny/konsultacje/${occ.id}`} style={{ fontSize: 15, fontWeight: 600 }}>
-            {occ.title}
+            {defaultTitle(occ.scheduledAt)}
           </Link>
           <div className="mono text-xs muted" style={{ marginTop: 2 }}>
             {fmtTime(occ.scheduledAt)} · {occ.durationMin} min

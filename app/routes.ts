@@ -5,9 +5,7 @@ export default [
   route("login", "routes/login.tsx"),
   route("wyloguj", "routes/wyloguj.tsx"),
   route("zaproszenie/:token", "routes/zaproszenie.$token.tsx"),
-  route("files/:fileId", "routes/files.$fileId.tsx"),
   route("upload/wideo", "routes/upload.wideo.tsx"),
-  route("webhooks/stripe", "routes/webhooks.stripe.tsx"),
   // Sonda dla healthchecka platformy — MUSI zwracać 200. NIE podmieniaj na "/":
   // trasa indeksowa zawsze przekierowuje, a Railway 3xx traktuje jako awarię.
   route("healthz", "routes/healthz.tsx"),
@@ -27,8 +25,6 @@ export default [
       route("pomysly", "routes/trener/pomysly._index.tsx"),
       route("pomysly/:requestId", "routes/trener/pomysly.$requestId.tsx"),
       route("integracje/google", "routes/trener/integracje.google.tsx"),
-      route("integracje/google/callback", "routes/trener/integracje.google.callback.tsx"),
-      route("integracje/stripe", "routes/trener/integracje.stripe.tsx"),
       route("podopieczni", "routes/trener/podopieczni._index.tsx"),
       route("podopieczni/:traineeId", "routes/trener/podopieczni.$traineeId.tsx"),
       route(
@@ -39,10 +35,6 @@ export default [
       route(
         "podopieczni/:traineeId/formularz",
         "routes/trener/podopieczni.$traineeId.formularz.tsx",
-      ),
-      route(
-        "podopieczni/:traineeId/platnosci",
-        "routes/trener/podopieczni.$traineeId.platnosci.tsx",
       ),
       route(
         "podopieczni/:traineeId/statystyki",
@@ -118,15 +110,11 @@ export default [
       route("konsultacje", "routes/podopieczny/konsultacje._index.tsx"),
       route("konsultacje/:konsultacjaId", "routes/podopieczny/konsultacje.$konsultacjaId.tsx"),
       route("pomysly", "routes/podopieczny/pomysly.tsx"),
-      route("platnosci", "routes/podopieczny/platnosci.tsx"),
       route("umiejetnosci", "routes/podopieczny/umiejetnosci.tsx"),
       route("umiejetnosci/:skillId", "routes/podopieczny/umiejetnosci.$skillId.tsx"),
     ]),
     // Wrapped lives OUTSIDE the sidenav layout so it can render full-screen.
     route("wrapped/:ym", "routes/podopieczny/wrapped.$ym.tsx"),
-    // Aktywacja subskrypcji — OUTSIDE the layout, bo to dokąd gate w _layout.tsx
-    // odsyła nieopłaconych podopiecznych (gdyby było w children → pętla redirectów).
-    route("aktywuj", "routes/podopieczny/aktywuj.tsx"),
     // Formularz startowy — OUTSIDE the layout, bo to dokąd bramka w _layout.tsx
     // odsyła podopiecznych z niewypełnionym formularzem (gdyby było w children
     // → pętla redirectów).

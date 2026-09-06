@@ -8,10 +8,14 @@ import {
   type LoaderFunctionArgs,
 } from "react-router";
 import { z } from "zod";
-import { requireUser } from "~/lib/auth";
-import { db } from "~/lib/db/client";
-import { createBlankPlan, findAnyDraftFor } from "~/lib/plans";
-import { findTraineeOfTrainer, listTraineesOfTrainer } from "~/lib/trainees";
+import { requireUser } from "~/lib/api/auth";
+import {
+  createBlankPlan,
+  type CreatePlanResult,
+  findDraftForTrainee,
+  PlanError,
+} from "~/lib/plans";
+import { listTraineesOfTrainer } from "~/lib/trainees";
 
 const NewPlanSchema = z.object({
   traineeId: z.string().uuid(),
@@ -19,20 +23,23 @@ const NewPlanSchema = z.object({
 });
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const url = new URL(args.request.url);
   const preselectId = url.searchParams.get("traineeId");
 
-  const trainees = await listTraineesOfTrainer(db, user.id);
+  // Picker potrzebuje KOMPLETU, a kontrakt stronicuje po 30 — moduł skleja
+  // strony w jedną listę. Zarchiwizowanych odfiltrowuje sam zasób: `GET /v1/trainees`
+  // to podopieczni z aktywną relacją prowadzenia.
+  const trainees = await listTraineesOfTrainer(api);
 
   // Preselect the trainee from the query string when it points at one of ours.
   const preselected =
     preselectId != null && trainees.some((t) => t.id === preselectId) ? preselectId : null;
 
-  // If preselected has an existing draft, bounce there immediately so the trainer
-  // doesn't accidentally try to create a second draft (DB unique index would block it).
+  // Para z istniejącym szkicem — od razu do niego, żeby trener nie próbował
+  // tworzyć drugiego (unikat po stronie BE i tak by odmówił).
   if (preselected) {
-    const existingDraft = await findAnyDraftFor(db, preselected);
+    const existingDraft = await findDraftForTrainee(api, preselected);
     if (existingDraft) {
       throw redirect(`/trener/plany/${existingDraft.id}`);
     }
@@ -42,7 +49,7 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const fd = await args.request.formData();
   const parsed = NewPlanSchema.safeParse({
     traineeId: fd.get("traineeId"),
@@ -52,25 +59,17 @@ export async function action(args: ActionFunctionArgs) {
     return { error: "Sprawdź pola formularza." };
   }
 
-  // Confirm the trainee belongs to this trainer.
-  const trainee = await findTraineeOfTrainer(db, user.id, parsed.data.traineeId);
-  if (trainee == null) {
-    return { error: "Podopieczny nie istnieje albo nie należy do Ciebie." };
+  // Przynależność podopiecznego i „jeden szkic na parę" sprawdza BE: cudzy
+  // podopieczny to `404` (komunikat do formularza), istniejący szkic wraca
+  // jako `created: false` i prowadzi tam, gdzie prowadził dotychczasowy pre-check.
+  let result: CreatePlanResult;
+  try {
+    result = await createBlankPlan(api, parsed.data);
+  } catch (e) {
+    if (e instanceof PlanError) return { error: e.userMessage };
+    throw e;
   }
-
-  // Schema enforces "one draft per trainee" via partial unique index.
-  // Pre-empt with a friendly error → redirect to the existing draft.
-  const existingDraft = await findAnyDraftFor(db, parsed.data.traineeId);
-  if (existingDraft) {
-    throw redirect(`/trener/plany/${existingDraft.id}`);
-  }
-
-  const newId = await createBlankPlan(db, {
-    trainerId: user.id,
-    traineeId: parsed.data.traineeId,
-    name: parsed.data.name,
-  });
-  throw redirect(`/trener/plany/${newId}`);
+  throw redirect(`/trener/plany/${result.id}`);
 }
 
 export default function NowyPlan() {

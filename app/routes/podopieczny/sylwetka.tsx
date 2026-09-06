@@ -16,22 +16,21 @@ import { Modal } from "~/components/modal";
 import { Pagination, parsePage } from "~/components/pagination";
 import { PhotoCard } from "~/components/photo-card";
 import { PhotoLightbox, type LightboxPhoto } from "~/components/photo-lightbox";
-import { requireUser } from "~/lib/auth";
+import { requireUser } from "~/lib/api/auth";
+import { ApiError, toRouteResponse } from "~/lib/api/errors";
 import {
   addBodyPhoto,
   BodyPhotoError,
-  countBodyPhotosForTrainee,
   deleteBodyPhoto,
-  listBodyPhotosForTrainee,
+  getSideBySidePhotoPairs,
+  listAllMyBodyPhotos,
+  listMyBodyPhotos,
+  type BodyPhotoSort,
+  type BodyPhotoView,
 } from "~/lib/body-photos";
-import { maxUploadBytesFor } from "~/lib/file-uploads";
-import { db } from "~/lib/db/client";
-import type { BodyPhotoView } from "~/lib/db/schema";
-import { signFileUrl } from "~/lib/files";
+import { maxUploadBytesFor, UploadError } from "~/lib/file-uploads";
 import { todayISO } from "~/lib/format";
-import { errorMeta, logger } from "~/lib/logger";
 import { type ListControlsSpec, parseListControls } from "~/lib/list-params";
-import { getSideBySidePhotoPairs } from "~/lib/stats";
 
 const UploadSchema = z.object({
   view: z.enum(["front", "side", "back"]),
@@ -45,8 +44,6 @@ const UploadSchema = z.object({
 
 const DELETE_ACTION_PATH = "/podopieczny/sylwetka";
 
-const PAGE_SIZE = 60;
-
 const SYLWETKA_SPEC: ListControlsSpec = {
   sortOptions: [
     { key: "newest", label: "Najnowsze" },
@@ -58,51 +55,38 @@ const SYLWETKA_SPEC: ListControlsSpec = {
 };
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
+  const { api } = requireUser(args.context, { role: "trainee" });
   const url = new URL(args.request.url);
   const page = parsePage(url.searchParams);
 
   const controls = parseListControls(url.searchParams, SYLWETKA_SPEC);
 
-  const total = await countBodyPhotosForTrainee(db, user.id);
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const offset = (safePage - 1) * PAGE_SIZE;
-
-  const [photos, pairs] = await Promise.all([
-    listBodyPhotosForTrainee(db, user.id, {
-      limit: PAGE_SIZE,
-      offset,
-      sort: controls.sort as "newest" | "oldest",
-    }),
-    getSideBySidePhotoPairs(db, user.id),
+  // Dwa odczyty, nie jeden: siatka jest stronicowana po stronie BE (60/stronę,
+  // `total`/`totalPages` w odpowiedzi, stronę spoza zakresu przycina on sam —
+  // dawne `count` + `safePage` w tym loaderze znikły), a porównanie „przed / po"
+  // musi widzieć WSZYSTKIE zdjęcia ujęcia, czego strona z definicji nie daje.
+  const [strona, wszystkie] = await Promise.all([
+    listMyBodyPhotos(api, { page, sort: controls.sort as BodyPhotoSort }),
+    listAllMyBodyPhotos(api),
   ]);
 
-  const resolvedPairs: ResolvedPair[] = pairs.map((p) => ({
-    view: p.view,
-    hasPair: p.hasPair,
-    daysBetween: p.daysBetween,
-    first: p.first
-      ? {
-          id: p.first.id,
-          url: signFileUrl(p.first.fileId, user.id),
-          takenOn: p.first.takenOn,
-        }
-      : null,
-    latest: p.latest
-      ? {
-          id: p.latest.id,
-          url: signFileUrl(p.latest.fileId, user.id),
-          takenOn: p.latest.takenOn,
-        }
-      : null,
-  }));
+  // Adnotacja typem komponentu jest tu bramką, nie ozdobą: pilnuje, że kształt
+  // pary z modułu nadal pasuje do `SideBySideSection`.
+  const resolvedPairs: ResolvedPair[] = getSideBySidePhotoPairs(wszystkie);
 
   return {
-    photos: photos.map((p) => ({ ...p, url: signFileUrl(p.fileId, user.id) })),
-    page: safePage,
-    totalPages,
-    total,
+    // `photoUrl` z kontraktu ma już dołożony origin (robi to moduł) — trasa
+    // wyłącznie przemianowuje pole na to, którego oczekują komponenty galerii.
+    photos: strona.items.map((p) => ({
+      id: p.id,
+      view: p.view,
+      takenOn: p.takenOn,
+      note: p.note,
+      url: p.photoUrl,
+    })),
+    page: strona.page,
+    totalPages: strona.totalPages,
+    total: strona.total,
     resolvedPairs,
     spec: SYLWETKA_SPEC,
     controls,
@@ -114,8 +98,10 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
-  if (!user.trainerId) return { error: "Konto bez przypisanego trenera." };
+  // Bez sprawdzania `user.trainerId`: było potrzebne wyłącznie po to, żeby podać
+  // `trainerId` do zapisu. Właściciela zdjęcia wyznacza dziś token, a konto bez
+  // trenera odbija BE własnym komunikatem.
+  const { api } = requireUser(args.context, { role: "trainee" });
   const fd = await args.request.formData();
   const intent = fd.get("intent");
 
@@ -123,10 +109,11 @@ export async function action(args: ActionFunctionArgs) {
     const photoId = String(fd.get("photoId") ?? "");
     if (!photoId) return { error: "Brak id zdjęcia." };
     try {
-      await deleteBodyPhoto(db, photoId, user.id);
+      await deleteBodyPhoto(api, photoId);
     } catch (e) {
-      logger.error("body_photo.delete_failed", errorMeta(e));
-      return { error: "Nie udało się usunąć zdjęcia. Spróbuj ponownie." };
+      if (e instanceof BodyPhotoError) return { error: e.userMessage };
+      if (e instanceof ApiError) throw toRouteResponse(e);
+      throw e;
     }
     return { ok: true };
   }
@@ -145,16 +132,18 @@ export async function action(args: ActionFunctionArgs) {
     return { error: "Wybierz zdjęcie." };
   }
   try {
-    await addBodyPhoto(db, {
-      trainerId: user.trainerId,
-      traineeId: user.id,
+    await addBodyPhoto(api, {
       file: fileBlob,
       view: parsed.data.view,
       takenOn: parsed.data.takenOn,
       note: parsed.data.note,
     });
   } catch (e) {
-    if (e instanceof BodyPhotoError) return { error: e.userMessage };
+    // `UploadError` to odmowa PIERWSZEJ fazy (pusty plik, limit rozmiaru, typ
+    // sprawdzany przez BE po zawartości), `BodyPhotoError` — DRUGIEJ (zapis
+    // zdjęcia). Obie kończą się zdaniem w formularzu, więc trasa ich nie rozróżnia.
+    if (e instanceof UploadError || e instanceof BodyPhotoError) return { error: e.userMessage };
+    if (e instanceof ApiError) throw toRouteResponse(e);
     throw e;
   }
   return { ok: true };
@@ -207,7 +196,11 @@ export default function TraineeBodyGallery() {
         view: p.view,
         takenOn: p.takenOn,
         note: p.note,
-        mimeType: p.mimeType,
+        // Kontrakt nie niesie typu zawartości zdjęcia (`BodyPhotoDto` ma sam
+        // `photoUrl`), a lightbox używał go WYŁĄCZNIE do rozszerzenia w nazwie
+        // pobieranego pliku. Pusta wartość schodzi tam do domyślnego `.jpg` —
+        // luka L S4-1.
+        mimeType: "",
       }));
   }, [lightboxId, photos]);
 

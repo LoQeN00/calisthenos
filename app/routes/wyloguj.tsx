@@ -1,13 +1,20 @@
 import { redirect, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
-import { db } from "~/lib/db/client";
-import { clearSessionCookie, destroySession, parseSessionId } from "~/lib/auth";
+import { optionalUser } from "~/lib/api/auth";
+import { endSession } from "~/lib/api/auth-session";
+import { clearSessionCookie, readSessionCookie } from "~/lib/api/session";
 
 async function performLogout(args: LoaderFunctionArgs | ActionFunctionArgs) {
-  const sid = parseSessionId(args.request.headers.get("cookie"));
-  if (sid) await destroySession(db, sid);
-  return redirect("/login", {
-    headers: { "Set-Cookie": clearSessionCookie() },
-  });
+  const { api } = optionalUser(args.context);
+  const session = readSessionCookie(args.request.headers.get("cookie"));
+
+  // Kolejność i zależność są tu istotne: gaszenie po stronie BE jest
+  // best-effort i nie rzuca (`endSession` połyka błąd), a czyszczenie ciastka
+  // dzieje się BEZWARUNKOWO. Odwrotna zależność znaczyłaby, że chwilowa awaria
+  // backendu zostawia użytkownika zalogowanego w przeglądarce mimo kliknięcia
+  // „wyloguj" — a sesję osieroconą po tamtej stronie zamknie wygaśnięcie.
+  if (session) await endSession(api, session);
+
+  return redirect("/login", { headers: { "Set-Cookie": clearSessionCookie() } });
 }
 
 export const loader = performLogout;

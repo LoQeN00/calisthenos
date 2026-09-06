@@ -1,52 +1,31 @@
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
-import { requireUser } from "~/lib/auth";
-import { db } from "~/lib/db/client";
-import { daysAgo, fmtDate, pluralizePl, type PlForms } from "~/lib/format";
-import { countPlansForTrainerByStatus } from "~/lib/plans";
+import { requireUser } from "~/lib/api/auth";
+import { daysAgo, pluralizePl, type PlForms } from "~/lib/format";
+import { loadTrainerDashboard } from "~/lib/views";
 
 const OSOBA_AKTYWNA: PlForms = {
   one: "osoba aktywna",
   few: "osoby aktywne",
   many: "osób aktywnych",
 };
-import {
-  countLogsForTrainerSince,
-  listClientsForTrainer,
-  listRecentLogsForTrainer,
-} from "~/lib/workouts";
-
-function isoDaysAgo(n: number): string {
-  return new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-}
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { api, user } = requireUser(args.context, { role: "trainer" });
 
-  const clients = await listClientsForTrainer(db, user.id);
-
-  const recentLogs = await listRecentLogsForTrainer(db, user.id, 6);
-
-  const sevenDaysAgo = isoDaysAgo(7);
-
-  const activePlans = await countPlansForTrainerByStatus(db, user.id, "active");
-  const drafts = await countPlansForTrainerByStatus(db, user.id, "draft");
-  const weekSessions = await countLogsForTrainerSince(db, user.id, sevenDaysAgo);
+  // Jedno wywołanie na ekran (B5): klienci, sześć ostatnich treningów i trzy
+  // liczniki przychodzą razem. Okno „sesje w 7 dni" liczy BE — od `dziś − 7 dni`
+  // włącznie, dokładnie jak liczył `countLogsForTrainerSince`.
+  const dashboard = await loadTrainerDashboard(api);
 
   return {
     user,
-    clients,
-    recentLogs: recentLogs.map((r) => ({
-      id: r.log.id,
-      performedOn: r.log.performedOn,
-      sessionName: r.log.sessionName,
-      traineeId: r.trainee.id,
-      traineeName: r.trainee.displayName,
-    })),
+    clients: dashboard.clients,
+    recentLogs: dashboard.recentLogs,
     stats: {
-      activePlans,
-      drafts,
-      weekSessions,
+      activePlans: dashboard.activePlans,
+      drafts: dashboard.drafts,
+      weekSessions: dashboard.weekSessions,
     },
   };
 }
@@ -150,11 +129,11 @@ export default function TrenerPulpit() {
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 500 }}>{c.displayName}</div>
                     <div className="text-xs muted" style={{ marginTop: 2 }}>
-                      {c.activePlanName != null ? c.activePlanName : "brak planu"}
+                      {c.hasActivePlan ? "aktywny plan" : "brak planu"}
                     </div>
                   </div>
                   <div className="mono text-xs muted">
-                    {c.lastSession ? daysAgo(c.lastSession) : "brak sesji"}
+                    {c.lastSessionOn ? daysAgo(c.lastSessionOn) : "brak sesji"}
                   </div>
                   <Icons.Chev style={{ color: "var(--muted-2)" }} />
                 </Link>

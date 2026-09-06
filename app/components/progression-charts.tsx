@@ -7,7 +7,7 @@ import { ParentSize } from "@visx/responsive";
 import { scaleBand, scaleLinear, scalePoint, scaleTime } from "@visx/scale";
 import { Bar, LinePath } from "@visx/shape";
 import { useTooltip, useTooltipInPortal } from "@visx/tooltip";
-import type { ComparisonSeries } from "~/lib/progression";
+import type { ComparisonSeriesView } from "~/lib/progression";
 import type { ChartPoint, ProgressionStatus, StatusSummary } from "~/lib/progression-math";
 
 // ============================================================
@@ -332,7 +332,13 @@ function RpeLegend() {
       {items.map((it) => (
         <span key={it.t} className="row" style={{ gap: 6, alignItems: "center" }}>
           <span
-            style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: it.c }}
+            style={{
+              display: "inline-block",
+              width: 8,
+              height: 8,
+              borderRadius: 2,
+              background: it.c,
+            }}
           />
           <span className="muted">{it.t}</span>
         </span>
@@ -451,10 +457,11 @@ export function ComparisonChart({
   series,
   height = 240,
 }: {
-  series: ComparisonSeries[];
+  series: ComparisonSeriesView[];
   height?: number;
 }) {
-  if (series.length === 0) return <NotEnough text="wybierz co najmniej 2 ćwiczenia do porównania" />;
+  if (series.length === 0)
+    return <NotEnough text="wybierz co najmniej 2 ćwiczenia do porównania" />;
   const hasPoints = series.some((s) => s.points.length > 0);
   if (!hasPoints) return <NotEnough text="brak punktów do porównania" />;
   return (
@@ -475,17 +482,18 @@ function ComparisonInner({
 }: {
   width: number;
   height: number;
-  series: ComparisonSeries[];
+  series: ComparisonSeriesView[];
 }) {
   const innerW = Math.max(width - CMP_MARGIN.left - CMP_MARGIN.right, 1);
   const innerH = Math.max(height - CMP_MARGIN.top - CMP_MARGIN.bottom, 1);
 
+  // Punkt serii z kontraktu niesie datę jako `on` (dawne `performedOn`).
   const [minTime, maxTime] = useMemo(() => {
     let mn = Number.POSITIVE_INFINITY;
     let mx = Number.NEGATIVE_INFINITY;
     for (const s of series) {
       for (const pt of s.points) {
-        const t = new Date(pt.performedOn).getTime();
+        const t = new Date(pt.on).getTime();
         if (t < mn) mn = t;
         if (t > mx) mx = t;
       }
@@ -510,7 +518,8 @@ function ComparisonInner({
     // (e.g. two logs the same day), minTime===maxTime → scaleTime would map
     // every point to x=0. Pad by ±12h so the points spread around the center.
     const HALF_DAY = 12 * 60 * 60 * 1000;
-    const [d0, d1] = minTime === maxTime ? [minTime - HALF_DAY, maxTime + HALF_DAY] : [minTime, maxTime];
+    const [d0, d1] =
+      minTime === maxTime ? [minTime - HALF_DAY, maxTime + HALF_DAY] : [minTime, maxTime];
     return scaleTime<number>({ domain: [d0, d1], range: [0, innerW] });
   }, [minTime, maxTime, innerW]);
   const yScale = useMemo(
@@ -534,7 +543,7 @@ function ComparisonInner({
         let nearest = s.points[0];
         let bestD = Number.POSITIVE_INFINITY;
         for (const pt of s.points) {
-          const d = Math.abs(new Date(pt.performedOn).getTime() - tMs);
+          const d = Math.abs(new Date(pt.on).getTime() - tMs);
           if (d < bestD) {
             bestD = d;
             nearest = pt;
@@ -609,7 +618,7 @@ function ComparisonInner({
               <g key={s.exerciseId}>
                 <LinePath
                   data={s.points}
-                  x={(pt) => xScale(new Date(pt.performedOn).getTime())}
+                  x={(pt) => xScale(new Date(pt.on).getTime())}
                   y={(pt) => yScale(pt.pct)}
                   stroke={color}
                   strokeWidth={2}
@@ -617,7 +626,7 @@ function ComparisonInner({
                   strokeLinecap="round"
                 />
                 <circle
-                  cx={xScale(new Date(last.performedOn).getTime())}
+                  cx={xScale(new Date(last.on).getTime())}
                   cy={yScale(last.pct)}
                   r={3}
                   fill={color}
@@ -685,7 +694,7 @@ function ComparisonInner({
 }
 
 /** Legend for ComparisonChart — series name + color, English names as-is. */
-export function ComparisonChartLegend({ series }: { series: ComparisonSeries[] }) {
+export function ComparisonChartLegend({ series }: { series: ComparisonSeriesView[] }) {
   return (
     <div className="row wrap" style={{ gap: 12, fontSize: 11, marginTop: 8 }}>
       {series.map((s, si) => (

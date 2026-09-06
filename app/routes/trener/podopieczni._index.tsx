@@ -14,16 +14,16 @@ import { ListControls } from "~/components/list-controls";
 import { Modal } from "~/components/modal";
 import { OnboardingPicker } from "~/components/onboarding-picker";
 import { Pagination, parsePage } from "~/components/pagination";
-import { createInviteWithOnboarding, requireUser } from "~/lib/auth";
-import { db } from "~/lib/db/client";
-import { getEnv, stripeApiConfigured } from "~/lib/env";
+import { requireUser } from "~/lib/api/auth";
+import { ApiError, toRouteResponse } from "~/lib/api/errors";
+import { InviteError, createInvite } from "~/lib/auth";
+import { getEnv } from "~/lib/env";
 import { listActiveExercisesForTrainer } from "~/lib/exercises";
 import { parsePlnToGrosze, MonthlyAmountSchema } from "~/lib/money";
-import { daysAgo, fmtDate, pluralizePl, type PlForms } from "~/lib/format";
+import { daysAgo, pluralizePl, type PlForms } from "~/lib/format";
 import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
-import { OnboardingFormError } from "~/lib/onboarding-forms";
 import { OnboardingTemplateSchema } from "~/lib/onboarding-form-types";
-import { countClientsForTrainer, listClientsForTrainer, type ClientSort } from "~/lib/workouts";
+import { listClientsForTrainer, type ClientSort, type PlanFilter } from "~/lib/trainees";
 
 const OSOBA: PlForms = { one: "osoba", few: "osoby", many: "osób" };
 
@@ -38,8 +38,6 @@ const InviteSchema = z.object({
       message: "Nieprawidłowy email.",
     }),
 });
-
-const PAGE_SIZE = 30;
 
 const spec: ListControlsSpec = {
   sortOptions: [
@@ -66,22 +64,18 @@ const spec: ListControlsSpec = {
 };
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const url = new URL(args.request.url);
   const page = parsePage(url.searchParams);
   const deletedName = url.searchParams.get("usuniety");
 
   const controls = parseListControls(url.searchParams, spec);
-  const plan = (controls.filters.plan ?? "all") as "all" | "with" | "without";
+  const plan = (controls.filters.plan ?? "all") as PlanFilter;
 
-  const total = await countClientsForTrainer(db, user.id, { q: controls.q, plan });
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const offset = (safePage - 1) * PAGE_SIZE;
-
-  const clients = await listClientsForTrainer(db, user.id, {
-    limit: PAGE_SIZE,
-    offset,
+  // Jedno żądanie zamiast dwóch: strona przychodzi razem z `total`, a `page`
+  // spoza zakresu przycina BE — dawne `safePage` nie ma już czego liczyć.
+  const result = await listClientsForTrainer(api, {
+    page,
     sort: controls.sort as ClientSort,
     q: controls.q,
     plan,
@@ -89,23 +83,22 @@ export async function loader(args: LoaderFunctionArgs) {
 
   // Biblioteka do pickera formularza startowego. Ciągniemy ją w loaderze zamiast
   // osobnym fetcherem — kilka KB na wejście, a modal działa bez dodatkowej rundy.
-  const exercises = await listActiveExercisesForTrainer(db, user.id);
+  const exercises = await listActiveExercisesForTrainer(api);
 
   return {
-    clients,
+    clients: result.items,
     spec,
     controls,
-    page: safePage,
-    totalPages,
-    total,
+    page: result.page,
+    totalPages: result.totalPages,
+    total: result.total,
     deletedName,
-    stripeAvailable: stripeApiConfigured(),
     exercises,
   };
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const fd = await args.request.formData();
 
   const parsed = InviteSchema.safeParse({
@@ -142,19 +135,23 @@ export async function action(args: ActionFunctionArgs) {
 
   let token: string;
   try {
-    // Zaproszenie Z formularzem albo nic — transakcja siedzi w `createInviteWithOnboarding`.
-    ({ token } = await createInviteWithOnboarding(db, {
-      trainerId: user.id,
+    // Zaproszenie Z formularzem albo nic — atomowo po stronie BE, jednym
+    // `POST /v1/invites`. Trener wynika z tokenu, nie z ciała.
+    ({ token } = await createInvite(api, {
       displayName: parsed.data.displayName,
       email: parsed.data.email,
       monthlyAmountGrosze,
-      template,
+      onboardingForm: template,
     }));
   } catch (e) {
-    if (e instanceof OnboardingFormError) return { error: e.userMessage };
+    if (e instanceof InviteError) return { error: e.userMessage };
+    if (e instanceof ApiError) throw toRouteResponse(e);
     throw e;
   }
 
+  // Odnośnik składany z `token`, nie z `url` odpowiedzi: BE buduje
+  // `{APP_PUBLIC_URL}/join/{token}`, a FE przyjmuje zaproszenia pod
+  // `/zaproszenie/:token` (luka L S2-1 — do rozstrzygnięcia poza tą trasą).
   const inviteUrl = `${getEnv().BASE_URL}/zaproszenie/${token}`;
   return {
     invite: {
@@ -167,17 +164,8 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function TrenerPodopieczniList() {
-  const {
-    clients,
-    spec,
-    controls,
-    page,
-    totalPages,
-    total,
-    deletedName,
-    stripeAvailable,
-    exercises,
-  } = useLoaderData<typeof loader>();
+  const { clients, spec, controls, page, totalPages, total, deletedName, exercises } =
+    useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [showInviteModal, setShowInviteModal] = useState(false);
 
@@ -264,22 +252,21 @@ export default function TrenerPodopieczniList() {
                 className="input"
               />
             </div>
-            {stripeAvailable && (
-              <div className="field">
-                <label htmlFor="inv-amount">Kwota miesięczna (zł) — opcjonalnie</label>
-                <input
-                  id="inv-amount"
-                  name="monthlyAmount"
-                  type="text"
-                  inputMode="decimal"
-                  placeholder="np. 200"
-                  className="input"
-                />
-                <p className="text-xs muted" style={{ margin: "4px 0 0" }}>
-                  Podopieczny doda kartę przy dołączaniu. Zostaw puste, aby zaprosić bez płatności.
-                </p>
-              </div>
-            )}
+            <div className="field">
+              <label htmlFor="inv-amount">Kwota miesięczna (zł) — opcjonalnie</label>
+              <input
+                id="inv-amount"
+                name="monthlyAmount"
+                type="text"
+                inputMode="decimal"
+                placeholder="np. 200"
+                className="input"
+              />
+              <p className="text-xs muted" style={{ margin: "4px 0 0" }}>
+                Zapis ustalonej kwoty — trafia do BE razem z zaproszeniem. Rozliczenie prowadzisz
+                poza aplikacją; zostaw puste, jeśli nie chcesz jej zapisywać.
+              </p>
+            </div>
             <OnboardingPicker exercises={exercises} />
             {actionData != null && "error" in actionData && actionData.error != null && (
               <p role="alert" style={{ color: "var(--danger)", fontSize: 13, margin: 0 }}>
@@ -330,32 +317,27 @@ export default function TrenerPodopieczniList() {
                 <span className="avatar sm">{initialsOf(c.displayName)}</span>
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 500 }}>{c.displayName}</div>
-                  {c.joinedOn && (
-                    <div className="text-xs muted" style={{ marginTop: 2 }}>
-                      od {fmtDate(c.joinedOn)}
-                    </div>
-                  )}
                 </div>
               </div>
               <div>
-                {c.activePlanName != null ? (
+                {c.hasActivePlan ? (
                   <span className="badge active">
                     <span className="badge-dot" />
-                    {c.activePlanName}
+                    aktywny plan
                   </span>
                 ) : (
                   <span className="text-xs muted">brak aktywnego planu</span>
                 )}
               </div>
               <div className="text-sm">
-                {c.lastSession ? (
-                  <span className="muted">ostatnia {daysAgo(c.lastSession)}</span>
+                {c.lastSessionOn ? (
+                  <span className="muted">ostatnia {daysAgo(c.lastSessionOn)}</span>
                 ) : (
                   <span className="muted">brak sesji</span>
                 )}
-                {c.totalSessions > 0 && (
+                {c.sessionCount > 0 && (
                   <span className="muted" style={{ marginLeft: 6 }}>
-                    · <span className="mono">{c.totalSessions}</span>
+                    · <span className="mono">{c.sessionCount}</span>
                   </span>
                 )}
               </div>

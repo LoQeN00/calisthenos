@@ -5,12 +5,10 @@ export default defineConfig({
   test: {
     environment: "happy-dom",
     globals: false,
-    include: [
-      "app/**/*.test.ts",
-      "app/**/*.test.tsx",
-      "scripts/**/*.test.ts",
-      "tests/**/*.itest.ts",
-    ],
+    // `tests/**/*.itest.ts` zniknęło w S6 razem z bazą: testy integracyjne na
+    // testcontainerach nie mają czego integrować, a przepływy przez sieć
+    // pokryje Playwright (`tests/e2e`, spec §10).
+    include: ["app/**/*.test.ts", "app/**/*.test.tsx", "scripts/**/*.test.ts"],
     setupFiles: [],
     pool: "forks",
     poolOptions: { forks: { singleFork: true } },

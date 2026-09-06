@@ -1,3 +1,4 @@
+import type { PlanStatusCounts } from "@kalisthenos/api-client";
 import {
   type ActionFunctionArgs,
   Form,
@@ -10,101 +11,106 @@ import { ConfirmSubmitButton } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
 import { ListControls } from "~/components/list-controls";
 import { Pagination, parsePage } from "~/components/pagination";
-import { requireUser } from "~/lib/auth";
-import { db } from "~/lib/db/client";
+import { requireUser } from "~/lib/api/auth";
 import { type PlForms, fmtDate, pluralizePl } from "~/lib/format";
 import { type ListControlsSpec, parseListControls } from "~/lib/list-params";
 import {
-  countPlansByStatusForTrainer,
-  countPlansForTrainer,
-  deletePlan,
-  listPlansForTrainer,
-  PlanRepoError,
+  PlanError,
   type PlanSort,
   type PlanStatusFilter,
+  deletePlan,
+  listPlansForTrainer,
+  planDeleteOutcomeMessage,
 } from "~/lib/plans";
 
-const PAGE_SIZE = 20;
 const PLAN: PlForms = { one: "plan", few: "plany", many: "planów" };
 
+// Etykiety zakładek dostają liczby dopiero PO odpowiedzi — `counts` przychodzą
+// razem z listą. Parsowanie kontrolek liczb nie potrzebuje: zna wyłącznie wartości.
+const PLAN_LIST_SPEC: ListControlsSpec = {
+  sortOptions: [
+    { key: "newest", label: "Najnowsze" },
+    { key: "oldest", label: "Najstarsze" },
+    { key: "name_asc", label: "Nazwa A–Z" },
+    { key: "published", label: "Ostatnio opublikowane" },
+  ],
+  defaultSort: "newest",
+  filterGroups: [
+    {
+      param: "status",
+      label: "Status",
+      options: [
+        { value: "all", label: "Wszystkie" },
+        { value: "active", label: "Aktywne" },
+        { value: "draft", label: "Drafty" },
+      ],
+      defaultValue: "all",
+    },
+  ],
+  searchable: true,
+};
+
+function specWithCounts(counts: PlanStatusCounts): ListControlsSpec {
+  return {
+    ...PLAN_LIST_SPEC,
+    filterGroups: PLAN_LIST_SPEC.filterGroups.map((group) => ({
+      ...group,
+      options: group.options.map((option) => ({
+        ...option,
+        // Wartości filtra to dokładnie klucze `counts` (`all` · `active` · `draft`).
+        label: `${option.label} (${counts[option.value as keyof PlanStatusCounts]})`,
+      })),
+    })),
+  };
+}
+
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const url = new URL(args.request.url);
   const page = parsePage(url.searchParams);
+  const controls = parseListControls(url.searchParams, PLAN_LIST_SPEC);
 
-  // Tab badge counts (active + draft only) — computed before applying search query.
-  const counts = await countPlansByStatusForTrainer(db, user.id);
-
-  const spec: ListControlsSpec = {
-    sortOptions: [
-      { key: "newest", label: "Najnowsze" },
-      { key: "oldest", label: "Najstarsze" },
-      { key: "name_asc", label: "Nazwa A–Z" },
-      { key: "published", label: "Ostatnio opublikowane" },
-    ],
-    defaultSort: "newest",
-    filterGroups: [
-      {
-        param: "status",
-        label: "Status",
-        options: [
-          { value: "all", label: `Wszystkie (${counts.all})` },
-          { value: "active", label: `Aktywne (${counts.active})` },
-          { value: "draft", label: `Drafty (${counts.draft})` },
-        ],
-        defaultValue: "all",
-      },
-    ],
-    searchable: true,
-  };
-
-  const controls = parseListControls(url.searchParams, spec);
-
-  const filter: { status: PlanStatusFilter; q?: string } = {
+  const result = await listPlansForTrainer(api, {
     status: (controls.filters.status ?? "all") as PlanStatusFilter,
     q: controls.q.length > 0 ? controls.q : undefined,
-  };
-  const total = await countPlansForTrainer(db, user.id, filter);
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const rows = await listPlansForTrainer(db, user.id, {
-    ...filter,
     sort: controls.sort as PlanSort,
-    limit: PAGE_SIZE,
-    offset: (safePage - 1) * PAGE_SIZE,
+    page,
   });
 
-  const items = rows.map((r) => ({
-    id: r.plan.id,
-    name: r.plan.name,
-    version: r.plan.version,
-    status: r.plan.status,
-    publishedAt: r.plan.publishedAt,
-    createdAt: r.plan.createdAt,
-    trainee: r.trainee,
-    sessionCount: r.sessionCount,
+  const items = result.items.map((p) => ({
+    id: p.id,
+    name: p.name,
+    version: p.version,
+    status: p.status,
+    publishedAt: p.publishedAt,
+    createdAt: p.createdAt,
+    trainee: { id: p.traineeId, displayName: p.traineeName },
+    sessionCount: p.sessionCount,
   }));
 
-  return { items, spec, controls, counts, page: safePage, totalPages, total };
+  return {
+    items,
+    spec: specWithCounts(result.counts),
+    controls,
+    counts: result.counts,
+    page: result.page,
+    totalPages: result.totalPages,
+    total: result.total,
+  };
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const fd = await args.request.formData();
   const intent = fd.get("intent");
   if (intent !== "delete") return null;
   const planId = String(fd.get("planId") ?? "");
   if (!planId) return { error: "Brak id planu." };
   try {
-    const result = await deletePlan(db, planId, user.id);
-    if (result.kind === "deleted") {
-      return { success: "Plan usunięty." };
-    }
-    return {
-      success: `Plan zarchiwizowany — ma ${result.logCount} zapisanych sesji, historia została zachowana.`,
-    };
+    const outcome = await deletePlan(api, planId);
+    return { success: planDeleteOutcomeMessage(outcome) };
   } catch (e) {
-    if (e instanceof PlanRepoError) return { error: e.userMessage };
+    if (e instanceof PlanError) return { error: e.userMessage };
     throw e;
   }
 }
@@ -205,9 +211,7 @@ export default function PlanyList() {
                 <div style={{ fontSize: 14, fontWeight: 500 }}>{p.name}</div>
                 <div className="mono text-xs muted" style={{ marginTop: 2 }}>
                   v{p.version}
-                  {p.publishedAt && p.status === "active" && (
-                    <> · od {fmtDate(p.publishedAt.toString())}</>
-                  )}
+                  {p.publishedAt && p.status === "active" && <> · od {fmtDate(p.publishedAt)}</>}
                 </div>
               </div>
               <div className="text-sm" style={{ position: "relative", zIndex: 0 }}>

@@ -14,8 +14,7 @@ import {
 import { z } from "zod";
 import { Icons } from "~/components/icons";
 import { VideoUploadField, type VideoUploadState } from "~/components/video-upload-field";
-import { requireUser } from "~/lib/auth";
-import { db } from "~/lib/db/client";
+import { requireUser } from "~/lib/api/auth";
 import { maxUploadBytesFor } from "~/lib/file-uploads";
 import { pluralizePl, todayISO, type PlForms } from "~/lib/format";
 import {
@@ -25,53 +24,43 @@ import {
   serializeDraft,
   type SetDraft,
 } from "~/lib/log-draft";
-import { detectNewPRsForLog } from "~/lib/stats";
 import {
-  assertOwnedUnclaimedVideos,
-  findActivePlanForTrainee,
   loadSessionForLogging,
   saveWorkoutLog,
+  toLoggingEntries,
   WorkoutSaveError,
 } from "~/lib/workouts";
 
 const PerformedOnSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Nieprawidłowa data.");
 const NoteSchema = z.string().max(2000).optional();
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
-  const sessionId = args.params.sessionId ?? "";
-
-  const plan = await findActivePlanForTrainee(db, user.id);
-  if (!plan) throw new Response("brak aktywnego planu", { status: 404 });
-
-  const detail = await loadSessionForLogging(db, plan.id, sessionId);
-  if (!detail) throw new Response("not found", { status: 404 });
+  const { api, user } = requireUser(args.context, { role: "trainee" });
+  const session = await loadSessionForLogging(api, args.params.sessionId ?? "");
+  if (!session) throw new Response("not found", { status: 404 });
 
   return {
     user,
-    plan,
-    session: detail.session,
-    entries: detail.entries,
+    session: { id: session.id, name: session.name },
+    entries: toLoggingEntries(session),
     // Klient egzekwuje ten sam limit co serwer PRZED wysłaniem — za duże nagranie
     // nie opuszcza urządzenia (unikamy zerwanego uploadu: timeout proxy / OOM).
     maxVideoBytes: maxUploadBytesFor("set_video"),
+    // Klucz idempotencji zapisu (`docs/04` §6) — jeden na WYŚWIETLENIE formularza:
+    // chroni drugie kliknięcie i ponowiony `fetch` tego samego renderu, bo BE oddaje
+    // wtedy pierwotny log. NIE chroni ponowienia po przemontowaniu trasy (powrót po
+    // `ErrorBoundary` ze szkicem z `sessionStorage`) — tam klucz jest już nowy.
+    idempotencyKey: crypto.randomUUID(),
   };
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainee" });
-  if (!user.trainerId) {
-    return { error: "Konto bez przypisanego trenera." };
-  }
-  const sessionId = args.params.sessionId ?? "";
+  const { api } = requireUser(args.context, { role: "trainee" });
 
-  const plan = await findActivePlanForTrainee(db, user.id);
-  if (!plan) return { error: "Nie masz aktywnego planu." };
-
-  const detail = await loadSessionForLogging(db, plan.id, sessionId);
-  if (!detail) {
-    throw new Response("not found", { status: 404 });
-  }
+  const session = await loadSessionForLogging(api, args.params.sessionId ?? "");
+  if (!session) throw new Response("not found", { status: 404 });
+  const entries = toLoggingEntries(session);
 
   const fd = await args.request.formData();
   const performedOnParse = PerformedOnSchema.safeParse(fd.get("performedOn"));
@@ -80,6 +69,14 @@ export async function action(args: ActionFunctionArgs) {
   }
   const noteParse = NoteSchema.safeParse(fd.get("note") ?? undefined);
   const note = (noteParse.success ? noteParse.data?.trim() : "") || null;
+
+  // Dane niezaufane (ukryte pole): tylko kształt UUID idzie do nagłówka — śmieć
+  // wywróciłby `Headers` (CR/LF) albo wrócił z BE jako `400` o kluczu.
+  const idempotencyKeyRaw = fd.get("idempotencyKey");
+  const idempotencyKey =
+    typeof idempotencyKeyRaw === "string" && UUID_RE.test(idempotencyKeyRaw)
+      ? idempotencyKeyRaw
+      : undefined;
 
   try {
     const exercisesPayload: Array<{
@@ -95,7 +92,7 @@ export async function action(args: ActionFunctionArgs) {
     let anySetLogged = false;
     let allSetsFilled = true;
 
-    for (const [eIdx, entry] of detail.entries.entries()) {
+    for (const [eIdx, entry] of entries.entries()) {
       const sets: Array<{
         ordinal: number;
         reps: number;
@@ -106,8 +103,9 @@ export async function action(args: ActionFunctionArgs) {
         const repsRaw = fd.get(`e_${eIdx}_s_${sIdx}_reps`);
         const diffRaw = fd.get(`e_${eIdx}_s_${sIdx}_diff`);
         // Po rozdzieleniu uploadu formularz niesie już tylko IDENTYFIKATOR nagrania —
-        // plik poleciał wcześniej na `/upload/wideo`. Każdy taki identyfikator jest
-        // niżej weryfikowany (`assertOwnedUnclaimedVideos`), bo pochodzi od klienta.
+        // plik poleciał wcześniej na `/upload/wideo`. Identyfikator pochodzi od
+        // klienta, więc jego własność i dostępność sprawdza BE przy zapisie
+        // (`409 SET_VIDEO_UNAVAILABLE`), nie ta akcja.
         const videoIdRaw = fd.get(`e_${eIdx}_s_${sIdx}_video_id`);
         const videoId = typeof videoIdRaw === "string" && videoIdRaw !== "" ? videoIdRaw : null;
         const hasReps = repsRaw != null && repsRaw !== "";
@@ -161,50 +159,30 @@ export async function action(args: ActionFunctionArgs) {
       return { error: "Zapisz co najmniej jedną serię." };
     }
 
-    // Identyfikatory przyszły od klienta, więc PRZED zapisem sprawdzamy, że każdy należy
-    // do tego podopiecznego, jest nagraniem serii i nie jest już podpięty gdzie indziej.
-    // Bez tego podopieczny mógłby podpiąć nagranie innego podopiecznego tego trenera.
-    const videoIds = exercisesPayload
-      .flatMap((ex) => ex.sets)
-      .map((s) => s.videoFileId)
-      .filter((id): id is string => id != null);
-    await assertOwnedUnclaimedVideos(db, {
-      traineeId: user.id,
-      trainerId: user.trainerId,
-      fileIds: videoIds,
-    });
+    const saved = await saveWorkoutLog(
+      api,
+      {
+        planSessionId: session.id,
+        performedOn: performedOnParse.data,
+        note,
+        allDone: allSetsFilled,
+        exercises: exercisesPayload,
+      },
+      { idempotencyKey },
+    );
 
-    const newLogId = await saveWorkoutLog(db, {
-      trainerId: user.trainerId,
-      traineeId: user.id,
-      planId: plan.id,
-      planSessionId: detail.session.id,
-      sessionName: detail.session.name,
-      performedOn: performedOnParse.data,
-      note,
-      allDone: allSetsFilled,
-      exercises: exercisesPayload,
-    });
-
-    // Detect new PRs set in this log and pass exercise IDs via the URL so the
-    // log detail page can fire a toast. Read-only side query; failure is a
-    // non-event (we just skip the toast).
+    // Pobite rekordy przychodzą w odpowiedzi `201` — identyfikatory ćwiczeń idą
+    // w adresie, żeby strona szczegółu odpaliła toast. Sygnał `saved` każe jej
+    // wyczyścić szkic tej sesji z sessionStorage.
     const params = new URLSearchParams();
-    try {
-      const prs = await detectNewPRsForLog(db, user.id, newLogId);
-      if (prs.length > 0) params.set("pr", prs.map((p) => p.exerciseId).join(","));
-    } catch {
-      // Swallow — toast is purely additive.
+    if (saved.personalRecords.length > 0) {
+      params.set("pr", saved.personalRecords.map((p) => p.exerciseId).join(","));
     }
-    // Sygnał dla strony docelowej: zapis się powiódł, można wyczyścić szkic tej
-    // sesji z sessionStorage (klucz = id sesji planu).
-    params.set("saved", detail.session.id);
-    const qs = params.toString();
-    throw redirect(`/podopieczny/historia/${newLogId}${qs ? `?${qs}` : ""}`);
+    params.set("saved", session.id);
+    throw redirect(`/podopieczny/historia/${saved.id}?${params.toString()}`);
   } catch (e) {
     if (e instanceof Response) throw e; // redirect bubbles
-    // Nie ma już czego sprzątać: pliki są wgrane osobno i mają własny cykl życia —
-    // nieużyte sprzątnie sweeper (`lib/orphan-files.ts`).
+    // Nieużyte nagrania sprząta zamiatacz sierot po stronie BE (24 h karencji).
     if (e instanceof WorkoutSaveError) return { error: e.userMessage };
     throw e;
   }
@@ -216,7 +194,7 @@ const CWICZENIE: PlForms = { one: "ćwiczenie", few: "ćwiczenia", many: "ćwicz
 const SERIA: PlForms = { one: "seria", few: "serie", many: "serii" };
 
 export default function LogForm() {
-  const { user, session, entries, maxVideoBytes } = useLoaderData<typeof loader>();
+  const { user, session, entries, maxVideoBytes, idempotencyKey } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   // `formMethod != null` zamiast `state !== "idle"`: łapie wyłącznie wysyłkę
@@ -434,6 +412,7 @@ export default function LogForm() {
       {/* Bez `encType="multipart/form-data"`: nagrania lecą osobno na `/upload/wideo`,
           a ten POST niesie już tylko tekst i identyfikatory plików. */}
       <Form method="post" style={{ display: "grid", gap: 14 }}>
+        <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
         {restoredDraft && (
           <output
             className="card"
@@ -521,10 +500,11 @@ export default function LogForm() {
         )}
 
         <div className="row" style={{ gap: 8, marginTop: 6 }}>
-          {/* Blokada podwójnej wysyłki: bez niej drugie kliknięcie (albo niecierpliwe
-              tapnięcie na telefonie, gdy upload wideo trwa kilkadziesiąt sekund)
-              tworzy DRUGI trening i drugi komplet nagrań — w bazie nie ma żadnego
-              ograniczenia unikalności, które by to wyłapało. */}
+          {/* Blokada podwójnej wysyłki: drugie kliknięcie (albo niecierpliwe tapnięcie
+              na telefonie, gdy upload wideo trwa kilkadziesiąt sekund) poleciałoby
+              z tym samym kluczem idempotencji, więc BE oddałby PIERWOTNY log zamiast
+              drugiego. Blokada zostaje jako pierwsza linia obrony — oszczędza zbędny
+              obieg i nie każe podopiecznemu zgadywać, czy zapis w ogóle się liczy. */}
           <button
             type="submit"
             className="btn btn-primary btn-lg"

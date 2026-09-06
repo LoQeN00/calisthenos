@@ -1,16 +1,18 @@
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { ListControls } from "~/components/list-controls";
-import { requireUser } from "~/lib/auth";
-import { db } from "~/lib/db/client";
+import { requireUser } from "~/lib/api/auth";
 import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
 import { SKILL_TIERS, TIER_LABEL, type SkillTier } from "~/lib/skill-tier";
-import { listSkillsForTrainer, type SkillListRow } from "~/lib/skills";
+import { listSkillsForTrainer, type SkillListItem } from "~/lib/skills";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const url = new URL(args.request.url);
-  const all = await listSkillsForTrainer(db, user.id);
+  // Kontrakt oddaje grupy po stopniu, bez sortowania i filtra — obie kontrolki
+  // zostają tu, bo lista przychodzi w całości (bez stronicowania).
+  const groups = await listSkillsForTrainer(api);
+  const total = groups.reduce((n, g) => n + g.skills.length, 0);
 
   const spec: ListControlsSpec = {
     sortOptions: [
@@ -32,22 +34,27 @@ export async function loader(args: LoaderFunctionArgs) {
     searchable: false,
   };
   const controls = parseListControls(url.searchParams, spec);
-
   const tier = controls.filters.tier ?? "all";
-  const filtered = tier === "all" ? all : all.filter((s) => s.tier === tier);
-  const sorted = [...filtered].sort((a, b) =>
-    controls.sort === "variations"
-      ? b.variationCount - a.variationCount || a.name.localeCompare(b.name, "pl")
-      : a.name.localeCompare(b.name, "pl"),
-  );
+
+  const byName = (a: SkillListItem, b: SkillListItem) => a.name.localeCompare(b.name, "pl");
+  const sortSkills = (skills: SkillListItem[]) =>
+    [...skills].sort((a, b) =>
+      controls.sort === "variations"
+        ? b.variationCount - a.variationCount || byName(a, b)
+        : byName(a, b),
+    );
 
   // Sekcje od podstaw w górę — lista czyta się jak program, nie jak piramida.
-  const sections = SKILL_TIERS.map((t) => ({
-    tier: t,
-    skills: sorted.filter((s) => s.tier === t),
-  })).filter((s) => s.skills.length > 0);
+  // Kolejność bierze się z `SKILL_TIERS`, nie z kolejności grup w odpowiedzi.
+  const sections = SKILL_TIERS.filter((t) => tier === "all" || t === tier)
+    .map((t) => ({
+      tier: t,
+      skills: sortSkills(groups.filter((g) => g.tier === t).flatMap((g) => g.skills)),
+    }))
+    .filter((s) => s.skills.length > 0);
+  const shown = sections.reduce((n, s) => n + s.skills.length, 0);
 
-  return { sections, total: all.length, shown: sorted.length, spec, controls };
+  return { sections, total, shown, spec, controls };
 }
 
 export default function UmiejetnosciList() {
@@ -101,7 +108,7 @@ function TierSection({
   skills,
 }: {
   tier: SkillTier;
-  skills: SkillListRow[];
+  skills: SkillListItem[];
 }) {
   return (
     <section>

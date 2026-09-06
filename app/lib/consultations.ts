@@ -1,9 +1,45 @@
-import { and, asc, between, eq, gt, gte, inArray, isNotNull, isNull, ne } from "drizzle-orm";
+import {
+  consultationsControllerCancel,
+  consultationsControllerCreate,
+  consultationsControllerDocument,
+  consultationsControllerGet,
+  consultationsControllerList,
+  consultationsControllerRemove,
+  consultationsControllerReschedule,
+  consultationsControllerRespond,
+  consultationsControllerSetActionItemStatus,
+  consultationSyncControllerRun,
+} from "@kalisthenos/api-client";
+import type {
+  ConsultationActionItemView,
+  ConsultationDetail,
+  ConsultationSyncResult,
+  ConsultationView,
+} from "@kalisthenos/api-client";
+import { orNull } from "~/lib/api/client";
+import type { Api } from "~/lib/api/client";
+import { ApiError } from "~/lib/api/errors";
 import type { ConsultationDocForm, TraineeAction } from "~/lib/consultation-types";
-import { canDocument, canTraineeAct, canTrainerReschedule } from "~/lib/consultation-types";
-import type { Db } from "~/lib/db/client";
-import * as schema from "~/lib/db/schema";
+import { APP_TIME_ZONE } from "~/lib/format";
 
+/**
+ * Typy kontraktu re-eksportowane dla tras: trasa nie importuje pakietu klienta
+ * wprost (bramka, która zastąpi `no-direct-db`), a kształt terminu jest
+ * własnością kontraktu, nie tego modułu.
+ */
+export type {
+  ConsultationActionItemView,
+  ConsultationDetail,
+  ConsultationSyncResult,
+  ConsultationView,
+};
+export type ConsultationStatus = ConsultationView["status"];
+
+/**
+ * Własny typ błędu obszaru, bo trasy pokazują `userMessage` w formularzu albo
+ * w pasku akcji (precedens: `PlanError`, `WorkoutSaveError`). Źródłem
+ * `userMessage` jest `message` z koperty BE — po polsku i dla użytkownika.
+ */
 export class ConsultationError extends Error {
   constructor(
     message: string,
@@ -13,631 +49,485 @@ export class ConsultationError extends Error {
   }
 }
 
-const LIVE_STATUSES = ["planned", "confirmed", "change_requested"] as const;
+// ============================================================
+// Czas: moment BE ↔ czas ścienny FE
+// ============================================================
 
-export interface OccurrenceListItem {
-  id: string;
-  scheduledAt: string;
-  durationMin: number;
-  status: schema.ConsultationStatus;
-  title: string;
-  meetingUrl: string | null;
-  openItemCount: number;
-  totalItemCount: number;
+/**
+ * BE mówi MOMENTAMI (`timestamptz`, ISO z `Z`; harmonogram o 18:00 daje latem
+ * `16:00Z`), a cały FE — od `<input type="datetime-local">` po `fmtDateTime`
+ * i grupowanie siatki po `getUTCDate` — trzyma godzinę jako CZAS ŚCIENNY
+ * zapisany w komponentach UTC (`APP_TIME_ZONE` w `format.ts`). Do integracji
+ * obie strony były jednym procesem i konwencja nigdy nie przekraczała granicy;
+ * teraz przekracza ją w każdym żądaniu. Przeliczenie mieszka TUTAJ, na brzegu
+ * modułu — jak origin adresów plików (`publicFileUrl`) — więc trasy
+ * i komponenty nie wiedzą, że po drugiej stronie stoi inna strefa. Bez tego
+ * termin z harmonogramu ustawiony na 18:00 pokazywałby się latem jako 16:00.
+ *
+ * `Intl` zamiast własnej tabeli zmian czasu: reguły DST należą do bazy stref
+ * środowiska, nie do tego pliku.
+ */
+const WALL_CLOCK = new Intl.DateTimeFormat("en-US", {
+  timeZone: APP_TIME_ZONE,
+  hourCycle: "h23",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+});
+
+/** Składowe czasu ściennego strefy aplikacji dla momentu, zapisane jako „UTC” (ms). */
+function wallClockMs(instantMs: number): number {
+  const parts = WALL_CLOCK.formatToParts(new Date(instantMs));
+  const at = (type: string): number => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  return Date.UTC(at("year"), at("month") - 1, at("day"), at("hour"), at("minute"), at("second"));
+}
+
+/** Przesunięcie strefy aplikacji w danym momencie (ms). `Intl` oddaje sekundy, więc liczone na pełnych. */
+function offsetAt(instantMs: number): number {
+  const whole = Math.floor(instantMs / 1000) * 1000;
+  return wallClockMs(whole) - whole;
+}
+
+/** Moment (ISO z BE) → ten sam czas ścienny strefy aplikacji zapisany jako ISO „UTC” (konwencja FE). */
+export function toAppWallClock(instantISO: string): string {
+  return new Date(wallClockMs(new Date(instantISO).getTime())).toISOString();
 }
 
 /**
- * Terminy podopiecznego w zakresie [fromISO, toISO] (ISO datetime) — pod kalendarz.
- * Tenant-scope: traineeId. Pomija `cancelled`.
+ * Czas ścienny w konwencji FE (ISO „UTC”) → prawdziwy moment w strefie aplikacji.
+ * Dwa przejścia, jak `instantOf` po stronie BE: przesunięcie zależy od momentu,
+ * który dopiero liczymy, więc jedno przejście myli się przez godzinę wokół
+ * zmiany czasu.
  */
-export async function listOccurrencesForTrainee(
-  db: Db,
-  traineeId: string,
-  range: { fromISO: string; toISO: string },
-): Promise<OccurrenceListItem[]> {
-  const rows = await db
-    .select({
-      id: schema.consultations.id,
-      scheduledAt: schema.consultations.scheduledAt,
-      durationMin: schema.consultations.durationMin,
-      status: schema.consultations.status,
-      title: schema.consultations.title,
-      meetingUrl: schema.consultations.meetingUrl,
-    })
-    .from(schema.consultations)
-    .where(
-      and(
-        eq(schema.consultations.traineeId, traineeId),
-        between(schema.consultations.scheduledAt, new Date(range.fromISO), new Date(range.toISO)),
-      ),
-    )
-    .orderBy(asc(schema.consultations.scheduledAt));
-
-  return rows
-    .filter((r) => r.status !== "cancelled")
-    .map((r) => ({
-      id: r.id,
-      scheduledAt:
-        typeof r.scheduledAt === "string" ? r.scheduledAt : (r.scheduledAt as Date).toISOString(),
-      durationMin: r.durationMin,
-      status: r.status,
-      title: r.title,
-      meetingUrl: r.meetingUrl,
-      openItemCount: 0,
-      totalItemCount: 0,
-    }));
+export function fromAppWallClock(wallClockISO: string): string {
+  const wall = new Date(wallClockISO).getTime();
+  const first = wall - offsetAt(wall);
+  return new Date(wall - offsetAt(first)).toISOString();
 }
 
-export interface TrainerCalendarItem {
-  id: string;
-  traineeId: string;
-  traineeName: string;
-  scheduledAt: string;
-  durationMin: number;
-  status: schema.ConsultationStatus;
-  title: string;
-  meetingUrl: string | null;
+const DATE_TIME_LOCAL = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+
+/**
+ * Wartość `<input type="datetime-local">` („YYYY-MM-DDTHH:MM”, czas ścienny) →
+ * moment dla BE. Kształt sprawdzany tutaj, bo `rescheduleOccurrence` bierze go
+ * z formularza bez Zoda, a `new Date("…")` z byle czego rzuca dopiero przy
+ * `toISOString` — ekranem błędu zamiast zdaniem w formularzu.
+ */
+function instantFromLocalInput(local: string): string {
+  if (!DATE_TIME_LOCAL.test(local)) {
+    throw new ConsultationError("bad datetime", "Niepoprawna data/godzina.");
+  }
+  return fromAppWallClock(`${local}:00.000Z`);
 }
 
 /**
- * Wszystkie terminy trenera ze WSZYSTKIMI podopiecznymi w zakresie [fromISO, toISO]
- * — pod zbiorczy kalendarz trenera (dobór wolnego slotu). Pomija `cancelled`.
- * Tenant-scope: trainerId.
+ * Tylko `scheduledAt` — jedyny moment, który UI czyta jako godzinę ścienną.
+ * `resolvedAt` punktów zostaje momentem: żaden ekran go nie pokazuje.
  */
-export async function listTrainerOccurrencesInRange(
-  db: Db,
-  args: { trainerId: string; fromISO: string; toISO: string },
-): Promise<TrainerCalendarItem[]> {
-  const rows = await db
-    .select({
-      id: schema.consultations.id,
-      traineeId: schema.consultations.traineeId,
-      traineeName: schema.users.displayName,
-      scheduledAt: schema.consultations.scheduledAt,
-      durationMin: schema.consultations.durationMin,
-      status: schema.consultations.status,
-      title: schema.consultations.title,
-      meetingUrl: schema.consultations.meetingUrl,
-    })
-    .from(schema.consultations)
-    .innerJoin(schema.users, eq(schema.users.id, schema.consultations.traineeId))
-    .where(
-      and(
-        eq(schema.consultations.trainerId, args.trainerId),
-        ne(schema.consultations.status, "cancelled"),
-        between(schema.consultations.scheduledAt, new Date(args.fromISO), new Date(args.toISO)),
-      ),
-    )
-    .orderBy(asc(schema.consultations.scheduledAt));
-
-  return rows.map((r) => ({
-    id: r.id,
-    traineeId: r.traineeId,
-    traineeName: r.traineeName,
-    scheduledAt:
-      typeof r.scheduledAt === "string" ? r.scheduledAt : (r.scheduledAt as Date).toISOString(),
-    durationMin: r.durationMin,
-    status: r.status,
-    title: r.title,
-    meetingUrl: r.meetingUrl,
-  }));
+function withAppWallClock<T extends { scheduledAt: string }>(row: T): T {
+  return { ...row, scheduledAt: toAppWallClock(row.scheduledAt) };
 }
 
-/** Terminy podopiecznego widziane przez trenera (wszystkie statusy). Tenant-scope: trainerId+traineeId. */
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function shiftISO(iso: string, days: number): string {
+  return new Date(new Date(iso).getTime() + days * DAY_MS).toISOString();
+}
+
+// ============================================================
+// Odczyt
+// ============================================================
+
+/** Zakres w konwencji FE (czas ścienny jako ISO „UTC”) — tak liczy `monthRangeUTC`. */
+export interface DateRange {
+  fromISO: string;
+  toISO: string;
+}
+
+/**
+ * Terminy w zakresie `[fromISO, toISO]` — jedno `GET /v1/consultations` dla obu
+ * ról, bo kontrakt nie rozdziela tras: KTO pyta, rozstrzyga token. Trener
+ * dostaje terminy WSZYSTKICH swoich podopiecznych (nazwa w `trainee`) — to
+ * dawne `listTrainerOccurrencesInRange`; podopieczny wyłącznie własne — dawne
+ * `listOccurrencesForTrainee`. Odwołane pomija BE; stronicowania nie ma, bo
+ * wynik ogranicza zakres, zamknięty z obu stron (`docs/04` §Konsultacje).
+ * Kolejność z kontraktu: rosnąco po terminie, `id` rozstrzyga remis.
+ */
+export async function listOccurrencesInRange(
+  api: Api,
+  range: DateRange,
+): Promise<ConsultationView[]> {
+  const { data } = await consultationsControllerList({
+    client: api,
+    query: { from: fromAppWallClock(range.fromISO), to: fromAppWallClock(range.toISO) },
+    throwOnError: true,
+  });
+  return data.map(withAppWallClock);
+}
+
+/**
+ * Okno list liczonych od „teraz”: kontrakt wymaga zakresu zamkniętego z obu
+ * stron, a dawne zapytania (`listOccurrencesForTrainer` bez zakresu,
+ * `nextUpcomingForTrainee` bez górnej granicy) go nie miały. Rok — bo horyzont
+ * materializacji BE to 84 dni, a termin poza serią wolno umówić dalej.
+ */
+export const LIST_WINDOW_DAYS = 365;
+
+/**
+ * Terminy jednej pary z perspektywy trenera — ten sam `GET /v1/consultations`
+ * co kalendarz zbiorczy (kontrakt nie ma listy per podopieczny), zawężony do
+ * `traineeId` TUTAJ, jednym wywołaniem, nie N. `nowISO` to prawdziwy moment
+ * (`new Date().toISOString()`), bez przeliczenia — okno to rok wstecz i rok
+ * w przód. Do integracji lista pary nie miała zakresu i niosła też odwołane;
+ * odwołanych i tak nikt nie pokazywał, a historia starsza niż rok jest luką
+ * zgłoszoną w raporcie, nie cichą stratą.
+ */
 export async function listOccurrencesForTrainer(
-  db: Db,
-  args: { trainerId: string; traineeId: string },
-): Promise<schema.Consultation[]> {
-  return await db
-    .select()
-    .from(schema.consultations)
-    .where(
-      and(
-        eq(schema.consultations.trainerId, args.trainerId),
-        eq(schema.consultations.traineeId, args.traineeId),
-      ),
-    )
-    .orderBy(asc(schema.consultations.scheduledAt));
-}
-
-/** Liczba terminów czekających na reakcję podopiecznego (badge). Tenant-scope: traineeId. */
-export async function countPendingForTrainee(db: Db, traineeId: string): Promise<number> {
-  const rows = await db
-    .select({ id: schema.consultations.id })
-    .from(schema.consultations)
-    .where(
-      and(
-        eq(schema.consultations.traineeId, traineeId),
-        eq(schema.consultations.status, "planned"),
-      ),
-    );
-  return rows.length;
-}
-
-/** Najbliższy żywy termin podopiecznego po `nowISO` (lub null). Tenant-scope: traineeId. */
-export async function nextUpcomingForTrainee(
-  db: Db,
+  api: Api,
   traineeId: string,
-  nowISO: string,
-): Promise<schema.Consultation | null> {
-  const [row] = await db
-    .select()
-    .from(schema.consultations)
-    .where(
-      and(
-        eq(schema.consultations.traineeId, traineeId),
-        gt(schema.consultations.scheduledAt, new Date(nowISO)),
-        inArray(schema.consultations.status, [...LIVE_STATUSES]),
-      ),
-    )
-    .orderBy(asc(schema.consultations.scheduledAt))
-    .limit(1);
-  return row ?? null;
+  opts: { nowISO: string },
+): Promise<ConsultationView[]> {
+  const { data } = await consultationsControllerList({
+    client: api,
+    query: {
+      from: shiftISO(opts.nowISO, -LIST_WINDOW_DAYS),
+      to: shiftISO(opts.nowISO, LIST_WINDOW_DAYS),
+    },
+    throwOnError: true,
+  });
+  return data.filter((c) => c.trainee.id === traineeId).map(withAppWallClock);
 }
 
-export interface ConsultationDetail {
-  consultation: schema.Consultation;
-  items: schema.ConsultationActionItem[];
+const LIVE_STATUSES: ReadonlySet<ConsultationStatus> = new Set([
+  "planned",
+  "confirmed",
+  "change_requested",
+]);
+
+/** Trzy akcje kontraktu, które wolno wykonać podopiecznemu. Reszta jest trenera. */
+const TRAINEE_ACTIONS: ReadonlySet<string> = new Set(["confirm", "request_change", "decline"]);
+
+/**
+ * Czy podopieczny ma cokolwiek do zrobienia z tym terminem — **z listy
+ * `allowedActions` wyliczonej przez BE, nie ze statusu**. To zamiennik dawnego
+ * guardu `canTraineeAct` z `consultation-types.ts`, który tabelę przejść trzymał
+ * po tej stronie: kontrakt niesie ją teraz przy każdym terminie, a dwie kopie
+ * tej samej tabeli rozjeżdżają się w ciszy (BE nie daje dziś akcji podopiecznego
+ * dla `confirmed`, dawny guard je dopuszczał).
+ *
+ * Bierze cokolwiek z `allowedActions` — także `ConsultationDetail`, bo oba
+ * widoki niosą to pole.
+ */
+export function canTraineeRespond(c: { allowedActions: readonly string[] }): boolean {
+  return c.allowedActions.some((a) => TRAINEE_ACTIONS.has(a));
 }
 
-/** Szczegóły. Tenant-scope: podaj trainerId LUB traineeId. Brak dopasowania → null (404). */
+export interface UpcomingConsultations {
+  /** Najbliższy żywy termin (`planned`/`confirmed`/`change_requested`) po `nowISO` albo `null`. */
+  next: ConsultationView | null;
+  /** Ile nadchodzących czeka na reakcję podopiecznego (`planned`). */
+  pending: number;
+}
+
+/**
+ * Jedno wywołanie zamiast dwóch dawnych zapytań (`nextUpcomingForTrainee`,
+ * `countPendingForTrainee`): lista od `nowISO` (prawdziwy moment, bez
+ * przeliczenia) do roku w przód, z której moduł wybiera najbliższy żywy termin
+ * i liczy oczekujące. `traineeId` zawęża do pary — podaje trener (przegląd
+ * klienta); podopieczny go nie podaje, bo token i tak zawęża do własnych.
+ *
+ * Różnica wobec legacy: `pending` liczy wyłącznie NADCHODZĄCE `planned` —
+ * przeszły `planned` to dla trenera „do udokumentowania”, nie „do
+ * potwierdzenia”. Licznik nawigacji podopiecznego (z przeszłymi, jak liczył
+ * legacy) niesie `TraineeNavView.pendingConsultations` z `views.ts`.
+ */
+export async function loadUpcomingConsultations(
+  api: Api,
+  opts: { nowISO: string; traineeId?: string },
+): Promise<UpcomingConsultations> {
+  const { data } = await consultationsControllerList({
+    client: api,
+    query: { from: opts.nowISO, to: shiftISO(opts.nowISO, LIST_WINDOW_DAYS) },
+    throwOnError: true,
+  });
+  const rows = (
+    opts.traineeId == null ? data : data.filter((c) => c.trainee.id === opts.traineeId)
+  ).map(withAppWallClock);
+
+  // Najwcześniejszy z żywych liczony tu, nie brany z pozycji zerowej: to, co
+  // funkcja obiecuje, nie ma zależeć od kolejności transportu.
+  let next: ConsultationView | null = null;
+  for (const row of rows) {
+    if (!LIVE_STATUSES.has(row.status)) continue;
+    if (next == null || row.scheduledAt < next.scheduledAt) next = row;
+  }
+
+  return { next, pending: rows.filter((c) => c.status === "planned").length };
+}
+
+/**
+ * Szczegół z punktami akcji i nazwą podopiecznego. Zakres tenanta rozstrzyga
+ * BE: cudzy termin — także termin kolegi u tego samego trenera, gdy pyta
+ * podopieczny — jest nieodróżnialny od nieistniejącego (`404`), tu `null`
+ * przez `orNull`. Dawne `trainerId`/`traineeId` w argumentach zniknęły razem
+ * z filtrem tenanta; trasa trenera sprawdza zgodność `trainee.id` ze ścieżką
+ * sama, bo to jej adres, nie kontrakt, może być pomylony.
+ */
 export async function getConsultationDetail(
-  db: Db,
-  args: { consultationId: string; trainerId?: string; traineeId?: string },
-): Promise<ConsultationDetail | null> {
-  if (!args.trainerId && !args.traineeId) {
-    throw new ConsultationError("scope required", "Brak kontekstu dostępu.");
-  }
-  const conds = [eq(schema.consultations.id, args.consultationId)];
-  if (args.trainerId) conds.push(eq(schema.consultations.trainerId, args.trainerId));
-  if (args.traineeId) conds.push(eq(schema.consultations.traineeId, args.traineeId));
-
-  const [c] = await db
-    .select()
-    .from(schema.consultations)
-    .where(and(...conds))
-    .limit(1);
-  if (!c) return null;
-
-  const items = await db
-    .select()
-    .from(schema.consultationActionItems)
-    .where(eq(schema.consultationActionItems.consultationId, args.consultationId))
-    .orderBy(asc(schema.consultationActionItems.ordinal));
-  return { consultation: c, items };
-}
-
-async function assertTraineeOwnedBy(db: Db, trainerId: string, traineeId: string): Promise<void> {
-  const [row] = await db
-    .select({ id: schema.users.id })
-    .from(schema.users)
-    .where(
-      and(
-        eq(schema.users.id, traineeId),
-        eq(schema.users.trainerId, trainerId),
-        eq(schema.users.role, "trainee"),
-      ),
-    )
-    .limit(1);
-  if (!row) throw new ConsultationError("trainee not owned", "Nie znaleziono podopiecznego.");
-}
-
-/** Termin ad-hoc (poza serią): status `planned` albo od razu `documented`. Tenant-scope: trainerId. */
-export async function createAdhocConsultation(
-  db: Db,
-  input: { trainerId: string; traineeId: string; form: ConsultationDocForm; documented: boolean },
-): Promise<string> {
-  await assertTraineeOwnedBy(db, input.trainerId, input.traineeId);
-  return await db.transaction(async (tx) => {
-    const f = input.form;
-    const [row] = await tx
-      .insert(schema.consultations)
-      .values({
-        trainerId: input.trainerId,
-        traineeId: input.traineeId,
-        scheduleId: null,
-        scheduledAt: new Date(`${f.scheduledAt}:00.000Z`),
-        durationMin: f.durationMin,
-        status: input.documented ? "documented" : "planned",
-        meetingUrl: f.meetingUrl ?? null,
-        title: f.title,
-        summary: f.summary ?? "",
-        periodFrom: f.periodFrom ?? null,
-        periodTo: f.periodTo ?? null,
-      })
-      .returning({ id: schema.consultations.id });
-    const id = row?.id;
-    if (!id) throw new ConsultationError("insert failed", "Nie udało się zapisać konsultacji.");
-    if (input.documented) await insertItems(tx, id, f.items);
-    return id;
-  });
-}
-
-/** Dokumentuje termin (status → documented; pola + punkty). Tenant-scope: trainerId. */
-export async function documentConsultation(
-  db: Db,
-  input: { trainerId: string; consultationId: string; form: ConsultationDocForm },
-): Promise<void> {
-  await db.transaction(async (tx) => {
-    const [c] = await tx
-      .select({ id: schema.consultations.id, status: schema.consultations.status })
-      .from(schema.consultations)
-      .where(
-        and(
-          eq(schema.consultations.id, input.consultationId),
-          eq(schema.consultations.trainerId, input.trainerId),
-        ),
-      )
-      .limit(1);
-    if (!c) throw new ConsultationError("not owned", "Nie znaleziono konsultacji.");
-    if (!canDocument(c.status)) {
-      throw new ConsultationError("bad status", "Nie można udokumentować odwołanego terminu.");
-    }
-    const f = input.form;
-    await tx
-      .update(schema.consultations)
-      .set({
-        scheduledAt: new Date(`${f.scheduledAt}:00.000Z`),
-        durationMin: f.durationMin,
-        meetingUrl: f.meetingUrl ?? null,
-        title: f.title,
-        summary: f.summary ?? "",
-        periodFrom: f.periodFrom ?? null,
-        periodTo: f.periodTo ?? null,
-        status: "documented",
-      })
-      .where(eq(schema.consultations.id, input.consultationId));
-    await tx
-      .delete(schema.consultationActionItems)
-      .where(eq(schema.consultationActionItems.consultationId, input.consultationId));
-    await insertItems(tx, input.consultationId, f.items);
-  });
-}
-
-async function insertItems(
-  db: Db,
+  api: Api,
   consultationId: string,
-  items: ConsultationDocForm["items"],
-): Promise<void> {
-  if (items.length === 0) return;
-  await db.insert(schema.consultationActionItems).values(
-    items.map((it, idx) => ({
-      consultationId,
-      ordinal: idx,
-      body: it.body,
-      status: it.status,
-      resolvedAt: it.status === "resolved" ? new Date() : null,
-    })),
+): Promise<ConsultationDetail | null> {
+  const detail = await orNull(
+    consultationsControllerGet({
+      client: api,
+      path: { id: consultationId },
+      throwOnError: true,
+    }).then((r) => r.data),
   );
+  return detail == null ? null : withAppWallClock(detail);
 }
 
-/** Trener: przełóż pojedynczy termin (nowy czas, status → planned). Tenant-scope: trainerId. */
-export async function rescheduleOccurrence(
-  db: Db,
-  args: {
-    trainerId: string;
-    consultationId: string;
-    scheduledAtLocal: string;
-    durationMin?: number;
-  },
-): Promise<void> {
-  const [c] = await db
-    .select({ id: schema.consultations.id, status: schema.consultations.status })
-    .from(schema.consultations)
-    .where(
-      and(
-        eq(schema.consultations.id, args.consultationId),
-        eq(schema.consultations.trainerId, args.trainerId),
-      ),
-    )
-    .limit(1);
-  if (!c) throw new ConsultationError("not owned", "Nie znaleziono terminu.");
-  if (!canTrainerReschedule(c.status)) {
-    throw new ConsultationError("bad status", "Tego terminu nie można przełożyć.");
+// ============================================================
+// Zapis
+// ============================================================
+
+/**
+ * Wąski `catch`: trasy pokazują `userMessage` w formularzu albo pasku akcji,
+ * więc własny typ dostają `400` (walidacja BE ostrzejsza niż Zod — np. notatka
+ * wymagana przy prośbie o zmianę, czas trwania 5–480 min), `404` (cudzy albo
+ * nieistniejący termin lub podopieczny — §2 `docs/04`) i `409` (niedozwolone
+ * przejście, odwołanie udokumentowanego, trwający przebieg synchronizacji).
+ * Reszta leci `ApiError`-em — awaria BE ma zostać awarią.
+ */
+function toConsultationError(e: unknown): never {
+  if (e instanceof ApiError && (e.status === 400 || e.status === 404 || e.status === 409)) {
+    throw new ConsultationError(e.code, e.message);
   }
-  await db
-    .update(schema.consultations)
-    .set({
-      scheduledAt: new Date(`${args.scheduledAtLocal}:00.000Z`),
-      status: "planned",
-      traineeNote: null,
-      ...(args.durationMin ? { durationMin: args.durationMin } : {}),
-    })
-    .where(eq(schema.consultations.id, args.consultationId));
+  throw e;
 }
 
-/** Trener: odwołaj pojedynczy termin (status → cancelled). Tenant-scope: trainerId. */
-export async function cancelOccurrence(
-  db: Db,
-  args: { trainerId: string; consultationId: string },
-): Promise<void> {
-  const rows = await db
-    .update(schema.consultations)
-    .set({ status: "cancelled" })
-    .where(
-      and(
-        eq(schema.consultations.id, args.consultationId),
-        eq(schema.consultations.trainerId, args.trainerId),
-      ),
-    )
-    .returning({ id: schema.consultations.id });
-  if (rows.length === 0) throw new ConsultationError("not owned", "Nie znaleziono terminu.");
-}
-
-/** Podopieczny: reakcja na termin. Tylko własny i z dozwolonego statusu. Tenant-scope: traineeId. */
-export async function respondToOccurrence(
-  db: Db,
-  args: { traineeId: string; consultationId: string; action: TraineeAction; note?: string },
-): Promise<void> {
-  const [c] = await db
-    .select({ id: schema.consultations.id, status: schema.consultations.status })
-    .from(schema.consultations)
-    .where(
-      and(
-        eq(schema.consultations.id, args.consultationId),
-        eq(schema.consultations.traineeId, args.traineeId),
-      ),
-    )
-    .limit(1);
-  if (!c) throw new ConsultationError("not owned", "Nie znaleziono terminu.");
-  if (!canTraineeAct(c.status, args.action)) {
-    throw new ConsultationError("bad status", "Tego terminu nie można już zmienić.");
-  }
-  const nextStatus =
-    args.action === "confirm"
-      ? "confirmed"
-      : args.action === "decline"
-        ? "cancelled"
-        : "change_requested";
-  await db
-    .update(schema.consultations)
-    .set({
-      status: nextStatus,
-      traineeNote: args.action === "request_change" ? (args.note ?? null) : null,
-    })
-    .where(eq(schema.consultations.id, args.consultationId));
-}
-
-/** Przełącza status punktu „do poprawy" (tylko właściciel-trener). */
-export async function setActionItemStatus(
-  db: Db,
-  args: { trainerId: string; itemId: string; status: schema.ConsultationItemStatus },
-): Promise<void> {
-  const [owned] = await db
-    .select({ id: schema.consultationActionItems.id })
-    .from(schema.consultationActionItems)
-    .innerJoin(
-      schema.consultations,
-      eq(schema.consultations.id, schema.consultationActionItems.consultationId),
-    )
-    .where(
-      and(
-        eq(schema.consultationActionItems.id, args.itemId),
-        eq(schema.consultations.trainerId, args.trainerId),
-      ),
-    )
-    .limit(1);
-  if (!owned) throw new ConsultationError("item not owned", "Nie znaleziono punktu.");
-  await db
-    .update(schema.consultationActionItems)
-    .set({ status: args.status, resolvedAt: args.status === "resolved" ? new Date() : null })
-    .where(eq(schema.consultationActionItems.id, args.itemId));
-}
-
-/** Usuwa konsultację (kaskada kasuje punkty). Tenant-scope: trainerId. */
-export async function deleteConsultation(
-  db: Db,
-  args: { trainerId: string; consultationId: string },
-): Promise<boolean> {
-  const rows = await db
-    .delete(schema.consultations)
-    .where(
-      and(
-        eq(schema.consultations.id, args.consultationId),
-        eq(schema.consultations.trainerId, args.trainerId),
-      ),
-    )
-    .returning({ id: schema.consultations.id });
-  return rows.length > 0;
-}
-
-/** Dane jednego terminu potrzebne do zbudowania zdarzenia Google. Tenant-scope: trainerId. */
-export interface ConsultationSyncRow {
-  id: string;
-  title: string;
-  summary: string;
-  scheduledAtISO: string;
-  durationMin: number;
-  status: schema.ConsultationStatus;
-  googleEventId: string | null;
-  attendeeEmail: string;
-}
-
-export async function getSyncRow(
-  db: Db,
-  args: { trainerId: string; consultationId: string },
-): Promise<ConsultationSyncRow | null> {
-  const [r] = await db
-    .select({
-      id: schema.consultations.id,
-      title: schema.consultations.title,
-      summary: schema.consultations.summary,
-      scheduledAt: schema.consultations.scheduledAt,
-      durationMin: schema.consultations.durationMin,
-      status: schema.consultations.status,
-      googleEventId: schema.consultations.googleEventId,
-      attendeeEmail: schema.users.email,
-    })
-    .from(schema.consultations)
-    .innerJoin(schema.users, eq(schema.users.id, schema.consultations.traineeId))
-    .where(
-      and(
-        eq(schema.consultations.id, args.consultationId),
-        eq(schema.consultations.trainerId, args.trainerId),
-      ),
-    )
-    .limit(1);
-  if (!r) return null;
-  return {
-    id: r.id,
-    title: r.title,
-    summary: r.summary,
-    scheduledAtISO: r.scheduledAt.toISOString(),
-    durationMin: r.durationMin,
-    status: r.status,
-    googleEventId: r.googleEventId,
-    attendeeEmail: r.attendeeEmail,
-  };
+export interface CreateAdhocConsultationInput {
+  traineeId: string;
+  form: ConsultationDocForm;
+  documented: boolean;
 }
 
 /**
- * Żywe (planned/confirmed/change_requested) nadchodzące terminy pary, filtrowane po tym,
- * czy mają już zdarzenie w Google. Tenant-scope: trainerId.
+ * Termin poza serią — od razu `planned` albo od razu `documented`. Ciało
+ * składane pole po polu, bo BE odrzuca pola spoza DTO (`400`), a
+ * `ConsultationDocForm` jest szerszy niż `CreateConsultationDto`: `title` nie
+ * istnieje w `/v1` (BE nadaje własny), `periodFrom`/`periodTo` kontrakt
+ * przemilcza, a statusów punktów DTO nie niesie — idą same treści. Podsumowanie
+ * i punkty WYŁĄCZNIE dla `documented`: przy `planned` BE odmawia (`409`).
+ * Przynależność podopiecznego sprawdza BE (`404`), nie ten moduł.
  */
-async function listForSync(
-  db: Db,
-  args: { trainerId: string; traineeId: string; nowISO: string },
-  googleEvent: "missing" | "present",
-): Promise<ConsultationSyncRow[]> {
-  const rows = await db
-    .select({
-      id: schema.consultations.id,
-      title: schema.consultations.title,
-      summary: schema.consultations.summary,
-      scheduledAt: schema.consultations.scheduledAt,
-      durationMin: schema.consultations.durationMin,
-      status: schema.consultations.status,
-      googleEventId: schema.consultations.googleEventId,
-      attendeeEmail: schema.users.email,
-    })
-    .from(schema.consultations)
-    .innerJoin(schema.users, eq(schema.users.id, schema.consultations.traineeId))
-    .where(
-      and(
-        eq(schema.consultations.trainerId, args.trainerId),
-        eq(schema.consultations.traineeId, args.traineeId),
-        gt(schema.consultations.scheduledAt, new Date(args.nowISO)),
-        // Żywe statusy (planned/confirmed/change_requested) — spójne z `LIVE_STATUSES`
-        // i z guardem `syncUpsertOne` (który pomija tylko cancelled/documented).
-        inArray(schema.consultations.status, [...LIVE_STATUSES]),
-        googleEvent === "missing"
-          ? isNull(schema.consultations.googleEventId)
-          : isNotNull(schema.consultations.googleEventId),
-      ),
-    )
-    .orderBy(asc(schema.consultations.scheduledAt));
-  return rows.map((r) => ({
-    id: r.id,
-    title: r.title,
-    summary: r.summary,
-    scheduledAtISO: r.scheduledAt.toISOString(),
-    durationMin: r.durationMin,
-    status: r.status,
-    googleEventId: r.googleEventId,
-    attendeeEmail: r.attendeeEmail,
-  }));
+export async function createAdhocConsultation(
+  api: Api,
+  input: CreateAdhocConsultationInput,
+): Promise<string> {
+  const f = input.form;
+  try {
+    const { data } = await consultationsControllerCreate({
+      client: api,
+      body: {
+        traineeId: input.traineeId,
+        scheduledAt: instantFromLocalInput(f.scheduledAt),
+        durationMin: f.durationMin,
+        meetingUrl: f.meetingUrl ?? null,
+        status: input.documented ? "documented" : "planned",
+        ...(input.documented
+          ? { summary: f.summary, actionItems: f.items.map((it) => it.body) }
+          : {}),
+      },
+      throwOnError: true,
+    });
+    return data.id;
+  } catch (e) {
+    return toConsultationError(e);
+  }
 }
 
-/** Nadchodzące terminy pary BEZ zdarzenia Google — do pierwszego wypchnięcia. Tenant-scope: trainerId. */
-export async function listUnsyncedForSync(
-  db: Db,
-  args: { trainerId: string; traineeId: string; nowISO: string },
-): Promise<ConsultationSyncRow[]> {
-  return listForSync(db, args, "missing");
-}
-
-/**
- * Nadchodzące terminy pary, które MAJĄ już zdarzenie Google — do naprawczego `patch`
- * (wyrównanie zdarzeń wysłanych przed poprawką stref). Tenant-scope: trainerId.
- */
-export async function listSyncedForRepair(
-  db: Db,
-  args: { trainerId: string; traineeId: string; nowISO: string },
-): Promise<ConsultationSyncRow[]> {
-  return listForSync(db, args, "present");
-}
-
-/** Zapisuje google_event_id (i opcjonalnie meetingUrl z Meet). Tenant-scope: trainerId. */
-export async function setGoogleEventId(
-  db: Db,
-  args: {
-    trainerId: string;
-    consultationId: string;
-    googleEventId: string | null;
-    meetingUrl?: string | null;
-  },
-): Promise<void> {
-  await db
-    .update(schema.consultations)
-    .set({
-      googleEventId: args.googleEventId,
-      ...(args.meetingUrl !== undefined ? { meetingUrl: args.meetingUrl } : {}),
-    })
-    .where(
-      and(
-        eq(schema.consultations.id, args.consultationId),
-        eq(schema.consultations.trainerId, args.trainerId),
-      ),
-    );
-}
-
-export interface GoogleEventRef {
+export interface DocumentConsultationInput {
   consultationId: string;
-  googleEventId: string;
+  form: ConsultationDocForm;
 }
 
 /**
- * Wszystkie terminy pary mające zdarzenie Google (dowolny status) — do sprzątnięcia
- * zdarzeń przy usuwaniu podopiecznego. Tenant-scope: trainerId+traineeId.
+ * Podsumowanie i punkty — „podmienia dotychczasowe”, więc wolno powtórzyć
+ * (status `documented` się wtedy nie zmienia). Z formularza idą WYŁĄCZNIE
+ * `summary` i treści punktów: DTO nie niesie terminu/czasu/odnośnika (te
+ * zmienia `rescheduleOccurrence`), tytułu, okresu ani statusów punktów —
+ * patrz luki S3 w raporcie fali. Odwołanego udokumentować nie wolno (`409`).
  */
-export async function listGoogleEventIdsForPair(
-  db: Db,
-  args: { trainerId: string; traineeId: string },
-): Promise<GoogleEventRef[]> {
-  const rows = await db
-    .select({
-      id: schema.consultations.id,
-      googleEventId: schema.consultations.googleEventId,
-    })
-    .from(schema.consultations)
-    .where(
-      and(
-        eq(schema.consultations.trainerId, args.trainerId),
-        eq(schema.consultations.traineeId, args.traineeId),
-        isNotNull(schema.consultations.googleEventId),
-      ),
-    );
-  return rows.flatMap((r) =>
-    r.googleEventId ? [{ consultationId: r.id, googleEventId: r.googleEventId }] : [],
-  );
+export async function documentConsultation(
+  api: Api,
+  input: DocumentConsultationInput,
+): Promise<void> {
+  try {
+    await consultationsControllerDocument({
+      client: api,
+      path: { id: input.consultationId },
+      body: {
+        summary: input.form.summary,
+        actionItems: input.form.items.map((it) => it.body),
+      },
+      throwOnError: true,
+    });
+  } catch (e) {
+    toConsultationError(e);
+  }
+}
+
+export interface RescheduleOccurrenceInput {
+  consultationId: string;
+  /** Wartość `<input type="datetime-local">` — czas ścienny „YYYY-MM-DDTHH:MM”. */
+  scheduledAtLocal: string;
+  durationMin?: number;
 }
 
 /**
- * Nadchodzące, ODWOŁANE terminy pary, które wciąż mają zdarzenie Google — do
- * sprzątnięcia po dezaktywacji/zmianie harmonogramu (terminy stały się `cancelled`
- * w DB, ale zdarzenie w kalendarzu zostało). `fromISO`: YYYY-MM-DD z route.
- * Tenant-scope: trainerId+traineeId.
+ * Nowy moment (i opcjonalnie czas trwania). Co robił dawny `UPDATE` — powrót
+ * do `planned`, wyczyszczenie notatki podopiecznego, zdarzenie dla kalendarza
+ * — robi BE. `meetingUrl` nie idzie w ciele: brak klucza to „zostaw”.
  */
-export async function listCancelledGoogleEventIds(
-  db: Db,
-  args: { trainerId: string; traineeId: string; fromISO: string },
-): Promise<GoogleEventRef[]> {
-  const rows = await db
-    .select({
-      id: schema.consultations.id,
-      googleEventId: schema.consultations.googleEventId,
-    })
-    .from(schema.consultations)
-    .where(
-      and(
-        eq(schema.consultations.trainerId, args.trainerId),
-        eq(schema.consultations.traineeId, args.traineeId),
-        eq(schema.consultations.status, "cancelled"),
-        isNotNull(schema.consultations.googleEventId),
-        gte(schema.consultations.scheduledAt, new Date(`${args.fromISO}T00:00:00.000Z`)),
-      ),
-    );
-  return rows.flatMap((r) =>
-    r.googleEventId ? [{ consultationId: r.id, googleEventId: r.googleEventId }] : [],
-  );
+export async function rescheduleOccurrence(
+  api: Api,
+  input: RescheduleOccurrenceInput,
+): Promise<void> {
+  const scheduledAt = instantFromLocalInput(input.scheduledAtLocal);
+  try {
+    await consultationsControllerReschedule({
+      client: api,
+      path: { id: input.consultationId },
+      body: {
+        scheduledAt,
+        ...(input.durationMin != null ? { durationMin: input.durationMin } : {}),
+      },
+      throwOnError: true,
+    });
+  } catch (e) {
+    toConsultationError(e);
+  }
+}
+
+/**
+ * Odwołanie. `409` dla udokumentowanego; powtórne odwołanie NIE daje `409`
+ * (ponowienie po zerwanym połączeniu to nie naruszenie niezmiennika).
+ * Zdarzenie w kalendarzu zdejmuje BE przez outbox — trasa niczego nie dosyła.
+ */
+export async function cancelOccurrence(api: Api, consultationId: string): Promise<void> {
+  try {
+    await consultationsControllerCancel({
+      client: api,
+      path: { id: consultationId },
+      throwOnError: true,
+    });
+  } catch (e) {
+    toConsultationError(e);
+  }
+}
+
+export interface RespondToOccurrenceInput {
+  consultationId: string;
+  action: TraineeAction;
+  note?: string;
+}
+
+/**
+ * Reakcja podopiecznego. Dozwolone przejścia sprawdza BE (`409` przy
+ * niedozwolonym), więc dawny guard `canTraineeAct` przestał tu stać. Notatka
+ * jest WYMAGANA przy `request_change` (BE: `400` bez treści) i pomijana przy
+ * pozostałych — do ciała idzie tylko wtedy, gdy jest, bo klucz z `undefined`
+ * serializator i tak by wysłał jako brak, a pusty łańcuch to `400`.
+ */
+export async function respondToOccurrence(
+  api: Api,
+  input: RespondToOccurrenceInput,
+): Promise<void> {
+  try {
+    await consultationsControllerRespond({
+      client: api,
+      path: { id: input.consultationId },
+      body: {
+        response: input.action,
+        ...(input.note != null && input.note.length > 0 ? { note: input.note } : {}),
+      },
+      throwOnError: true,
+    });
+  } catch (e) {
+    toConsultationError(e);
+  }
+}
+
+export interface SetActionItemStatusInput {
+  consultationId: string;
+  itemId: string;
+  status: ConsultationActionItemView["status"];
+}
+
+/** Przełącza punkt „do poprawy” — `open`/`resolved`. Własność sprawdza BE (`404`). */
+export async function setActionItemStatus(
+  api: Api,
+  input: SetActionItemStatusInput,
+): Promise<void> {
+  try {
+    await consultationsControllerSetActionItemStatus({
+      client: api,
+      path: { id: input.consultationId, itemId: input.itemId },
+      body: { status: input.status },
+      throwOnError: true,
+    });
+  } catch (e) {
+    toConsultationError(e);
+  }
+}
+
+/**
+ * Usuwa termin wraz z punktami (`204`). Dawny `boolean` „czy coś usunięto”
+ * zniknął: cudzy albo nieistniejący to `404` z BE, tu `ConsultationError`
+ * do paska akcji — jak `deletePlan`.
+ */
+export async function deleteConsultation(api: Api, consultationId: string): Promise<void> {
+  try {
+    await consultationsControllerRemove({
+      client: api,
+      path: { id: consultationId },
+      throwOnError: true,
+    });
+  } catch (e) {
+    toConsultationError(e);
+  }
+}
+
+// ============================================================
+// Kalendarz zewnętrzny
+// ============================================================
+
+/**
+ * Ręczne uzupełnienie zaległości pary w kalendarzu zewnętrznym — dawne
+ * `syncBackfillPair` z `google/sync.ts`, dziś w całości po stronie BE
+ * (`POST /v1/trainees/{traineeId}/consultation-sync`). Zwykłe mutacje niczego
+ * tu nie wołają: każdą wypycha BE przez outbox sam, więc `syncUpsertOne`
+ * i `syncCancelOne` zniknęły bez zamiennika. Wyłączona integracja albo brak
+ * połączenia to `200` z `connected: false`, nie błąd — trasa mówi o tym wprost
+ * zamiast „0 z 0”. `409`, gdy przebieg dla tej pary już trwa (zamek po stronie
+ * BE) — komunikat BE do paska akcji.
+ */
+export async function runConsultationSync(
+  api: Api,
+  traineeId: string,
+): Promise<ConsultationSyncResult> {
+  try {
+    const { data } = await consultationSyncControllerRun({
+      client: api,
+      path: { traineeId },
+      throwOnError: true,
+    });
+    return data;
+  } catch (e) {
+    return toConsultationError(e);
+  }
 }

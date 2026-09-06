@@ -12,39 +12,21 @@ import { Icons } from "~/components/icons";
 import { ListControls } from "~/components/list-controls";
 import { Pagination, parsePage } from "~/components/pagination";
 import {
-  ActivityHeatmapCard,
   CoverageCard,
   HealthTilesCard,
   PlateauCard,
   PlanUsageCard,
   TagDistributionCard,
 } from "~/components/trainee-health";
-import { requireUser } from "~/lib/auth";
-import { countPendingForTrainee, nextUpcomingForTrainee } from "~/lib/consultations";
-import { syncCancelAllForPair } from "~/lib/google/sync";
-import { cleanupSubscriptionForTrainee } from "~/lib/stripe/subscriptions";
-import { db } from "~/lib/db/client";
+import { requireUser } from "~/lib/api/auth";
+import { loadUpcomingConsultations } from "~/lib/consultations";
 import { daysAgo, fmtDate, fmtDateTime, pluralizePl, type PlForms } from "~/lib/format";
 import { parseListControls, type ListControlsSpec } from "~/lib/list-params";
 import { getFormStatusForTrainee } from "~/lib/onboarding-forms";
-import { deletePlan, listPlansForTrainee, PlanRepoError } from "~/lib/plans";
-import {
-  getActivePlanSessionUsage,
-  getActivityHeatmap,
-  getBodyPhotoCoverage,
-  getCurrentPlanTotals,
-  getHealthStats,
-  getPlateauExercises,
-  getTagDistribution,
-  getVideoCoverage,
-} from "~/lib/stats";
-import {
-  deleteTraineeFully,
-  findTraineeOfTrainer,
-  getTraineeOfTrainer,
-  TraineeDeleteError,
-} from "~/lib/trainees";
-import { countLogsForTrainee, listLogsForTrainee, type LogSort } from "~/lib/workouts";
+import { deletePlan, listPlansForTrainee, PlanError, planDeleteOutcomeMessage } from "~/lib/plans";
+import { loadTraineeOverview } from "~/lib/stats";
+import { deleteTraineeFully, findTraineeRef, TraineeDeleteError } from "~/lib/trainees";
+import { listTraineeLogs, type LogSort, type VideoFilter } from "~/lib/workouts";
 
 const SESJA: PlForms = { one: "sesja", few: "sesje", many: "sesji" };
 
@@ -72,61 +54,51 @@ const spec: ListControlsSpec = {
   searchable: true,
 };
 
-const LOGS_PAGE_SIZE = 20;
-
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
   const url = new URL(args.request.url);
   const logsPage = parsePage(url.searchParams);
   const controls = parseListControls(url.searchParams, spec);
 
-  const trainee = await getTraineeOfTrainer(db, user.id, traineeId);
+  // Nazwa do nagłówka i `404` dla cudzego podopiecznego. Kontrakt nie ma
+  // `GET /v1/trainees/{id}` (luka L S5-2), więc moduł składa ją ze sklejonych
+  // stron listy; data dołączenia zniknęła z nagłówka razem z wierszem bazy —
+  // `TraineeListItem` jej nie niesie.
+  const trainee = await findTraineeRef(api, traineeId);
   if (!trainee) throw new Response("not found", { status: 404 });
 
   // `null` = trener nie doczepił formularza startowego do zaproszenia — wtedy
   // plakietka w pasku przycisków w ogóle się nie renderuje.
-  const onboardingStatus = await getFormStatusForTrainee(db, user.id, traineeId);
+  const onboardingStatus = await getFormStatusForTrainee(api, traineeId);
 
-  const plans = await listPlansForTrainee(db, user.id, traineeId);
+  // Plany pary zostają osobnym wywołaniem, choć przegląd niesie `activePlan`
+  // i `draftPlan`: karta szkicu pokazuje `basedOnVersion` („bazuje na wersji X"),
+  // a `PlanRef` z przeglądu tego pola nie ma.
+  const plans = await listPlansForTrainee(api, traineeId);
 
   const activePlan = plans.find((p) => p.status === "active") ?? null;
   const draftPlan = plans.find((p) => p.status === "draft") ?? null;
 
-  const video = (controls.filters.video ?? "all") as "all" | "with" | "without";
+  const video = (controls.filters.video ?? "all") as VideoFilter;
 
-  const [
-    totalLogs,
-    health,
-    heatmap,
-    plateau,
-    planUsage,
-    planTotals,
-    videoCov,
-    photoCov,
-    tagDist,
-    nextConsultation,
-    pendingConsultations,
-  ] = await Promise.all([
-    countLogsForTrainee(db, traineeId, { q: controls.q, video }),
-    getHealthStats(db, traineeId),
-    getActivityHeatmap(db, traineeId, 12),
-    getPlateauExercises(db, traineeId),
-    getActivePlanSessionUsage(db, traineeId),
-    getCurrentPlanTotals(db, traineeId),
-    getVideoCoverage(db, traineeId, 30),
-    getBodyPhotoCoverage(db, traineeId),
-    getTagDistribution(db, traineeId, 30),
-    nextUpcomingForTrainee(db, traineeId, new Date().toISOString()),
-    countPendingForTrainee(db, traineeId),
+  const [overview, upcoming] = await Promise.all([
+    // Osiem równoległych zapytań przez siedem funkcji `stats.ts` zastąpiło JEDNO
+    // wywołanie: przegląd klienta jest po tamtej stronie jednym modelem odczytu.
+    // Mapy aktywności nie ma w odpowiedzi i nie składamy jej z dziennika —
+    // patrz LUKA L S5-1 niżej.
+    loadTraineeOverview(api, traineeId),
+    // Jedno wywołanie zamiast dwóch dawnych zapytań: najbliższy żywy termin
+    // i liczba oczekujących wychodzą z tej samej listy. `pending` liczy tu
+    // wyłącznie NADCHODZĄCE `planned` — przeszły `planned` jest dla trenera
+    // „do udokumentowania", nie „do potwierdzenia".
+    loadUpcomingConsultations(api, { nowISO: new Date().toISOString(), traineeId }),
   ]);
+  const nextConsultation = upcoming.next;
+  const pendingConsultations = upcoming.pending;
 
-  const totalLogPages = Math.max(1, Math.ceil(totalLogs / LOGS_PAGE_SIZE));
-  const safeLogsPage = Math.min(logsPage, totalLogPages);
-  const logsOffset = (safeLogsPage - 1) * LOGS_PAGE_SIZE;
-  const logs = await listLogsForTrainee(db, traineeId, {
-    limit: LOGS_PAGE_SIZE,
-    offset: logsOffset,
+  const logPage = await listTraineeLogs(api, traineeId, {
+    page: logsPage,
     sort: controls.sort as LogSort,
     q: controls.q,
     video,
@@ -137,47 +109,48 @@ export async function loader(args: LoaderFunctionArgs) {
     onboardingStatus,
     activePlan,
     draftPlan,
-    logs,
-    logsPage: safeLogsPage,
-    totalLogPages,
-    totalLogs,
+    logs: logPage.items,
+    logsPage: logPage.page,
+    totalLogPages: logPage.totalPages,
+    totalLogs: logPage.total,
     spec,
     controls,
-    health,
-    heatmap,
-    plateau,
-    planUsage,
-    planTotals,
-    videoCov,
-    photoCov,
-    tagDist,
+    health: overview.health,
+    plateau: overview.plateau,
+    planUsage: overview.activePlan,
+    videoCov: overview.videoCoverage,
+    photoCov: overview.bodyPhotoCoverage,
+    tagDist: overview.tags,
     nextConsultation,
     pendingConsultations,
   };
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
 
-  // Re-verify trainee ownership before any mutation.
-  const trainee = await findTraineeOfTrainer(db, user.id, traineeId);
-  if (trainee == null) {
-    throw new Response("not found", { status: 404 });
-  }
-
+  // Pre-checku przynależności już tu nie ma: każda trasa `/v1/trainees/{id}/…`
+  // oddaje `404` na cudzego, a usuwanie planu — na cudzy plan.
   const fd = await args.request.formData();
   const intent = fd.get("intent");
 
   if (intent === "delete-trainee") {
     try {
-      // Sprzątanie efektów zewnętrznych PRZED kaskadą DB — po usunięciu wiersza
-      // pary znika powiązanie ze Stripe/Google. Oba wywołania są best-effort
-      // (błędy połykane w środku) i nie blokują usunięcia konta.
-      await cleanupSubscriptionForTrainee(db, user.id, traineeId);
-      await syncCancelAllForPair(db, { trainerId: user.id, traineeId });
-      const { displayName } = await deleteTraineeFully(db, user.id, traineeId);
-      throw redirect(`/trener/podopieczni?usuniety=${encodeURIComponent(displayName)}`);
+      // Nazwa do komunikatu po przekierowaniu. `DELETE` oddaje `204` bez treści,
+      // a kontrakt nie ma trasy „jeden podopieczny" (luka L S5-2) — pytamy więc
+      // PRZED usunięciem, bo po nim nie ma już czego pytać. To NIE jest bramka
+      // tenanta: cudzy podopieczny odbija się dopiero o `404` z `DELETE`.
+      const trainee = await findTraineeRef(api, traineeId);
+
+      // Jedno żądanie zamiast kaskady w transakcji plus sprzątania bajtów:
+      // BE kasuje przez granice kontekstów wraz z plikami I odwzorowaniami
+      // kalendarza (ADR-0035), więc zamyka się przy okazji luka L S3-2 —
+      // terminy usuniętej pary znikają z kalendarza trenera.
+      await deleteTraineeFully(api, traineeId);
+      throw redirect(
+        `/trener/podopieczni?usuniety=${encodeURIComponent(trainee?.displayName ?? "")}`,
+      );
     } catch (e) {
       if (e instanceof Response) throw e;
       if (e instanceof TraineeDeleteError) return { error: e.userMessage };
@@ -189,15 +162,10 @@ export async function action(args: ActionFunctionArgs) {
   const planId = String(fd.get("planId") ?? "");
   if (!planId) return { error: "Brak id planu." };
   try {
-    const result = await deletePlan(db, planId, user.id);
-    if (result.kind === "deleted") {
-      return { success: "Plan usunięty." };
-    }
-    return {
-      success: `Plan zarchiwizowany — ma ${result.logCount} zapisanych sesji, historia została zachowana.`,
-    };
+    const outcome = await deletePlan(api, planId);
+    return { success: planDeleteOutcomeMessage(outcome) };
   } catch (e) {
-    if (e instanceof PlanRepoError) return { error: e.userMessage };
+    if (e instanceof PlanError) return { error: e.userMessage };
     throw e;
   }
 }
@@ -215,10 +183,8 @@ export default function TrenerPodopiecznyDetail() {
     spec,
     controls,
     health,
-    heatmap,
     plateau,
     planUsage,
-    planTotals,
     videoCov,
     photoCov,
     tagDist,
@@ -237,8 +203,13 @@ export default function TrenerPodopiecznyDetail() {
 
       <div className="pagehead">
         <div>
+          {/*
+            Data dołączenia zniknęła z podtytułu: `TraineeListItem` jej nie niesie,
+            a kontrakt nie ma innej trasy z faktami o jednym podopiecznym (L S5-2).
+            Dołożenie `joinedOn` po stronie BE jest zmianą addytywną.
+          */}
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Podopieczny{trainee.joinedOn && ` · od ${fmtDate(trainee.joinedOn)}`}
+            Podopieczny
           </div>
           <h1>{trainee.displayName}</h1>
           {totalLogs > 0 && logs[0] && (
@@ -255,11 +226,7 @@ export default function TrenerPodopiecznyDetail() {
               <Icons.Consult style={{ marginRight: 6, color: "var(--muted)" }} />
               Najbliższa konsultacja{" "}
               <span style={{ color: "var(--ink-2)" }} className="mono">
-                {fmtDateTime(
-                  typeof nextConsultation.scheduledAt === "string"
-                    ? nextConsultation.scheduledAt
-                    : new Date(nextConsultation.scheduledAt).toISOString(),
-                )}
+                {fmtDateTime(nextConsultation.scheduledAt)}
               </span>
               {pendingConsultations > 0 && (
                 <>
@@ -296,9 +263,6 @@ export default function TrenerPodopiecznyDetail() {
                 {pendingConsultations}
               </span>
             )}
-          </Link>
-          <Link to={`/trener/podopieczni/${trainee.id}/platnosci`} className="btn">
-            <Icons.Card /> Płatności
           </Link>
           {onboardingStatus != null && (
             <Link to={`/trener/podopieczni/${trainee.id}/formularz`} className="btn">
@@ -368,9 +332,7 @@ export default function TrenerPodopiecznyDetail() {
                 </span>
                 <span className="mono text-xs muted">
                   v{activePlan.version}
-                  {activePlan.publishedAt && (
-                    <> · od {fmtDate(activePlan.publishedAt.toString())}</>
-                  )}
+                  {activePlan.publishedAt && <> · od {fmtDate(activePlan.publishedAt)}</>}
                 </span>
               </div>
               <h2 style={{ fontSize: 19, marginBottom: 4 }}>{activePlan.name}</h2>
@@ -446,9 +408,16 @@ export default function TrenerPodopiecznyDetail() {
         </div>
       )}
 
-      <ActivityHeatmapCard days={heatmap} />
+      {/*
+        LUKA L S5-1 — mapa aktywności zniknęła z tego ekranu. `TraineeOverviewView`
+        jej nie niesie, a `docs/03` („Klient — przegląd") mówi o niej wprost
+        „jeszcze nie zbudowane". `TraineeHomeView.heatmap` to widok WŁASNY
+        podopiecznego, nie trenera patrzącego na podopiecznego, więc go nie
+        zastępuje. Świadomie nie składamy jej z dziennika treningowego: to byłoby
+        N żądań po dane, które BE i tak liczy obok.
+      */}
       <PlateauCard plateau={plateau} />
-      <PlanUsageCard usage={planUsage} totals={planTotals} />
+      <PlanUsageCard plan={planUsage} />
       <CoverageCard video={videoCov} photos={photoCov} traineeId={trainee.id} />
       <TagDistributionCard
         shares={tagDist.shares}
@@ -535,8 +504,8 @@ export default function TrenerPodopiecznyDetail() {
               </div>
               <div className="text-xs muted">
                 Konto, wszystkie plany, historia treningów, zdjęcia sylwetki i nagrania video
-                zostaną <strong>nieodwracalnie skasowane</strong>. Aktywna subskrypcja Stripe
-                zostanie anulowana, a nadchodzące spotkania usunięte z Twojego Kalendarza Google.
+                zostaną <strong>nieodwracalnie skasowane</strong>, a nadchodzące spotkania usunięte
+                z Twojego Kalendarza Google.
               </div>
             </div>
             <Form method="post" style={{ flexShrink: 0 }}>
@@ -546,7 +515,7 @@ export default function TrenerPodopiecznyDetail() {
                 confirmOptions={{
                   title: `Usunąć podopiecznego „${trainee.displayName}"?`,
                   message:
-                    "Wszystkie dane tej osoby (plany, sesje, video, zdjęcia) zostaną nieodwracalnie skasowane, subskrypcja Stripe anulowana, a nadchodzące spotkania usunięte z Kalendarza Google. Tej operacji nie da się cofnąć.",
+                    "Wszystkie dane tej osoby (plany, sesje, video, zdjęcia) zostaną nieodwracalnie skasowane, a nadchodzące spotkania usunięte z Kalendarza Google. Tej operacji nie da się cofnąć.",
                   destructive: true,
                   confirmText: "Usuń podopiecznego",
                 }}

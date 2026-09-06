@@ -3,19 +3,22 @@ import { FeatureRequestBadge } from "~/components/feature-request-badge";
 import { Icons } from "~/components/icons";
 import { ListControls } from "~/components/list-controls";
 import { Pagination, parsePage } from "~/components/pagination";
-import { requireUser } from "~/lib/auth";
-import { db } from "~/lib/db/client";
+import { requireUser } from "~/lib/api/auth";
 import {
   FEATURE_REQUEST_KINDS,
   FEATURE_REQUEST_STATUSES,
   KIND_LABEL,
   STATUS_LABEL,
 } from "~/lib/feature-request-types";
-import { type FeatureRequestSort, countForTrainer, listForTrainer } from "~/lib/feature-requests";
+import {
+  type FeatureRequestKindFilter,
+  type FeatureRequestSort,
+  type FeatureRequestStatusFilter,
+  listForTrainer,
+} from "~/lib/feature-requests";
 import { type PlForms, fmtDate, pluralizePl } from "~/lib/format";
 import { type ListControlsSpec, parseListControls } from "~/lib/list-params";
 
-const PAGE_SIZE = 20;
 const ZGLOSZENIE: PlForms = { one: "zgłoszenie", few: "zgłoszenia", many: "zgłoszeń" };
 
 const spec: ListControlsSpec = {
@@ -48,27 +51,32 @@ const spec: ListControlsSpec = {
 };
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const url = new URL(args.request.url);
   const page = parsePage(url.searchParams);
   const controls = parseListControls(url.searchParams, spec);
-  const status = controls.filters.status as "all" | (typeof FEATURE_REQUEST_STATUSES)[number];
-  const kind = controls.filters.kind as "all" | (typeof FEATURE_REQUEST_KINDS)[number];
+  const status = controls.filters.status as FeatureRequestStatusFilter;
+  const kind = controls.filters.kind as FeatureRequestKindFilter;
 
-  const total = await countForTrainer(db, user.id, { status, kind, q: controls.q });
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-
-  const requests = await listForTrainer(db, user.id, {
+  // Jedno żądanie zamiast dwóch: strona przychodzi razem z `total` i z autorem
+  // każdego wiersza, a `page` spoza zakresu przycina BE — dawne `safePage` nie ma
+  // już czego liczyć. Szukajka po tytule, treści i autorze biegnie po tamtej stronie.
+  const result = await listForTrainer(api, {
+    page,
     sort: controls.sort as FeatureRequestSort,
     status,
     kind,
     q: controls.q,
-    limit: PAGE_SIZE,
-    offset: (safePage - 1) * PAGE_SIZE,
   });
 
-  return { requests, spec, controls, page: safePage, totalPages, total };
+  return {
+    requests: result.items,
+    spec,
+    controls,
+    page: result.page,
+    totalPages: result.totalPages,
+    total: result.total,
+  };
 }
 
 export default function PomyslyTrenera() {
@@ -110,11 +118,11 @@ export default function PomyslyTrenera() {
               className="list-row"
               style={{ gridTemplateColumns: "76px 1fr auto auto", gap: 14 }}
             >
-              <div className="mono text-xs muted">{fmtDate(r.createdAtISO)}</div>
+              <div className="mono text-xs muted">{fmtDate(r.createdAt)}</div>
               <div>
                 <div style={{ fontSize: 14, fontWeight: 500 }}>{r.title}</div>
                 <div className="text-xs muted" style={{ marginTop: 2 }}>
-                  {r.traineeName} · {KIND_LABEL[r.kind]}
+                  {r.authorName} · {KIND_LABEL[r.kind]}
                 </div>
               </div>
               <FeatureRequestBadge status={r.status} />

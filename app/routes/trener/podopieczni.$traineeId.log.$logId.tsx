@@ -1,40 +1,26 @@
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Icons } from "~/components/icons";
 import { VideoButton } from "~/components/video-modal";
-import { requireUser } from "~/lib/auth";
-import { db } from "~/lib/db/client";
-import { signFileUrl } from "~/lib/files";
+import { requireUser } from "~/lib/api/auth";
 import { daysAgo, fmtDate } from "~/lib/format";
-import { loadLogForViewer } from "~/lib/workouts";
+import { findTraineeRef } from "~/lib/trainees";
+import { loadTraineeLog } from "~/lib/workouts";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const user = await requireUser(args.request, db, { role: "trainer" });
+  const { api } = requireUser(args.context, { role: "trainer" });
   const traineeId = args.params.traineeId ?? "";
-  const logId = args.params.logId ?? "";
 
-  const detail = await loadLogForViewer(db, logId, {
-    id: user.id,
-    role: "trainer",
-    trainerId: null,
-  });
-  if (!detail || detail.log.traineeId !== traineeId) {
-    throw new Response("not found", { status: 404 });
-  }
+  // Nazwa podopiecznego do okruszków: kontrakt nie niesie jej ani w szczególe
+  // logu, ani w przeglądzie klienta i nie ma trasy „jeden podopieczny" —
+  // moduł składa ją ze sklejonych stron listy (luka L S5-2).
+  const trainee = await findTraineeRef(api, traineeId);
+  if (!trainee) throw new Response("not found", { status: 404 });
 
-  const exercises = detail.exercises.map((ex) => ({
-    ...ex,
-    sets: ex.sets.map((s) => ({
-      ...s,
-      videoUrl: s.videoFileId ? signFileUrl(s.videoFileId, user.id) : null,
-    })),
-  }));
+  // Parę (podopieczny, log) sprawdza BE — niezgodna to `404`, tu `null`.
+  const log = await loadTraineeLog(api, traineeId, args.params.logId ?? "");
+  if (!log) throw new Response("not found", { status: 404 });
 
-  return {
-    log: detail.log,
-    trainee: detail.trainee,
-    exercises,
-    totalExpectedSets: detail.totalExpectedSets,
-  };
+  return { log, trainee };
 }
 
 function tone(diff: number | null): string {
@@ -52,11 +38,11 @@ function initialsOf(name: string): string {
 }
 
 export default function TrenerWorkoutLogDetail() {
-  const { log, trainee, exercises, totalExpectedSets } = useLoaderData<typeof loader>();
+  const { log, trainee } = useLoaderData<typeof loader>();
+  const exercises = log.exercises;
   const totalSets = exercises.reduce((a, e) => a + e.sets.length, 0);
-  const skippedSets = Math.max(0, totalExpectedSets - totalSets);
   const allDiff = exercises
-    .flatMap((e) => e.sets.map((s) => s.log.difficulty))
+    .flatMap((e) => e.sets.map((s) => s.difficulty))
     .filter((d): d is number => d !== null);
   const avgDiff =
     allDiff.length === 0
@@ -103,21 +89,11 @@ export default function TrenerWorkoutLogDetail() {
               <span className="mono" style={{ color: "var(--ink)", fontWeight: 600 }}>
                 {totalSets}
               </span>{" "}
-              {totalExpectedSets > 0 ? (
-                <>
-                  z{" "}
-                  <span className="mono" style={{ color: "var(--ink)", fontWeight: 600 }}>
-                    {totalExpectedSets}
-                  </span>{" "}
-                  serii
-                </>
-              ) : (
-                "serii"
-              )}
+              serii
             </span>
-            {skippedSets > 0 && (
+            {!log.allDone && (
               <span style={{ color: "var(--warn)", fontWeight: 600 }}>
-                · {skippedSets} pominięt{skippedSets === 1 ? "a" : "ych"}
+                · nie wszystkie serie wykonane
               </span>
             )}
             {avgDiff != null && (
@@ -177,33 +153,31 @@ export default function TrenerWorkoutLogDetail() {
       <div className="col" style={{ gap: 16 }}>
         {exercises.map((ex, eIdx) => {
           const setCount = ex.sets.length;
-          const totalReps = ex.sets.reduce((a, s) => a + s.log.reps, 0);
+          const totalReps = ex.sets.reduce((a, s) => a + s.reps, 0);
           const avgReps = setCount === 0 ? 0 : totalReps / setCount;
-          const diffSets = ex.sets.filter((s) => s.log.difficulty !== null);
+          const diffSets = ex.sets.filter((s) => s.difficulty !== null);
           const exAvgDiff =
             diffSets.length === 0
               ? null
-              : diffSets.reduce((a, s) => a + (s.log.difficulty as number), 0) / diffSets.length;
+              : diffSets.reduce((a, s) => a + (s.difficulty as number), 0) / diffSets.length;
           // Czy ten wpis ćwiczenia ma jakąkolwiek ocenę RPE (data-driven, nie wg
           // bieżącej flagi ćwiczenia) — dzięki temu historyczne logi z RPE nadal
           // pokazują trudność, a ćwiczenia bez RPE chowają kolumny Trudn./Wizualnie.
           const hasRpe = exAvgDiff != null;
-          const skippedHere = Math.max(0, ex.expectedSets - setCount);
 
-          // Render a row per planned ordinal, looking up the logged set with
-          // matching ordinal. Missing ordinals = skipped. Falls back to
-          // whatever was logged if plan info is unavailable.
-          const setsByOrdinal = new Map(ex.sets.map((s) => [s.log.ordinal, s]));
+          // Bez liczby oczekiwanych serii (kontrakt jej nie niesie) wiersze idą od 0 do
+          // najwyższego zalogowanego `ordinal` — luka w środku to seria pominięta. Ogona
+          // nie widać; mówi o nim `allDone` w nagłówku strony.
+          const setsByOrdinal = new Map(ex.sets.map((s) => [s.ordinal, s]));
           const lastLoggedOrdinal =
-            ex.sets.length > 0 ? Math.max(...ex.sets.map((s) => s.log.ordinal)) : -1;
-          const rowCount = Math.max(ex.expectedSets, lastLoggedOrdinal + 1);
-          const rows = Array.from({ length: rowCount }, (_, ordinal) => ({
+            ex.sets.length > 0 ? Math.max(...ex.sets.map((s) => s.ordinal)) : -1;
+          const rows = Array.from({ length: lastLoggedOrdinal + 1 }, (_, ordinal) => ({
             ordinal,
             logged: setsByOrdinal.get(ordinal) ?? null,
           }));
 
           return (
-            <div key={ex.log.id} className="card card-padless">
+            <div key={`${ex.exerciseId}-${eIdx}`} className="card card-padless">
               <div
                 className="row"
                 style={{
@@ -218,23 +192,8 @@ export default function TrenerWorkoutLogDetail() {
                 </div>
                 <div style={{ flex: 1 }}>
                   <div className="row" style={{ gap: 10, alignItems: "center" }}>
-                    <h3 style={{ fontSize: 15.5, margin: 0 }}>{ex.exercise.name}</h3>
-                    <span className={`badge${ex.exercise.unit === "REPS" ? " active" : ""}`}>
-                      {ex.exercise.unit}
-                    </span>
-                    {skippedHere > 0 && (
-                      <span
-                        className="badge"
-                        style={{
-                          background: "rgba(226, 162, 58, 0.12)",
-                          borderColor: "var(--warn)",
-                          color: "var(--warn)",
-                        }}
-                        title={`${skippedHere} z ${ex.expectedSets} serii pominięte`}
-                      >
-                        {setCount}/{ex.expectedSets} serii
-                      </span>
-                    )}
+                    <h3 style={{ fontSize: 15.5, margin: 0 }}>{ex.exerciseName}</h3>
+                    <span className={`badge${ex.unit === "REPS" ? " active" : ""}`}>{ex.unit}</span>
                   </div>
                 </div>
                 <div className="row" style={{ gap: 18 }}>
@@ -250,7 +209,7 @@ export default function TrenerWorkoutLogDetail() {
                       Średnio
                     </div>
                     <div className="mono" style={{ fontSize: 14, fontWeight: 600 }}>
-                      {avgReps.toFixed(1)} {ex.exercise.unit === "SEC" ? "s" : "rep"}
+                      {avgReps.toFixed(1)} {ex.unit === "SEC" ? "s" : "rep"}
                     </div>
                   </div>
                   {hasRpe && (
@@ -297,9 +256,7 @@ export default function TrenerWorkoutLogDetail() {
                     }}
                   >
                     <span className="label-mini">Seria</span>
-                    <span className="label-mini">
-                      {ex.exercise.unit === "REPS" ? "Powt." : "Sek."}
-                    </span>
+                    <span className="label-mini">{ex.unit === "REPS" ? "Powt." : "Sek."}</span>
                     {hasRpe && <span className="label-mini">Trudn.</span>}
                     {hasRpe && <span className="label-mini">Wizualnie</span>}
                     <span className="label-mini">Video</span>
@@ -332,25 +289,11 @@ export default function TrenerWorkoutLogDetail() {
                           }}
                         >
                           Pominięta
-                          {ex.expectedReps > 0 && (
-                            <span
-                              className="muted"
-                              style={{
-                                marginLeft: 8,
-                                textTransform: "none",
-                                letterSpacing: 0,
-                                fontWeight: 400,
-                              }}
-                            >
-                              · plan: {ex.expectedReps}{" "}
-                              {ex.exercise.unit === "SEC" ? "sek." : "powt."}
-                            </span>
-                          )}
                         </span>
                       </div>
                     ) : (
                       <div
-                        key={logged.log.id}
+                        key={`set-${ordinal}`}
                         className="set-grid"
                         style={{
                           gridTemplateColumns: hasRpe ? "44px 78px 70px 1fr 60px" : "44px 1fr 60px",
@@ -363,20 +306,18 @@ export default function TrenerWorkoutLogDetail() {
                           #{ordinal + 1}
                         </span>
                         <span className="mono">
-                          <span style={{ fontWeight: 600, fontSize: 15 }}>{logged.log.reps}</span>{" "}
-                          <span className="muted text-xs">
-                            {ex.exercise.unit === "SEC" ? "sek" : "rep"}
-                          </span>
+                          <span style={{ fontWeight: 600, fontSize: 15 }}>{logged.reps}</span>{" "}
+                          <span className="muted text-xs">{ex.unit === "SEC" ? "sek" : "rep"}</span>
                         </span>
                         {hasRpe && (
                           <span
                             className="mono"
                             style={{
-                              color: tone(logged.log.difficulty),
+                              color: tone(logged.difficulty),
                               fontWeight: 600,
                             }}
                           >
-                            {logged.log.difficulty !== null ? `${logged.log.difficulty}/10` : "—"}
+                            {logged.difficulty !== null ? `${logged.difficulty}/10` : "—"}
                           </span>
                         )}
                         {hasRpe && (
@@ -389,8 +330,8 @@ export default function TrenerWorkoutLogDetail() {
                                   height: 6,
                                   borderRadius: 2,
                                   background:
-                                    logged.log.difficulty !== null && n < logged.log.difficulty
-                                      ? tone(logged.log.difficulty)
+                                    logged.difficulty !== null && n < logged.difficulty
+                                      ? tone(logged.difficulty)
                                       : "var(--surface-2)",
                                 }}
                               />
@@ -401,7 +342,7 @@ export default function TrenerWorkoutLogDetail() {
                           {logged.videoUrl ? (
                             <VideoButton
                               src={logged.videoUrl}
-                              title={`${ex.exercise.name} · seria ${ordinal + 1}`}
+                              title={`${ex.exerciseName} · seria ${ordinal + 1}`}
                               label="video"
                               size="sm"
                             />

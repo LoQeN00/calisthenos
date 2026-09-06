@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { Form } from "react-router";
 import { ConfirmSubmitButton } from "~/components/confirm-provider";
 import { Icons } from "~/components/icons";
-import type { BodyPhotoView } from "~/lib/db/schema";
+import type { BodyPhotoView } from "~/lib/body-photos";
 import { fmtDate } from "~/lib/format";
 import { BODY_VIEW_LABELS } from "./photo-card";
 

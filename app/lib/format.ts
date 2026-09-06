@@ -6,7 +6,8 @@
  * czytają `getUTC*`. Wewnątrz aplikacji jest to spójne, ale gdy taki czas
  * przekracza granicę do systemu świadomego stref (Google Calendar), trzeba mu
  * podać, w jakiej strefie ten czas ścienny obowiązuje — inaczej zostanie
- * zinterpretowany jako UTC i przesunięty o offset. Patrz `lib/google/calendar.ts`.
+ * zinterpretowany jako UTC i przesunięty o offset. Strefę podaje jawnie BE
+ * przy wypychaniu terminu do kalendarza zewnętrznego.
  */
 export const APP_TIME_ZONE = "Europe/Warsaw";
 

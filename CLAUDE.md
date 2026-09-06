@@ -33,16 +33,16 @@ Setup lokalny, deploy na Railway, lista komend i posture bezpieczeństwa:
 |---|---|
 | Framework | **React Router v7** (framework mode, SSR, loadery/akcje na trasach) |
 | Język | **TypeScript** (strict) |
-| ORM / DB | **Drizzle ORM** + **PostgreSQL 16** |
-| Auth | Własna, sesje w cookie (`__Host-`), hasła **Argon2id** (`@node-rs/argon2`) |
-| Pliki | Wolumen na dysku przez interfejs `FileStorage` (lokalnie / Railway volume), URL-e podpisywane HMAC |
-| Płatności | **Stripe Connect** (Express) — subskrypcje (Checkout/Customer Portal, destination charges na konto trenera) + webhook z weryfikacją podpisu; opcjonalne (działa bez kluczy), brak danych kart u nas |
+| Dane | **Brak własnej bazy** — wszystko przez kontrakt `calisthenos-be` (`@kalisthenos/api-client`, pakiet z wersją). Drizzle i Postgres zniknęły z FE w segmencie S6 integracji; archiwum schematu i 19 migracji leży w `calisthenos-be/docs/legacy-drizzle/` |
+| Auth | **Sesja na tokenach z BE** — para dostępowy/odświeżający w ciastku `__Host-kth_api`, rotacja i `GET /v1/me` w middlewarze ([`app/lib/api/`](app/lib/api/README.md)). Hasła i limit prób logowania są po stronie BE. |
+| Pliki | **W całości w BE (R2)** — demo ćwiczeń, nagrania serii i zdjęcia sylwetki; wysyłka dwufazowa, odczyt po podpisanych adresach BE. FE nie ma już własnego magazynu; na wolumenie zostały bajty sprzed migracji, których nic nie sprząta |
+| Płatności | **Brak** — Stripe Connect zniknął z FE w segmencie S6 integracji (D1 specu, ADR-0024 po stronie BE: model płatności jest nierozstrzygnięty). Zostało jedno pole: kwota ustaleń przy zaproszeniu (`monthlyAmountGrosze`), którą zapisuje BE. Powrót płatności to osobny projekt z własnym specem |
 | PWA | `vite-plugin-pwa` (cache statyków, instalowalność; brak offline-sync) |
 | Wykresy | **visx** (SVG, SSR-friendly, tree-shakeable) |
 | Walidacja | **Zod** |
 | Lint/format | **Biome** (`npm run lint` / `npm run format`) |
 | Bundler | Vite (wbudowany w RR7) |
-| Hosting | **Railway** (app + Postgres + Volume); lokalnie Postgres w Dockerze |
+| Hosting | **Railway** — sama aplikacja: bez Postgresa i bez wolumenu (zdjęte z `railway.toml` w S6). Lokalnie potrzebny jest działający BE pod `API_URL`, nie Docker |
 | Menedżer pakietów | **npm** (lockfile `package-lock.json`) |
 
 ---
@@ -57,16 +57,12 @@ Każdy wpis linkuje do `README.md` danego katalogu — tam jest opis plików.
   - [`app/routes/podopieczny/`](app/routes/podopieczny/README.md) — widoki podopiecznego (`/podopieczny/*`)
 - [`app/components/`](app/components/README.md) — współdzielone komponenty UI
 - [`app/lib/`](app/lib/README.md) — logika domenowa i infrastruktura
-  - [`app/lib/auth/`](app/lib/auth/README.md) — sesje, hasła, cookie, zaproszenia
-  - [`app/lib/db/`](app/lib/db/README.md) — klient Drizzle, schemat, migracje
-    - [`app/lib/db/migrations/`](app/lib/db/migrations/README.md) — migracje SQL (generowane)
-  - [`app/lib/google/`](app/lib/google/README.md) — OAuth2 + Google Calendar/Meet sync (wychodząca, best-effort, opcjonalna)
-  - [`app/lib/stripe/`](app/lib/stripe/README.md) — płatności Stripe Connect (klient, połączenia konta, status subskrypcji; opcjonalna)
-  - [`app/lib/storage/`](app/lib/storage/README.md) — interfejs `FileStorage` + impl. lokalna
+  - [`app/lib/api/`](app/lib/api/README.md) — klient backendu (`calisthenos-be`), sesja na tokenach, middleware rotacji
+  - [`app/lib/auth/`](app/lib/auth/README.md) — zaproszenia trenera (wystawianie i podgląd przez kontrakt); sesje i hasła są w `api/` i w BE
 - [`app/styles/`](app/styles/README.md) — globalne tokeny CSS
 
 ### Pozostałe katalogi
-- [`scripts/`](scripts/README.md) — skrypty operacyjne (seed)
+- [`scripts/`](scripts/README.md) — skrypty operacyjne (pętla zrzutów ekranu)
 - [`public/`](public/README.md) — assety statyczne (ikona, manifest, fonty)
   - [`public/fonts/`](public/fonts/README.md) — self-hostowane woff2
 - [`design-system/`](design-system/README.md) — system designu (brand, tokeny, podgląd)
@@ -79,47 +75,59 @@ Każdy wpis linkuje do `README.md` danego katalogu — tam jest opis plików.
     - [`docs/superpowers/plans/`](docs/superpowers/plans/README.md)
     - [`docs/superpowers/specs/`](docs/superpowers/specs/README.md)
 - [`prototype/`](prototype/README.md) — oryginalny prototyp React+Babel (tylko referencja)
-- [`tests/`](tests/README.md) — testy integracyjne `*.itest.ts` (testcontainers, uruchamia właściciel)
+- [`tests/`](tests/README.md) — miejsce na testy Playwright przeciw prawdziwemu BE (`tests/e2e`, jeszcze puste); testy integracyjne na testcontainerach zniknęły w S6 razem z bazą
 
 ### Konfiguracja w root (bez README — pliki samoopisowe)
 `package.json`, `tsconfig.json`, `vite.config.ts`, `react-router.config.ts`,
-`drizzle.config.ts`, `biome.json`, `vitest.config.ts`, `playwright.config.ts`,
-`Dockerfile`, `docker-compose.yml`, `docker-entrypoint.sh`, `railway.toml`,
-`.env.example`.
+`biome.json`, `vitest.config.ts`, `playwright.config.ts`, `Dockerfile`,
+`railway.toml`, `.env.example`.
 
 ### Poza zakresem README (generowane / vendored / runtime)
 `node_modules/`, `.react-router/` (typy generowane przez RR7), `build/`,
-`app/lib/db/migrations/meta/` (snapshoty Drizzle Kit), `data/` (uploady runtime,
-w `.gitignore`), `design-system/_src/` (rozpakowany prototyp, read-only).
+`design-system/_src/` (rozpakowany prototyp, read-only).
 
 ---
 
 ## Kluczowe konwencje (czytaj zanim zaczniesz kodować)
 
-- **Multi-tenant przez `trainer_id`.** Każda tabela domenowa nosi `trainer_id`.
-  Funkcje repozytorium w `app/lib/*.ts` przyjmują wymagany `trainerId`/`traineeId`
-  i filtrują po nim. Brak autoryzacji → **404** (nie 403), by nie zdradzać
-  istnienia zasobu. Szczegóły: [`app/lib/README.md`](app/lib/README.md),
-  `app/lib/authz.ts`.
+- **Zakres tenanta niesie token, egzekwuje BE.** Moduły `app/lib/*.ts` biorą
+  `api: Api` i **nie mają** argumentu `trainerId`/`traineeId` jako filtra —
+  `traineeId` zostaje wyłącznie tam, gdzie kontrakt ma go w ścieżce
+  (`/v1/trainees/{traineeId}/…`). Brak autoryzacji → **404** (nie 403), by nie
+  zdradzać istnienia zasobu; obie strony trzymają tę samą zasadę. Szczegóły:
+  [`app/lib/README.md`](app/lib/README.md), `app/lib/authz.ts`.
 - **Trasy = plik + wpis w `app/routes.ts`.** Nazewnictwo plików:
   `segment.$param.tsx`, `_index.tsx`, `_layout.tsx`. Dodając trasę, dopisz ją do
   `app/routes.ts`. Mapa URL→plik: [`app/routes/README.md`](app/routes/README.md).
 - **Loadery czytają, akcje mutują.** Brak osobnego API — dane lecą przez
   loadery/akcje RR7. Mutacje plikowe to `multipart/form-data`.
-- **Pliki tylko przez `FileStorage` + podpisane URL-e.** Nigdy nie serwuj ścieżek
-  z dysku wprost; używaj `signFileUrl`/`verifyFileUrl` (`app/lib/files.ts`) i
-  trasy `files/$fileId`. Upload zawsze przez `uploadFile` z walidacją magic-bytes.
-- **Schemat to źródło prawdy.** Zmiana modelu danych = edycja
-  `app/lib/db/schema.ts`, potem `npm run db:generate` (nowa migracja) — **nigdy
-  ręcznie nie edytuj plików w `migrations/`**.
+- **Pliki: jedna ścieżka — kontrakt BE.** Wszystkie trzy rodzaje (`exercise_demo`,
+  `set_video`, `body_photo`) idą **wysyłką dwufazową** przez
+  `uploadExerciseDemo`/`uploadSetVideo`/`uploadBodyPhoto` z `app/lib/file-uploads.ts`
+  (`POST /v1/files/{rodzaj}` → `POST /v1/files/{id}/confirm`); typ sprawdza BE po
+  ZAWARTOŚCI, nie FE po `file.type`, a plik, którego nic nie podpięło, zabiera
+  zamiatacz BE po 24 h. Trasa `/upload/wideo` zostaje jako cienka trasa zasobowa
+  dla XHR z paskiem postępu. **FE nie podpisuje, nie serwuje i nie zapisuje na
+  dysk niczego** — odnośnik podpisuje BE i przychodzi jako ŚCIEŻKA, więc origin
+  dokłada `publicFileUrl` z `app/lib/api/client.ts` (`API_PUBLIC_URL`) **w module**,
+  nigdy w trasie ani w komponencie. Bajty sprzed migracji zostały na wolumenie
+  FE i **nie sprząta ich już żaden kod** — `app/lib/storage/` zniknęło razem
+  z kaskadą usuwania podopiecznego, którą przejął `DELETE /v1/trainees/{id}`
+  (kasuje pliki po swojej stronie). Wolumen zniknął z `railway.toml` w S6 —
+  jego zawartość jest do przeniesienia albo skasowania przy cutoverze.
+- **Kontrakt to źródło prawdy.** Modelu danych nie ma już po tej stronie: zmiana
+  zaczyna się w `calisthenos-be` (encja → migracja → OpenAPI → nowa wersja
+  `@kalisthenos/api-client`), a FE podnosi wersję pakietu i dostosowuje moduły.
+  Typy DTO **re-eksportuj z pakietu**, nie przepisuj.
 - **UI po polsku.** Cała warstwa produktu jest polskojęzyczna; angielskie zostają
   tylko nazwy ćwiczeń (Pull-up, Front Lever…). Brand `kalisthenos` zawsze małą
   literą. Zasady języka/tonu/wizualne: [`design-system/README.md`](design-system/README.md).
 - **npm, nie pnpm.** `npm install`, `npm run <skrypt>`, `npx`.
-- **TDD jest normą.** Logikę testowalną bez DB piszemy test-first (`*.test.ts`,
-  Vitest, `npm test`). Testy integracyjne (`*.itest.ts`, testcontainers) piszemy
-  dla krytycznych przepływów (auth, publish planu, zapis logu, tenant-scope) i
-  uruchamia je właściciel (Docker). Szczegóły: „Proces AI-developmentu" niżej.
+- **TDD jest normą.** Moduły `app/lib` testujemy test-first przeciw
+  **podstawionemu klientowi** (`createApiClient` z podstawionym `fetch`;
+  `*.test.ts`, Vitest). Testy integracyjne na testcontainerach zniknęły razem
+  z bazą — przepływy wymagające sieci pokryje Playwright przeciw prawdziwemu BE
+  (`tests/e2e`, jeszcze pusty). Szczegóły: „Proces AI-developmentu" niżej.
 - **Review per task.** Po każdym kroku implementacji robimy przegląd
   (`/code-review` / `superpowers:requesting-code-review`) przed kolejnym — nie
   jeden przegląd na końcu.
@@ -127,13 +135,13 @@ w `.gitignore`), `design-system/_src/` (rozpakowany prototyp, read-only).
   `app/lib/list-params.ts` (`parseListControls`, `buildControlHref`) i komponentu
   `app/components/list-controls.tsx` (`<ListControls>`). Przy dodawaniu nowej listy
   z sort/filter/szukajką — reużyj tych dwóch modułów, nie twórz własnych mechanizmów.
-- **Trasy nie sięgają do bazy bezpośrednio.** W loaderze/akcji wolno przekazać `db` do
-  funkcji z `app/lib/*`, ale nie wolno budować zapytań (`db.select/insert/update/delete/$with`)
-  ani otwierać transakcji (`db.transaction`) — to zadanie modułu w `app/lib/`. Zabroniony jest
-  też import WARTOŚCI z `~/lib/db/schema` (np. `db`, enumów, stałych) — `import type` jest
-  dozwolony, bo znika przy kompilacji i nie dotyka bazy. Pilnuje tego
-  `app/routes/no-direct-db.test.ts`. Powód: to szew, na którym warstwa danych zostanie
-  przełożona na wywołania API — patrz spec rozbicia FE/BE.
+- **Trasy nie wołają klienta bezpośrednio.** Loader/akcja bierze dane z modułu
+  `app/lib/*`, a moduł rozmawia z BE. Zabroniony jest import WARTOŚCI
+  z `~/lib/api/client` i z `@kalisthenos/api-client`; `import type` jest dozwolony,
+  bo typ DTO znika przy kompilacji i niczego nie woła. Wolno brać resztę
+  `~/lib/api/*` (`requireUser`, `ApiError`, `toRouteResponse`, ciastko sesji) —
+  to infrastruktura żądania. Pilnuje tego `app/routes/no-direct-api.test.ts`,
+  następca `no-direct-db.test.ts`: ten sam szew, zmieniła się druga strona.
 - **Git i Docker prowadzi właściciel.** Nie uruchamiaj operacji git ani
   `docker compose up/down/build`; konfigurację możesz edytować.
 - **Dozwolone komendy powłoki — TYLKO z poniższej listy i TYLKO pojedynczo.**
@@ -148,14 +156,13 @@ w `.gitignore`), `design-system/_src/` (rozpakowany prototyp, read-only).
   | `npm run typecheck` | sprawdzenie typów (tsc) |
   | `npm run lint` | Biome lint |
   | `npm run build` | build SSR + klient |
-  | `npm run db:generate` | wygenerowanie migracji z `schema.ts` (bez DB) |
   | `npx vitest run <wzorzec>` | testy jednostkowe (NIE `npm test` — to watch) |
   | `npx biome format --write <plik>` | formatowanie dotkniętego pliku |
 
   Do czytania plików/wyników używaj narzędzi Read/Grep/Glob, **nie** `cat`/`tail`/
-  `grep` w Bash. `npm run db:migrate`, git i docker — wyłącznie właściciel.
+  `grep` w Bash. `npm install`, git i docker — wyłącznie właściciel.
 
-Komendy (`dev`, `build`, `db:migrate`, `db:seed`, `lint`, `format`…) i ich opis:
+Komendy (`dev`, `build`, `lint`, `format`, `shots`…) i ich opis:
 sekcja "Useful commands" w [`README.md`](README.md).
 
 ---
@@ -179,8 +186,8 @@ Do iteracji nad warstwą wizualną dostępna jest pętla zrzutów ekranu
 viewportach desktop+mobile do `screenshots/`; wymaga działającego stacku.
 
 Wszędzie, gdzie to możliwe, korzystamy z **MCP `context7`** po aktualną
-dokumentację i best practices używanych bibliotek (React Router v7, Drizzle, Zod,
-postgres-js, vite-plugin-pwa…) — w brainstormie, planie i implementacji.
+dokumentację i best practices używanych bibliotek (React Router v7, Zod,
+vite-plugin-pwa…) — w brainstormie, planie i implementacji.
 
 Bramki „done": `npm test` + `npm run typecheck` + `npm run lint` +
 `npm run build`, `/code-review`, oraz `/security-review` gdy zmiana dotyka

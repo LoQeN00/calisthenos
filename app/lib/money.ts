@@ -1,16 +1,9 @@
 import { z } from "zod";
 
-const PLN = new Intl.NumberFormat("pl-PL", {
-  style: "currency",
-  currency: "PLN",
-});
-
-/** Formatuje kwotę w groszach na polski zapis waluty, np. 12345 → "123,45 zł". */
-export function fmtMoney(grosze: number, _currency: "pln" = "pln"): string {
-  // Intl wstawia twardą spację (U+00A0) lub wąską niełamliwą (U+202F) —
-  // normalizujemy do zwykłej spacji dla stabilnych asercji testowych.
-  return PLN.format(grosze / 100).replace(/[  ]/g, " ");
-}
+// Moduł przeżył usunięcie płatności (S6), bo kwota ustaleń nie jest płatnością:
+// `POST /v1/invites` przyjmuje `monthlyAmountGrosze`, a formularz zaproszenia go
+// wysyła. Zniknął stąd `fmtMoney` — czytały go wyłącznie trzy skasowane ekrany
+// Stripe'a, a nic w aplikacji nie wyświetla już kwoty.
 
 /** "200,50" | "200.50" | "200" → grosze (20050). Null gdy nie-liczba. */
 export function parsePlnToGrosze(input: string): number | null {
